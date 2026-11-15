@@ -1,0 +1,10 @@
+# Build metadata for gnome-characters (core26 migration, 2026-11).
+snap: gnome-characters
+base: core26
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-characters (snap)
+recipe-commit: efc2eac8515badcf82ffda4eb5b2fe40febfaaf6
+merge-request: https://code.launchpad.net/~desktop-snappers/gnome-characters/+git/snap/+merge/514129
+store:
+  publisher: Canonical
+  verified: true

@@ -1,0 +1,13 @@
+# Build metadata for snap-tpmctl (core26 migration, 2026-11).
+snap: snap-tpmctl
+base: core26
+mode: overlay
+overlay-repo: https://github.com/canonical/snap-tpmctl
+overlay-commit: 7cf4f1027e24ff5e3c51c03f4828b04368dc6705
+overlay-to: snap
+upstream: https://github.com/canonical/snap-tpmctl
+recipe-commit: 4c2b080cce4789ea21dff6747c5224a07a2db280
+merge-request: https://github.com/canonical/snap-tpmctl/pull/88
+store:
+  publisher: Canonical
+  verified: true

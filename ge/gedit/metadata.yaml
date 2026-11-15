@@ -1,0 +1,10 @@
+# Build metadata for gedit (core26 migration, 2026-11).
+snap: gedit
+base: core26
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gedit (snap)
+recipe-commit: 851fa2d2f5151b1e8b965a5620ad2a5aa5991d53
+merge-request: https://code.launchpad.net/~desktop-snappers/gedit/+git/snap/+merge/514118
+store:
+  publisher: Canonical
+  verified: true

@@ -1,0 +1,14 @@
+# Build metadata for authd-google (core26 migration, 2026-11).
+snap: authd-google
+base: core26
+mode: overlay
+overlay-repo: https://github.com/canonical/authd
+overlay-commit: 5df319fe325adb3440eda9c2d38f73c064cbb39c
+overlay-to: snap
+prepare: snap/scripts/prepare-variant --broker google --copy
+upstream: https://github.com/canonical/authd
+recipe-commit: 4b9d4a87c5641247c4f78c6a05651f655cfd108b
+merge-request: https://github.com/canonical/authd/pull/2188
+store:
+  publisher: Canonical
+  verified: true

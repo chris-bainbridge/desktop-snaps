@@ -1,0 +1,106 @@
+--- a/src/eog-image.c
++++ b/src/eog-image.c
+@@ -71,6 +71,8 @@
+ 
+ #ifdef HAVE_RSVG
+ #include <librsvg/rsvg.h>
++#include <cairo.h>
++#include <math.h>
+ #endif
+ 
+ G_DEFINE_TYPE_WITH_PRIVATE (EogImage, eog_image, G_TYPE_OBJECT)
+@@ -1215,7 +1217,93 @@
+ 
+ #ifdef HAVE_RSVG
+ 		if (use_rsvg) {
+-			priv->image = rsvg_handle_get_pixbuf (priv->svg);
++			double svg_width = 1.0, svg_height = 1.0;
++			int width, height;
++			cairo_surface_t *surface;
++			cairo_t *cr;
++			RsvgRectangle viewport;
++
++			/* rsvg_handle_get_pixbuf() was dropped in librsvg 2.59;
++			 * render to a cairo surface instead. */
++
++			if (!rsvg_handle_get_intrinsic_size_in_pixels (priv->svg,
++			                                               &svg_width,
++			                                               &svg_height)) {
++				/* SVGs with missing or percentage width/height have no
++				 * intrinsic pixel size. Fall back to the CSS length
++				 * values when they have absolute units, then to the
++				 * viewBox (user units are equivalent to px at 96dpi),
++				 * and finally to 1x1, which matches the behaviour of
++				 * the old rsvg_handle_get_pixbuf(). */
++				RsvgLength w = { 1.0, RSVG_UNIT_PX };
++				RsvgLength h = { 1.0, RSVG_UNIT_PX };
++				RsvgRectangle viewbox = { 0.0, 0.0, 1.0, 1.0 };
++				gboolean has_w = FALSE, has_h = FALSE, has_vb = FALSE;
++
++				rsvg_handle_get_intrinsic_dimensions (priv->svg,
++				                                      &has_w, &w,
++				                                      &has_h, &h,
++				                                      &has_vb, &viewbox);
++
++				if (has_w && w.unit != RSVG_UNIT_PERCENT)
++					svg_width = w.length;
++				else if (has_vb)
++					svg_width = viewbox.width;
++
++				if (has_h && h.unit != RSVG_UNIT_PERCENT)
++					svg_height = h.length;
++				else if (has_vb)
++					svg_height = viewbox.height;
++			}
++
++			/* Reject non-finite, non-positive or absurdly large
++			 * dimensions (cairo image surfaces are limited to
++			 * 32767 pixels per side) to avoid failed allocations. */
++			if (!(svg_width > 0.0) || !(svg_height > 0.0) ||
++			    svg_width > 32767.0 || svg_height > 32767.0) {
++				g_warning ("SVG has unusable dimensions %.1fx%.1f",
++				            svg_width, svg_height);
++				priv->image = NULL;
++			} else {
++				/* the documentation of
++				 * rsvg_handle_get_intrinsic_size_in_pixels()
++				 * recommends rounding up to whole pixels */
++				width = (int) ceil (svg_width);
++				height = (int) ceil (svg_height);
++
++				surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32,
++				                                      width, height);
++
++				if (cairo_surface_status (surface) != CAIRO_STATUS_SUCCESS) {
++					g_warning ("Failed to create %dx%d cairo surface: %s",
++					            width, height,
++					            cairo_status_to_string (cairo_surface_status (surface)));
++					priv->image = NULL;
++				} else {
++					cr = cairo_create (surface);
++
++					viewport.x = 0.0;
++					viewport.y = 0.0;
++					viewport.width = (double) width;
++					viewport.height = (double) height;
++
++					if (rsvg_handle_render_document (priv->svg, cr,
++					                                  &viewport, NULL)) {
++						/* gdk_pixbuf_get_from_surface() converts the
++						 * premultiplied ARGB32 data into a GdkPixbuf
++						 * and makes its own copy, so the surface can
++						 * be released */
++						priv->image = gdk_pixbuf_get_from_surface (
++							surface, 0, 0, width, height);
++					} else {
++						priv->image = NULL;
++					}
++
++					cairo_destroy (cr);
++				}
++
++				cairo_surface_destroy (surface);
++			}
+ 		} else
+ #endif
+ 		{

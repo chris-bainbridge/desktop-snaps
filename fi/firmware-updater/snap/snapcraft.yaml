@@ -1,0 +1,127 @@
+name: firmware-updater
+version: git
+summary: Firmware Updater
+description: Update Firmware
+confinement: strict
+base: core26
+grade: stable
+license: GPL-3.0+
+icon: snap/local/firmware-updater.png
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  dbus-slot:
+    interface: dbus
+    name: com.canonical.firmware_updater
+    bus: session
+
+parts:
+  flutter-git:
+    plugin: nil
+    source: .
+    override-build: |
+      bash $CRAFT_PART_SRC/scripts/install-fvm.sh
+      fvm install
+      fvm flutter doctor
+    build-packages:
+      - clang
+      - cmake
+      - curl
+      - git
+      - libgtk-3-dev
+      - ninja-build
+      - unzip
+      - xz-utils
+      - zip
+    override-prime: ""
+
+  firmware-updater-app:
+    after: [ flutter-git ]
+    plugin: nil
+    source: .
+    override-build: |
+      set -eux
+      fvm install
+      fvm dart pub global activate melos
+
+      set +e # ignore pub errors
+      # when building locally artifacts can pollute the container and cause builds to fail
+      # this helps increase reliability for local builds
+      fvm dart pub global run melos clean
+      fvm dart pub global run melos bootstrap
+      set -e
+
+      cd apps/firmware_updater
+      fvm flutter build linux --release -v
+      mkdir -p $CRAFT_PART_INSTALL/bin/
+      cp -r build/linux/*/release/bundle/* $CRAFT_PART_INSTALL/bin/
+      cp $CRAFT_PART_INSTALL/bin/data/flutter_assets/assets/firmware-updater.desktop $CRAFT_PART_INSTALL/bin/data/flutter_assets/assets/firmware-updater-app.desktop
+      echo "NoDisplay=true" >> $CRAFT_PART_INSTALL/bin/data/flutter_assets/assets/firmware-updater-app.desktop
+    stage-packages:
+      - to arm64:
+          - fonts-noto-cjk
+
+  firmware-notifier:
+    after: [ flutter-git ]
+    plugin: nil
+    source: .
+    override-build: |
+      set -eux
+      fvm install
+      fvm dart pub global activate melos
+
+      set +e # ignore pub errors
+      # when building locally artifacts can pollute the container and cause builds to fail
+      # this helps increase reliability for local builds
+      fvm dart pub global run melos clean
+      fvm dart pub global run melos bootstrap
+      set -e
+
+      cd apps/firmware_notifier
+      mkdir -p $CRAFT_PART_INSTALL/bin/
+      fvm dart compile exe bin/firmware_notifier.dart -o $CRAFT_PART_INSTALL/bin/firmware-notifier
+
+  firmware-updater:
+    plugin: dump
+    source: ./launcher-script/
+
+apps:
+  firmware-updater:
+    command: bin/launch-firmware-updater.sh
+    desktop: bin/data/flutter_assets/assets/firmware-updater.desktop
+    extensions: [gnome]
+    plugs:
+      # flutter reads the accent color from gsettings until it learns
+      # to use the settings portal
+      - gsettings
+
+  firmware-updater-app:
+    desktop: bin/data/flutter_assets/assets/firmware-updater-app.desktop
+    command: bin/firmware-updater --gapplication-service
+    daemon: dbus
+    passthrough:
+      daemon-scope: user
+    activates-on: [dbus-slot]
+    extensions: [gnome]
+    plugs:
+      - gsettings
+      - fwupd
+      - shutdown
+      - upower-observe
+      - firmware-updater-support
+      - udisks2
+
+  firmware-notifier:
+    command: bin/firmware-notifier
+    daemon: simple
+    passthrough:
+      daemon-scope: user
+    timer: '00:00-24:00/8'
+    extensions: [gnome]
+    plugs:
+      - desktop
+      - fwupd
+      - gsettings
+      - upower-observe

@@ -1,0 +1,13 @@
+# Build metadata for desktop-security-center (core26 migration, 2026-11).
+snap: desktop-security-center
+base: core26
+mode: overlay
+overlay-repo: https://github.com/canonical/desktop-security-center
+overlay-commit: 8e9e935c60b65fc4c044ca91cd84d944c0b57b23
+overlay-to: snap
+upstream: https://github.com/canonical/desktop-security-center
+recipe-commit: 329c0a525996ed6390d20000414d3ab63cfcd67d
+merge-request: https://github.com/canonical/desktop-security-center/pull/288
+store:
+  publisher: Canonical
+  verified: true

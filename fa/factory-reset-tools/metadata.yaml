@@ -1,0 +1,10 @@
+# Build metadata for factory-reset-tools (core26 migration, 2026-11).
+snap: factory-reset-tools
+base: core26
+mode: vendored
+upstream: https://github.com/canonical/ubuntu-desktop-provision (snap/factory-reset-tools/main)
+recipe-commit: 3e8ef53be0b4e630c86dc9345043ca0a2ebabc2c
+merge-request: https://github.com/canonical/ubuntu-desktop-provision/pull/1614
+store:
+  publisher: Canonical
+  verified: true

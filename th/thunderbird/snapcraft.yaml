@@ -1,0 +1,414 @@
+# Copyright (C) Canonical Ltd.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 3, as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+name: thunderbird
+version: "160.0b5-1"
+summary: Mozilla Thunderbird email application
+description: Thunderbird is a free email application that’s easy to set up and customize - and it’s loaded with great features!
+confinement: strict
+grade: stable
+base: core26
+compression: lzo
+contact: https://www.thunderbird.net/contact/
+donation: https://www.thunderbird.net/donate/
+issues: https://bugzilla.mozilla.org/enter_bug.cgi?product=Thunderbird&op_sys=Linux&keywords=snap
+website: https://www.thunderbird.net/
+
+apps:
+  thunderbird:
+    command-chain: [ bin/gpg-shim, bin/tmpdir ]
+    command: thunderbird.launcher
+    extensions: [gnome]
+    environment:
+      DICPATH: "$SNAP_COMMON/snap-hunspell"
+      GTK_USE_PORTAL: 1
+      HOME: "$SNAP_USER_COMMON"
+      MOZ_APP_REMOTINGNAME: "thunderbird_thunderbird"
+    plugs:
+      - avahi-observe
+      - browser-sandbox
+      - calendar-service # Incomplete as per LP: #2018435
+      - camera
+      - cups-control
+      - gsettings
+      - gpg-keys
+      - home
+      - host-usr-share-hunspell
+      - kerberos-tickets
+      - network
+      - network-control
+      - opengl
+      - pcscd
+      - audio-playback
+      - removable-media
+      - u2f-devices
+    slots:
+      - dbus-daemon
+
+plugs:
+  browser-sandbox:
+    interface: browser-support
+    allow-sandbox: true
+  etc-thunderbird:
+    interface: system-files
+    read: [/etc/thunderbird]
+  dot-thunderbird:
+    interface: personal-files
+    write: [$HOME/.thunderbird]
+  host-usr-share-hunspell:
+    interface: system-files
+    read: [/var/lib/snapd/hostfs/usr/share/hunspell]
+
+layout:
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libcanberra-0.30:
+    bind: $SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libcanberra-0.30
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/opensc-pkcs11.so:
+    bind-file: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/opensc-pkcs11.so
+  /usr/bin/gpg:
+    bind-file: $SNAP/usr/bin/gpg
+
+parts:
+  # This is a temporary workaround to including the hunspell content
+  # snap, which would cause breakage in the Ubuntu desktop image build
+  # because of the Ubuntu policy.  See:
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=1792006
+  #
+  # The definition of this part is essentially a copy of the
+  # corresponding part in hunspell-dictionaries-1-7-2004 by
+  # Buo-ren, Lin.
+  hunspell:
+    plugin: nil
+    override-pull: |
+      set -eux
+      mkdir -p $CRAFT_PART_INSTALL
+      apt download $(apt-cache search '^hunspell-.*$' |
+        awk '!/myspell|dbgsym|tools|transitional|dependency/{printf "%s ", $1}')
+      find . -name "*.deb" -exec dpkg-deb -x {} "$CRAFT_PART_INSTALL" \;
+    prime:
+      - usr/share/hunspell
+
+  # For thunderbird beta, the dump-syms git informations is pulled from the
+  # mozilla-beta trees, because there seems to be no mozilla/ in the beta tree,
+  dump-syms:
+    plugin: nil
+    build-packages:
+      - cargo-1.91
+      - curl
+      - git
+      - jq
+      - python3-yaml
+    override-pull: |
+      if [ $CRAFT_ARCH_BUILD_FOR = "amd64" ] || [ $CRAFT_ARCH_BUILD_FOR = "arm64" ]; then
+        VERSION=$(craftctl get version | cut -d- -f1)
+        BUILD=$(craftctl get version | cut -d- -f2)
+        TBINFO=$(curl -s https://ftp.mozilla.org/pub/thunderbird/candidates/$VERSION-candidates/build$BUILD/linux-x86_64/en-US/thunderbird-$VERSION.json)
+        TB_SOURCE_REPO=$(echo $TBINFO | jq -r .moz_source_repo)
+        TB_SOURCE_STAMP=$(echo $TBINFO | jq -r .moz_source_stamp)
+        GECKO_REV=$TB_SOURCE_REPO/raw-file/${TB_SOURCE_STAMP}/.gecko_rev.yml
+        GECKO_REVS=$(curl -sSL "${GECKO_REV}" | grep -v "#")
+        MOZ_SOURCE_REPO=$(echo "$GECKO_REVS" | grep GECKO_HEAD_REPOSITORY | sed -e 's/GECKO_HEAD_REPOSITORY: //g')
+        MOZ_SOURCE_STAMP=$(echo "$GECKO_REVS" | grep GECKO_HEAD_REV | sed -e 's/GECKO_HEAD_REV: //g')
+        FETCHES=$MOZ_SOURCE_REPO/raw-file/$MOZ_SOURCE_STAMP/taskcluster/kinds/fetch/toolchains.yml
+        TOOLCHAINS=$(curl -sSL "${FETCHES}")
+        unset PYTHONPATH
+        REPO=$(echo "${TOOLCHAINS}" | /usr/bin/python3 -c 'import yaml, sys; fetches = yaml.safe_load(sys.stdin); print("{}".format(fetches["dump-syms"]["fetch"]["repo"]))')
+        SHA1=$(echo "${TOOLCHAINS}" | /usr/bin/python3 -c 'import yaml, sys; fetches = yaml.safe_load(sys.stdin); print("{}".format(fetches["dump-syms"]["fetch"]["revision"]))')
+        git clone "${REPO}" . && git checkout "${SHA1}"
+      fi
+    override-build: |
+      craftctl default
+      if [ $CRAFT_ARCH_BUILD_FOR = "amd64" ] || [ $CRAFT_ARCH_BUILD_FOR = "arm64" ]; then
+        cargo-1.91 build --release
+        mkdir -p $CRAFT_STAGE/usr/bin/
+        cp target/release/dump_syms $CRAFT_STAGE/usr/bin/
+      fi
+
+  cbindgen:
+    plugin: nil
+    build-packages:
+      - cargo-1.91
+    override-build: |
+      craftctl default
+      cargo-1.91 install cbindgen
+    override-prime: ''
+
+  mozconfig:
+    plugin: nil
+    override-stage: |
+      cp $CRAFT_PROJECT_DIR/mozconfig.in $CRAFT_STAGE/mozconfig
+    override-prime: ''
+
+  # Launchpad builders have a timeout for how long they are allowed to access
+  # the internet (through a proxy) starting from the start of the build.
+  # Since the thunderbird part takes a long time to build, we need to ensure
+  # that all other parts that need to access the internet (to e.g. fetch build
+  # or stage packages) are built before it (before the proxy authentication is
+  # revoked).
+  thunderbird:
+    plugin: nil
+    after:
+      - cbindgen
+      - distribution
+      - dump-syms
+      - mozconfig
+      - thunderbird-langpacks
+    build-packages:
+      - cargo
+      - clang-20
+      - cmake
+      - coreutils
+      - file
+      - git
+      - libasound2-dev
+      - libclang-20-dev
+      - libdbus-glib-1-dev
+      - llvm-20-dev
+      - libpython3-dev
+      - libx11-xcb-dev
+      - libxt-dev
+      - m4
+      - make
+      - mercurial
+      - nasm
+      - nodejs
+      - quilt
+      - rustc-1.91
+      - unzip
+      - wget
+      - xvfb
+      - zip
+    build-environment:
+      - RUST_BACKTRACE: "full"
+      - CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
+    override-pull: |
+      VERSION=$(craftctl get version | cut -d- -f1)
+      BUILD=$(craftctl get version | cut -d- -f2)
+      ROOT=https://ftp.mozilla.org/pub/thunderbird/candidates/$VERSION-candidates/build$BUILD
+      wget -O - $ROOT/source/thunderbird-$VERSION.source.tar.xz | tar -x --xz --strip-components=1
+      mkdir -p $CRAFT_STAGE/debug-symbols
+      cp toolkit/crashreporter/tools/upload_symbols.py $CRAFT_STAGE/debug-symbols/
+      # Remove .gitmodules from Cargo checksums.
+      # https://bugzilla.mozilla.org/show_bug.cgi?id=2006630
+      find . -name '.cargo-checksum.json' -exec sh -c '
+        for f; do
+          cp "$f" "$f.bak"
+          jq . "$f.bak" | grep -vF .gitmodules > "$f"
+        done
+      ' _ {} + || :
+    override-build: |
+      craftctl default
+
+      ln  -sf /usr/bin/rustc-1.91          /usr/bin/rustc
+      ln  -sf /usr/bin/rust-1.91-clang     /usr/bin/rust-clang
+      ln  -sf /usr/bin/rust-1.91-lld       /usr/bin/rust-lld
+      ln  -sf /usr/bin/rust-1.91-llvm-dwp  /usr/bin/rust-llvm-dwp
+      ln  -sf /usr/bin/cargo-1.91          /usr/bin/cargo
+
+      export PATH=$CRAFT_STAGE/usr/bin:/usr/lib/llvm-20/bin/:$PATH
+      export MOZCONFIG="$CRAFT_STAGE/mozconfig"
+      QUILT_PATCHES=$CRAFT_PROJECT_DIR/patches quilt push -a
+      GNOME_SDK_SNAP=/snap/gnome-core26-sdk/current
+      # XXX: Remove when the SDK finally builds reliably in Risc-V again.
+      if [ $CRAFT_ARCH_BUILD_FOR = "riscv64" ]; then
+        snap refresh --edge gnome-core26-sdk
+      fi
+      if [ $CRAFT_ARCH_BUILD_FOR = "amd64" ]; then
+        # "clang -dumpmachine" returns "x86_64-unknown-linux-gnu" on
+        # amd64 (at least the binaries they distribute), but what we
+        # really need is "x86_64-pc-linux-gnu"; so let's hard-code it.
+        export TARGET_TRIPLET="x86_64-pc-linux-gnu"
+      else
+        export TARGET_TRIPLET=$(clang-20 -dumpmachine)
+      fi
+      # Remove "false &&" when bug is fixed:
+      # https://bugzilla.mozilla.org/show_bug.cgi?id=2025767
+      if false && [ $CRAFT_ARCH_BUILD_FOR != "riscv64" ]; then
+        BUILD_DBGSYMS=true
+        echo "ac_add_options --enable-crashreporter" >> $MOZCONFIG
+        echo "ac_add_options --enable-debug-symbols" >> $MOZCONFIG
+      else
+        # Crash reporter does not build in Risc-V:
+        # https://bugzilla.mozilla.org/show_bug.cgi?id=1980339
+        BUILD_DBGSYMS=false
+        echo "ac_add_options --disable-debug-symbols" >> $MOZCONFIG
+      fi
+      export LDFLAGS="-Wl,-rpath-link=$GNOME_SDK_SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_ON -Wl,-rpath-link=$GNOME_SDK_SNAP/usr/lib"
+      export LDFLAGS="-Wl,-rpath-link=$CRAFT_PART_BUILD/obj-$TARGET_TRIPLET/dist/bin${LDFLAGS:+ $LDFLAGS}"
+      export LD_LIBRARY_PATH="$CRAFT_PART_BUILD/obj-$TARGET_TRIPLET/dist/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      export MOZBUILD_STATE_PATH=$CRAFT_PART_BUILD/.mozbuild
+      unset PYTHONPATH
+      if [ $CRAFT_ARCH_BUILD_FOR = "amd64" ]; then
+        # Needed for PGO-enabled builds that execute the built binaries. This should mirror the link paths in $LDFLAGS.
+        export LD_LIBRARY_PATH="$GNOME_SDK_SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_ON:$GNOME_SDK_SNAP/usr/lib"
+        # Ensure the instrumented binary is run against the right version of libssl3.so and libnss3.so
+        # (locally-built versions are more recent than the ones in the gnome platform snap)
+        export LD_LIBRARY_PATH="$CRAFT_PART_BUILD/obj-$TARGET_TRIPLET/instrumented/dist/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      fi
+      MACH="/usr/bin/python3 ./mach"
+      $MACH configure --prefix=$CRAFT_PART_INSTALL/usr
+      $MACH build -j$CRAFT_PARALLEL_BUILD_COUNT
+      $MACH install
+      DISTRIBUTION=$CRAFT_PART_INSTALL/usr/lib/thunderbird/distribution
+      mkdir -p $DISTRIBUTION/extensions
+      mkdir -p $CRAFT_PART_INSTALL/bin/
+      cp -p $CRAFT_PROJECT_DIR/gpg-shim $CRAFT_PART_INSTALL/bin/
+      cp -p $CRAFT_PROJECT_DIR/tmpdir $CRAFT_PART_INSTALL/bin/
+      cp -pr $CRAFT_PART_SRC/* $CRAFT_PART_INSTALL
+      if [ $BUILD_DBGSYMS = "true" ]; then
+        DUMP_SYMS=$CRAFT_STAGE/usr/bin/dump_syms $MACH buildsymbols
+        cp obj-*/dist/thunderbird-*.crashreporter-symbols.zip $CRAFT_STAGE/debug-symbols/
+      fi
+    override-stage: |
+      # Workaround for LP: #2016358: create mount points for the gnome
+      # content interface, while a proper fix is implemented in snapd.
+      # Thanks to James Henstridge.
+      mkdir $CRAFT_PART_INSTALL/{gpu-2604,data-dir,data-dir/{icons,sounds,themes}}
+      craftctl default
+    stage-packages:
+      - opensc-pkcs11
+    prime:
+      - bin
+      - usr/lib/thunderbird
+      - usr/lib/*/opensc-pkcs11.so
+      - usr/lib/*/pkcs11/opensc-pkcs11.so
+      # Workaround for LP: #2016358 (see the 'override-stage' above).
+      - gpu-2604
+      - data-dir/icons
+      - data-dir/sounds
+      - data-dir/themes
+
+  thunderbird-langpacks:
+    plugin: nil
+    build-packages:
+      - coreutils
+      - sed
+      - wget
+    override-pull: |
+      VERSION=$(craftctl get version | cut -d- -f1)
+      BUILD=$(craftctl get version | cut -d- -f2)
+      SERVER=https://ftp.mozilla.org
+      ROOT=$SERVER/pub/thunderbird/candidates/$VERSION-candidates/build$BUILD
+      XPIS=$(wget -O - $ROOT/linux-x86_64/xpi/ | sed -n 's/.* href="\(.*\.xpi\)".*/\1/p')
+      for XPI in $XPIS; do
+        wget $SERVER$XPI
+      done
+    override-prime: |
+      INSTALLDIR=$CRAFT_PRIME/usr/lib/thunderbird/distribution/extensions
+      mkdir -p $INSTALLDIR
+      for XPI in $(ls $CRAFT_PART_SRC/*.xpi); do
+        LANGCODE=$(basename $XPI .xpi)
+        mkdir $INSTALLDIR/locale-$LANGCODE
+        cp $XPI $INSTALLDIR/locale-$LANGCODE/langpack-$LANGCODE@thunderbird.mozilla.org.xpi
+      done
+
+  # Needed for smart card access
+  gnupg:
+    plugin: nil
+    stage-packages:
+      - gnupg
+      - gnupg-agent
+      - libgpgme45
+      - libgpg-error0
+    override-prime: |
+      craftctl default
+      # Fixes smart card key retrieval. Check LP: #2009825 and special thanks to
+      # https://forum.snapcraft.io/t/thunderbird-snap-and-external-gnupg-for-smart-cards/39553
+      mv $CRAFT_PRIME/usr/bin/gpg $CRAFT_PRIME/usr/bin/real-gpg
+      cp $CRAFT_PROJECT_DIR/gpg-wrapper $CRAFT_PRIME/usr/bin/gpg
+
+  distribution:
+    plugin: nil
+    override-prime: |
+      mkdir -p "$CRAFT_PRIME/usr/lib/thunderbird"
+      cp -Rv "$CRAFT_PROJECT_DIR/distribution" "$CRAFT_PRIME/usr/lib/thunderbird"
+
+  thunderbird-staged:
+    plugin: nil
+    stage-packages:
+      - desktop-file-utils
+      - libblkid1
+      - libcurl4t64 # Needed for the crash reporter (LP: #1983502)
+      - libecal-2.0-3 # Needed for EDS Calendar Integration extension.
+      - libgcrypt20
+      - liblzma5
+      - libudev1
+      - libuuid1
+      - zlib1g
+      - libxt6t64
+    prime:
+      - -usr/lib/*/libgio*
+      - -usr/lib/*/libglib*
+      - -usr/lib/*/libgm*
+
+  debug-symbols:
+    plugin: nil
+    build-packages:
+      - python3
+      - python3-virtualenv
+    after:
+      - thunderbird
+    override-build: |
+      export SYMBOLS_ARCHIVE=$(find $CRAFT_STAGE/debug-symbols/ -type f -name "thunderbird-*.crashreporter-symbols.zip")
+      if [ -f "$SYMBOLS_ARCHIVE" ]; then
+        cp $SYMBOLS_ARCHIVE $CRAFT_PROJECT_DIR/$CRAFT_PROJECT_NAME_$(craftctl get version)_$CRAFT_ARCH_BUILD_FOR.debug
+      fi
+
+  launcher:
+    plugin: nil
+    override-prime: |
+      cp "$CRAFT_PROJECT_DIR/thunderbird.launcher" "$CRAFT_PRIME/"
+      cp "$CRAFT_PROJECT_DIR/patch-default-profile.py" "$CRAFT_PRIME/"
+
+
+  # Bundle patched Kerberos library that ignores failed includedirs (LP:2122317)
+  #
+  # We need to untangle this part from Gnome extension's idiosyncrasies,
+  # as they cause cryptic errors including but not limited to
+  #
+  # > relocation R_X86_64_TPOFF32 against `buffer' can not be used when making
+  # > a shared object; recompile with -fPIC"
+  kerberos:
+    plugin: nil
+    build-packages:
+      - ubuntu-dev-tools
+      - python3-lxml # Missing from Krb5 build-dependencies?
+    build-environment:
+      - DEB_BUILD_OPTIONS: nodoc
+      # Delete Gnome extension's injections in this variable
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/share/pkgconfig
+    override-build: |
+      # Delete Gnome extension's injections in this variable
+      export PATH=${PATH#/snap*:}
+
+      # Fetch, patch and build Kerberos
+      releasePocket=$(lsb_release -c | cut -f2)
+      pull-lp-source krb5 "$releasePocket"
+      cd krb5*/
+      apt build-dep -y .
+      patch -p1 < "$CRAFT_PROJECT_DIR/patches/krb/ignore-failed-includedirs"
+      ./debian/rules build
+
+      # Prime its resultant relevant libraries
+      mkdir -p "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      cp build/lib/*krb5*.so.? "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+
+slots:
+  dbus-daemon:
+    interface: dbus
+    bus: session
+    name: org.mozilla.thunderbird
+
+hooks:
+  post-refresh:
+    plugs: [host-usr-share-hunspell]

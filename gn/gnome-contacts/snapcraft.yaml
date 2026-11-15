@@ -1,0 +1,91 @@
+name: gnome-contacts
+adopt-info: gnome-contacts
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+layout:
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/folks/26/backends:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/folks/26/backends
+  /usr/lib/evolution:
+    symlink: $SNAP/usr/lib/evolution
+  /usr/lib/evolution-data-server:
+    symlink: $SNAP/usr/lib/evolution-data-server
+
+slots:
+  # for GtkApplication registration
+  gnome-contacts:
+    interface: dbus
+    bus: session
+    name: org.gnome.Contacts
+
+apps:
+  gnome-contacts:
+    command: usr/bin/gnome-contacts
+    extensions: [gnome]
+    desktop: usr/share/applications/org.gnome.Contacts.desktop
+    common-id: org.gnome.Contacts.desktop
+    plugs:
+      - gsettings
+      - browser-support
+      #- camera
+      - home
+      - network
+      - accounts-service
+      - contacts-service
+
+parts:
+  gnome-contacts:
+    source: https://gitlab.gnome.org/GNOME/gnome-contacts.git
+    source-type: git
+    source-tag: '51.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dcamera=false # seems to be not wired... https://gitlab.gnome.org/GNOME/gnome-contacts/-/issues/236
+      - -Ddocs=false
+      - -Dmanpage=false
+      - -Dprofile=default
+    parse-info: [usr/share/metainfo/org.gnome.Contacts.metainfo.xml]
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      sed -i 's|=org.gnome.Contacts$|=${SNAP}/meta/gui/org.gnome.Contacts.svg|g' $CRAFT_PART_SRC/data/org.gnome.Contacts.desktop.in.in
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Contacts.svg $CRAFT_PART_INSTALL/meta/gui/
+      cp data/org.gnome.Contacts.desktop $CRAFT_PART_INSTALL/meta/gui/
+    build-packages:
+      # The evolution-data-server / libical / geoclue / folks stack was
+      # built from source on core24 because the base lacked it. 26.04
+      # ships the same versions (E-D-S 3.62.1, folks 0.15.12, libical
+      # 3.0.20 with the glib bindings bundled in libical3t64), so use
+      # the archive packages, as the gnome-contacts deb does.
+      - libebook-contacts1.2-dev
+      - libebook1.2-dev
+      - libedataserver1.2-dev
+      # gnome-online-accounts integration (runtime lib comes from
+      # gnome-core26; only the build dependency was missing - an earlier
+      # build only worked because the build container still had it
+      # installed from the retired source-built E-D-S attempts)
+      - libgoa-1.0-dev
+      - libfolks-dev
+      - libfolks-eds-dev
+      - libgee-0.8-dev
+      - libportal-dev
+      - libqrencode-dev
+      # Drop when the Gnome SDK snap hits 0+git.81ba3cf (revision 109).
+      - libgstreamer1.0-dev
+    stage-packages:
+      # runtime EDS/folks stack (dep-resolved transitively from here)
+      - libfolks-eds26
+      - libqrencode4
+    prime:
+      # libgoa-1.0 is staged transitively (via libfolks-eds26) but is
+      # provided by the gnome-core26 content snap; exclude our copy so
+      # the app binds the content snap's (which receives updates that
+      # a bundled copy would not)
+      - -usr/lib/*/libgoa*

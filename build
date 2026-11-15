@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+#
+# build - build a snap from this monorepo.
+#
+#   ./build --list
+#   ./build <snap> [--keep] [--dry-run] [--workspace DIR] [-- <snapcraft args>]
+#
+# Builds happen out of tree so the repository stays clean.
+
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_WORKSPACE="${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}"
+
+die() {
+    printf 'build: error: %s\n' "$*" >&2
+    exit 1
+}
+
+info() {
+    printf 'build: %s\n' "$*" >&2
+}
+
+usage() {
+    cat <<'EOF'
+Usage: ./build [options] <snap>
+
+Build a snap from its package directory (first two letters of the snap name,
+e.g. gn/gnome-logs). Builds run out of tree in a temporary workspace.
+
+Options:
+  --list               list packages and exit
+  --keep               keep the workspace after a successful build
+  --dry-run            print the resolved build plan and exit
+  --workspace DIR      workspace root (default: $SNAPS_BUILD_DIR or
+                       /var/tmp/opencode/snaps-build)
+  --                   pass the remaining arguments to snapcraft
+  -h, --help           show this help
+
+Environment:
+  SNAPS_BUILD_DIR      default workspace root
+
+Examples:
+  ./build --list
+  ./build gnome-logs
+  ./build gn/gnome-logs
+  ./build snap-store --dry-run
+  ./build snap-store -- --build-for=arm64
+EOF
+}
+
+# meta_get <pkgdir> <key>: print a scalar from metadata.yaml (keys may be
+# dotted, e.g. store.publisher). Prints nothing when absent.
+meta_get() {
+    python3 - "$1/metadata.yaml" "$2" <<'PY'
+import sys
+import yaml
+
+path, key = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as handle:
+    value = yaml.safe_load(handle) or {}
+for part in key.split("."):
+    if not isinstance(value, dict) or part not in value:
+        sys.exit(0)
+    value = value[part]
+if value is None:
+    sys.exit(0)
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, list):
+    print(" ".join(str(item) for item in value))
+else:
+    print(value)
+PY
+}
+
+list_packages() {
+    printf '%-32s %-9s %-7s %s\n' NAME MODE BASE PUBLISHER
+    local manifest pkgdir name
+    while IFS= read -r manifest; do
+        pkgdir="$(dirname -- "$manifest")"
+        name="$(basename -- "$pkgdir")"
+        printf '%-32s %-9s %-7s %s\n' \
+            "$name" \
+            "$(meta_get "$pkgdir" mode)" \
+            "$(meta_get "$pkgdir" base)" \
+            "$(meta_get "$pkgdir" store.publisher)"
+    done < <(find "$ROOT" -mindepth 3 -maxdepth 3 -name metadata.yaml | sort)
+}
+
+name=""
+keep=0
+dry_run=0
+workspace="$DEFAULT_WORKSPACE"
+snapcraft_args=()
+
+while (($#)); do
+    case "$1" in
+        --list)
+            list_packages
+            exit 0
+            ;;
+        --keep)
+            keep=1
+            ;;
+        --dry-run)
+            dry_run=1
+            ;;
+        --workspace)
+            (($# >= 2)) || die "--workspace requires a directory"
+            workspace="$2"
+            shift
+            ;;
+        --workspace=*)
+            workspace="${1#*=}"
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            snapcraft_args=("$@")
+            break
+            ;;
+        -*)
+            die "unknown option: $1 (try --help)"
+            ;;
+        *)
+            [[ -z "$name" ]] || die "only one snap may be given (got '$name' and '$1')"
+            name="$1"
+            ;;
+    esac
+    shift
+done
+
+[[ -n "$name" ]] || {
+    usage >&2
+    exit 1
+}
+
+# Accept both "gnome-logs" and "gn/gnome-logs".
+name="${name#./}"
+name="${name%/}"
+if [[ "$name" == */* ]]; then
+    name="${name##*/}"
+fi
+
+shard="${name:0:2}"
+pkgdir="$ROOT/$shard/$name"
+
+[[ -d "$pkgdir" ]] || die "no such snap: $name (looked in $shard/$name); try ./build --list"
+[[ -f "$pkgdir/metadata.yaml" ]] || die "missing $pkgdir/metadata.yaml"
+
+snap="$(meta_get "$pkgdir" snap)"
+mode="$(meta_get "$pkgdir" mode)"
+base="$(meta_get "$pkgdir" base)"
+overlay_repo="$(meta_get "$pkgdir" overlay-repo)"
+overlay_commit="$(meta_get "$pkgdir" overlay-commit)"
+overlay_to="$(meta_get "$pkgdir" overlay-to)"
+prepare="$(meta_get "$pkgdir" prepare)"
+
+[[ -n "$snap" ]] || die "metadata.yaml is missing 'snap'"
+[[ "$snap" == "$name" ]] || die "metadata snap '$snap' does not match directory '$name'"
+
+case "$mode" in
+    vendored | overlay) ;;
+    *) die "metadata.yaml has invalid mode '$mode' (expected vendored or overlay)" ;;
+esac
+
+if [[ "$mode" == overlay ]]; then
+    [[ -n "$overlay_repo" ]] || die "overlay mode requires 'overlay-repo'"
+    overlay_to="${overlay_to:-snap}"
+    [[ "$overlay_to" != /* && "$overlay_to" != *..* ]] ||
+        die "invalid overlay-to '$overlay_to'"
+fi
+
+ws="$workspace/$name"
+
+if ((dry_run)); then
+    printf 'snap:       %s\n' "$snap"
+    printf 'package:    %s\n' "${pkgdir#"$ROOT"/}"
+    printf 'base:       %s\n' "$base"
+    printf 'mode:       %s\n' "$mode"
+    printf 'workspace:  %s\n' "$ws"
+    if [[ "$mode" == overlay ]]; then
+        printf 'overlay:    %s at %s -> %s/\n' \
+            "$overlay_repo" "${overlay_commit:-default branch}" "$overlay_to"
+    fi
+    [[ -z "$prepare" ]] || printf 'prepare:    %s\n' "$prepare"
+    printf 'snapcraft:  snapcraft --use-lxd'
+    ((${#snapcraft_args[@]})) && printf ' %s' "${snapcraft_args[@]}"
+    printf '\n'
+    exit 0
+fi
+
+for cmd in git python3 rsync snapcraft; do
+    command -v "$cmd" >/dev/null 2>&1 || die "missing dependency: $cmd"
+done
+python3 -c 'import yaml' >/dev/null 2>&1 || die "python3 is missing PyYAML"
+
+mkdir -p -- "$workspace"
+
+rm -rf -- "$ws"
+mkdir -p -- "$ws"
+
+cleanup() {
+    local status=$?
+    if ((status != 0)); then
+        info "build failed; workspace kept: $ws"
+    elif ((!keep)); then
+        rm -rf -- "$ws"
+    else
+        info "workspace kept: $ws"
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+
+case "$mode" in
+    vendored)
+        info "copying $name into $ws"
+        rsync -a --exclude=metadata.yaml --exclude=.git -- "$pkgdir/" "$ws/"
+        ;;
+    overlay)
+        info "cloning $overlay_repo${overlay_commit:+ at $overlay_commit}"
+        if [[ -n "$overlay_commit" ]]; then
+            git clone --quiet --filter=blob:none --no-checkout -- "$overlay_repo" "$ws" ||
+                git clone --quiet --no-checkout -- "$overlay_repo" "$ws"
+            git -C "$ws" checkout --quiet --detach "$overlay_commit"
+        else
+            git clone --quiet --depth=1 -- "$overlay_repo" "$ws"
+        fi
+        info "overlaying snap/ onto $overlay_to/"
+        mkdir -p -- "$ws/$overlay_to"
+        rsync -a -- "$pkgdir/snap/" "$ws/$overlay_to/"
+        ;;
+esac
+
+if [[ -n "$prepare" ]]; then
+    info "prepare: $prepare"
+    (cd "$ws" && bash -c "$prepare")
+fi
+
+info "building $snap with snapcraft --use-lxd"
+(cd "$ws" && snapcraft --use-lxd "${snapcraft_args[@]+"${snapcraft_args[@]}"}")
+
+artifact=""
+while IFS= read -r candidate; do
+    artifact="$candidate"
+done < <(find "$ws" -maxdepth 1 -type f -name '*.snap' -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-)
+
+if [[ -n "$artifact" ]]; then
+    if ((!keep)); then
+        # The workspace is removed on success; keep the artifact outside it.
+        mkdir -p -- "$workspace/artifacts"
+        final="$workspace/artifacts/$(basename -- "$artifact")"
+        mv -f -- "$artifact" "$final"
+    else
+        final="$artifact"
+    fi
+    info "built $final ($(du -h -- "$final" | cut -f1))"
+    printf '%s\n' "$final"
+else
+    info "snapcraft finished but no .snap was found in $ws"
+fi

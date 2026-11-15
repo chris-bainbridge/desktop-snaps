@@ -1,0 +1,7 @@
+# snapcraft build artifacts (builds normally happen outside the repo;
+# these are ignored in case someone builds in place)
+parts/
+stage/
+prime/
+*.snap
+*.snap.debug

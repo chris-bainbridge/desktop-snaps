@@ -1,0 +1,53 @@
+name: gnome-logs
+adopt-info: gnome-logs
+summary: A log viewer for the systemd journal
+description: |
+  Logs makes it easy to view and filter log messages and events.
+  Filter logs by category and importance to get the information you want. Use
+  the integrated search to get more relevant results.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+slots:
+  # for GtkApplication registration
+  gnome-logs:
+    interface: dbus
+    bus: session
+    name: org.gnome.Logs
+
+apps:
+  gnome-logs:
+    extensions: [gnome]
+    command: usr/bin/gnome-logs
+    plugs:
+      - gsettings
+      - log-observe
+      - network
+      - home
+    desktop: usr/share/applications/org.gnome.Logs.desktop
+    common-id: org.gnome.Logs.desktop
+
+parts:
+  gnome-logs:
+    source: https://gitlab.gnome.org/GNOME/gnome-logs.git
+    source-type: git
+    source-tag: '49.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Logs.appdata.xml]
+    meson-parameters:
+      - --prefix=/usr
+    build-packages:
+      - libsystemd-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e s/gnome-logs-//g)
+      sed -i.bak -e 's|=org.gnome.Logs$|=${SNAP}/meta/gui/org.gnome.Logs.svg|g' data/org.gnome.Logs.desktop.in
+      sed -i.bak -e 's|symlink_media: true|symlink_media: false|g' help/meson.build
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp ../src/data/icons/scalable/org.gnome.Logs.svg $CRAFT_PART_INSTALL/meta/gui/
+

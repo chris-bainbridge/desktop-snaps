@@ -1,0 +1,112 @@
+name: evince
+adopt-info: evince
+summary: Document viewer for popular document formats
+description: |
+  This is a document viewer for the GNOME desktop.
+  It supports the following document formats: PDF, PS, EPS, XPS, DjVu, TIFF, DVI (with SyncTeX), and Comic Books archives (CBR, CBT, CBZ, CB7).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+slots:
+  # for GtkApplication registration
+  evince:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evince
+
+apps:
+  evince:
+    command: usr/bin/evince
+    extensions: [gnome]
+    plugs:
+      - gsettings
+      - avahi-observe
+      - cups
+      - home
+      - network
+      - removable-media
+    desktop: usr/share/applications/org.gnome.Evince.desktop
+
+  evince-previewer:
+    command: usr/bin/evince-previewer
+    plugs:
+      - avahi-observe
+      - cups
+      - gsettings
+      - home
+      - network
+    desktop: usr/share/applications/org.gnome.Evince-previewer.desktop
+
+  evince-thumbnailer:
+    command: usr/bin/evince-thumbnailer
+    plugs:
+      - gsettings
+      - home
+
+parts:
+  evince:
+    source: https://gitlab.gnome.org/GNOME/evince.git
+    source-type: git
+    source-tag: '48.1'
+    source-depth: 1
+# ext:updatesnap
+#   version-format:
+#     lower-than: '49'
+#     no-9x-revisions: true
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Evince.appdata.xml]
+    build-environment:
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+    meson-parameters:
+      - --prefix=/snap/evince/current/usr
+      - --buildtype=release
+      - -Dnautilus=false
+      - -Dgtk_doc=false
+      - -Dintrospection=false
+      - -Ddevelopment=false
+    organize:
+      snap/evince/current/usr: usr
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    build-packages:
+      - appstream
+      - libarchive-dev
+      - libgail-3-dev
+      - libgspell-1-dev
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libsecret-1-dev
+      - libsm-dev
+      - zlib1g-dev
+      - libspectre-dev
+      - libtiff-dev
+      - libdjvulibre-dev
+      - libkpathsea-dev
+      - libgxps-dev
+      - gsettings-desktop-schemas-dev
+      - dh-apparmor
+    prime:
+      - "-usr/lib/*.a"
+      - "-usr/lib/mozilla"
+      - "-usr/lib/pkgconfig"
+      - "-usr/lib/systemd"
+      - "-usr/lib/evince/4/backends/*.a"
+      - "-usr/share/appdata"
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      - libarchive13
+      - libnss3
+      - libnspr4
+    prime:
+      - "usr/lib/*/libarchive.so.*"
+      - "usr/lib/*/libnss3.so"
+      - "usr/lib/*/libnssutil3.so"
+      - "usr/lib/*/libsmime3.so"
+      - "usr/lib/*/libnspr4.so"
+      - "usr/lib/*/libplc4.so"
+      - "usr/lib/*/libplds4.so"

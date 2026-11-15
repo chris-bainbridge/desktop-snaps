@@ -1,0 +1,13 @@
+# Build metadata for prompting-client (core26 migration, 2026-11).
+snap: prompting-client
+base: core26
+mode: overlay
+overlay-repo: https://github.com/canonical/prompting-client
+overlay-commit: a13125efaec6630f155c0133b969e48365b009c0
+overlay-to: snap
+upstream: https://github.com/canonical/prompting-client
+recipe-commit: 0aed9c3cd2cb7edb151931e6d090cb99999c0e1e
+merge-request: https://github.com/canonical/prompting-client/pull/399
+store:
+  publisher: Canonical
+  verified: true

@@ -1,0 +1,167 @@
+From 9bea1ee256c744098576acee98053e094b4a14a2 Mon Sep 17 00:00:00 2001
+From: Ralph Little <skelband@gmail.com>
+Date: Mon, 23 Feb 2026 11:53:37 -0800
+Subject: [PATCH] various: Some minor warnings dealt with
+
+A recent build with GCC catches more erroneous behaviour.
+Nothing super shocking, except a write out of array bounds in coolscan2 and coolscan3.
+
+Origin: upstream, https://gitlab.com/sane-project/backends/-/commit/9bea1ee256c744098576acee98053e094b4a14a2
+Last-Update: 2026-04-01
+Bug: https://gitlab.com/sane-project/backends/-/work_items/847
+Bug-Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1128748
+---
+ backend/canon_dr.c         | 2 +-
+ backend/canon_pp-dev.c     | 8 ++++----
+ backend/cardscan.c         | 2 +-
+ backend/coolscan2.c        | 2 +-
+ backend/coolscan3.c        | 2 +-
+ backend/epjitsu.c          | 2 +-
+ backend/epson.c            | 2 +-
+ backend/epsonds-net.c      | 2 +-
+ backend/escl/escl_status.c | 2 +-
+ backend/fujitsu.c          | 2 +-
+ 10 files changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/backend/canon_dr.c b/backend/canon_dr.c
+index 9607e3c86..60337d3e9 100644
+--- a/backend/canon_dr.c
++++ b/backend/canon_dr.c
+@@ -941,7 +941,7 @@ attach_one (const char *device_name, int connType)
+   }
+ 
+   /* build a scanner struct to hold it */
+-  if ((s = calloc (sizeof (*s), 1)) == NULL)
++  if ((s = calloc (1, sizeof (*s))) == NULL)
+     return SANE_STATUS_NO_MEM;
+ 
+   /* config file settings */
+diff --git a/backend/canon_pp-dev.c b/backend/canon_pp-dev.c
+index 7d7f7c1d5..72a75d3c7 100644
+--- a/backend/canon_pp-dev.c
++++ b/backend/canon_pp-dev.c
+@@ -959,13 +959,13 @@ int sanei_canon_pp_calibrate(scanner_parameters *sp, char *cal_file)
+ 
+ 	/* Allocate memory for calibration data */
+ 	sp->blackweight = (unsigned long *)
+-		calloc(sizeof(unsigned long), sp->scanheadwidth);
++		calloc(sp->scanheadwidth, sizeof(unsigned long));
+ 	sp->redweight = (unsigned long *)
+-		calloc(sizeof(unsigned long), sp->scanheadwidth);
++		calloc(sp->scanheadwidth, sizeof(unsigned long));
+ 	sp->greenweight = (unsigned long *)
+-		calloc(sizeof(unsigned long), sp->scanheadwidth);
++		calloc(sp->scanheadwidth, sizeof(unsigned long));
+ 	sp->blueweight = (unsigned long *)
+-		calloc(sizeof(unsigned long), sp->scanheadwidth);
++		calloc(sp->scanheadwidth, sizeof(unsigned long));
+ 
+ 	/* The data buffer needs to hold a number of images (calibration_reads)
+ 	 * per colour, each sp->scanheadwidth x scanline_count */
+diff --git a/backend/cardscan.c b/backend/cardscan.c
+index 8984f7a91..8a91257aa 100644
+--- a/backend/cardscan.c
++++ b/backend/cardscan.c
+@@ -452,7 +452,7 @@ attach_one (const char *device_name)
+     /* build a scanner struct to hold it */
+     DBG (15, "attach_one: init struct\n");
+ 
+-    if ((s = calloc (sizeof (*s), 1)) == NULL)
++    if ((s = calloc (1, sizeof (*s))) == NULL)
+         return SANE_STATUS_NO_MEM;
+ 
+     /* copy the device name */
+diff --git a/backend/coolscan2.c b/backend/coolscan2.c
+index 641784a8d..5beef5119 100644
+--- a/backend/coolscan2.c
++++ b/backend/coolscan2.c
+@@ -543,7 +543,7 @@ sane_open (SANE_String_Const name, SANE_Handle * h)
+ 	  o.size = WSIZE;
+ 	  o.cap = SANE_CAP_SOFT_SELECT | SANE_CAP_SOFT_DETECT;
+ 	  o.constraint_type = SANE_CONSTRAINT_WORD_LIST;
+-	  word_list = (SANE_Word *) cs2_xmalloc (2 * sizeof (SANE_Word));
++	  word_list = (SANE_Word *) cs2_xmalloc (3 * sizeof (SANE_Word));
+ 	  if (!word_list)
+ 	    alloc_failed = 1;
+ 	  else
+diff --git a/backend/coolscan3.c b/backend/coolscan3.c
+index 77a1a5c64..17dacdd04 100644
+--- a/backend/coolscan3.c
++++ b/backend/coolscan3.c
+@@ -503,7 +503,7 @@ sane_open(SANE_String_Const name, SANE_Handle * h)
+ 			o.cap = SANE_CAP_SOFT_SELECT | SANE_CAP_SOFT_DETECT;
+ 			o.constraint_type = SANE_CONSTRAINT_WORD_LIST;
+ 			word_list =
+-				(SANE_Word *) cs3_xmalloc(2 *
++				(SANE_Word *) cs3_xmalloc(3 *
+ 							  sizeof(SANE_Word));
+ 			if (!word_list)
+ 				alloc_failed = 1;
+diff --git a/backend/epjitsu.c b/backend/epjitsu.c
+index 7430108e2..65ce85c61 100644
+--- a/backend/epjitsu.c
++++ b/backend/epjitsu.c
+@@ -468,7 +468,7 @@ attach_one (const char *name)
+     /* build a scanner struct to hold it */
+     DBG (15, "attach_one: init struct\n");
+ 
+-    if ((s = calloc (sizeof (*s), 1)) == NULL)
++    if ((s = calloc (1, sizeof (*s))) == NULL)
+         return SANE_STATUS_NO_MEM;
+ 
+     /* copy the device name */
+diff --git a/backend/epson.c b/backend/epson.c
+index d1cad9f41..3f60af651 100644
+--- a/backend/epson.c
++++ b/backend/epson.c
+@@ -3549,7 +3549,7 @@ sane_open (SANE_String_Const devicename, SANE_Handle * handle)
+     return SANE_STATUS_INVAL;
+   }
+ 
+-  s = calloc (sizeof (Epson_Scanner), 1);
++  s = calloc (1, sizeof (Epson_Scanner));
+   if (!s)
+   {
+     DBG (1, "out of memory (line %d)\n", __LINE__);
+diff --git a/backend/epsonds-net.c b/backend/epsonds-net.c
+index 062de758e..a1a4815ad 100644
+--- a/backend/epsonds-net.c
++++ b/backend/epsonds-net.c
+@@ -249,7 +249,7 @@ SANE_Status
+ epsonds_net_lock(struct epsonds_scanner *s)
+ {
+ 	SANE_Status status;
+-	unsigned char buf[7] = "\x01\xa0\x04\x00\x00\x01\x2c";
++	unsigned char buf[7] = {'\x01', '\xa0', '\x04', '\x00', '\x00', '\x01', '\x2c'};
+ 
+ 	DBG(1, "%s\n", __func__);
+ 
+diff --git a/backend/escl/escl_status.c b/backend/escl/escl_status.c
+index eec80411b..62e48a0fc 100644
+--- a/backend/escl/escl_status.c
++++ b/backend/escl/escl_status.c
+@@ -316,7 +316,7 @@ print_xml_reset_all_jobs (xmlNode *node,
+ 			print_xml_job_finish (node, &status);
+ 			if (status == SANE_STATUS_DEVICE_BUSY) {
+ 			    char *jobUri = (char *)xmlNodeGetContent(node);
+-			    char *job = strrchr((const char *)jobUri, '/');
++			    char *job = strrchr(jobUri, '/');
+ 			    char *scanj = NULL;
+ 			    if (job != NULL) {
+ 			        if (strstr(jobUri,"ScanJobs"))
+diff --git a/backend/fujitsu.c b/backend/fujitsu.c
+index 1b5adc5c4..64eb90f22 100644
+--- a/backend/fujitsu.c
++++ b/backend/fujitsu.c
+@@ -998,7 +998,7 @@ attach_one (const char *device_name, int connType)
+   }
+ 
+   /* build a fujitsu struct to hold it */
+-  if ((s = calloc (sizeof (*s), 1)) == NULL)
++  if ((s = calloc (1, sizeof (*s))) == NULL)
+     return SANE_STATUS_NO_MEM;
+ 
+   /* scsi command/data buffer */
+-- 
+GitLab
+

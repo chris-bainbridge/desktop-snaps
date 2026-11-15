@@ -1,0 +1,145 @@
+name: gnome-calendar
+adopt-info: gnome-calendar
+base: core26
+summary: Simple calendar application for Gnome
+description: |
+  GNOME Calendar is a simple and beautiful calendar application for GNOME. We give
+  a lot of attention to details, and as such, design is an essential and ongoing
+  effort.
+
+grade: stable
+confinement: strict # use 'strict' once you have the right plugs and slots
+
+layout:
+  /usr/lib/evolution-data-server:
+    symlink: $SNAP/usr/lib/evolution-data-server
+  /usr/bin/gnome-control-center:
+    symlink: $SNAP/usr/bin/gnome-control-center
+
+slots:
+  # for GtkApplication registration
+  gnome-calendar:
+    interface: dbus
+    bus: session
+    name: org.gnome.Calendar
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - org.gnome.Calendar
+
+apps:
+  gnome-calendar:
+    extensions: [gnome]
+    command: usr/bin/gnome-calendar
+    environment:
+      LD_LIBRARY_PATH: $SNAP/usr/lib:$SNAP/usr/lib/evolution-data-server:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    plugs:
+      - gsettings
+      - mount-observe
+      - calendar-service
+      - accounts-service
+      - contacts-service
+
+parts:
+  evolution-data-server:
+    # use the 26.04 archive's libical-glib 3.0 (as the gnome-calendar 50.0
+    # and evolution-data-server debs do); evolution-data-server 3.62
+    # feature-detects the 3.x vs 4.x API, and gnome-calendar 49.x uses
+    # the 3.x API
+    after: [ geoclue ]
+    source: https://gitlab.gnome.org/GNOME/evolution-data-server.git
+    source-tag: '3.62.1'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -Doptimization=3
+      - -DENABLE_CANBERRA=OFF
+      - -DENABLE_GOA=OFF
+      - -DENABLE_DOT_LOCKING=OFF
+      - -DENABLE_FILE_LOCKING=fcntl
+      - -DENABLE_GTK=OFF
+      - -DENABLE_GTK4=ON
+      - -DENABLE_GOOGLE=OFF
+      - -DENABLE_VALA_BINDINGS=OFF
+      - -DENABLE_WEATHER=OFF
+      - -DWITH_OPENLDAP=OFF
+      - -DWITH_LIBDB=OFF
+      - -DENABLE_INTROSPECTION=OFF
+      # g-ir-scanner in the core26 build env cannot parse the sdk's newer
+      # glibc headers (regex.h __restrict), so gir generation for ECal/
+      # EBookContacts fails; the girs are not consumed by this snap
+      - -DENABLE_INSTALLED_TESTS=OFF
+      - -DENABLE_GTK_DOC=OFF
+      - -DENABLE_EXAMPLES=OFF
+      - -DENABLE_OAUTH2_WEBKITGTK4=OFF
+    build-environment:
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig:$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+    override-pull: |
+      craftctl default
+      sed -i "s|#include \"nss.h\"|#include \"nss/nss.h\"|g" src/camel/camel.c
+      sed -i "s|#include <nss.h>|#include <nss/nss.h>|g" src/libedataserverui/e-certificate-widget.c
+    override-stage: |
+      craftctl default
+      for PCFILE in "libebook-contacts-1.2.pc" "libedataserver-1.2.pc" "libedataserverui4-1.0.pc"; do
+        sed -i "s#prefix=/root/stage/usr#prefix=/root/stage#g" $CRAFT_STAGE/usr/lib/pkgconfig/$PCFILE
+        sed -i "s#includedir=/usr/include#includedir=\${prefix}/usr/include#g" $CRAFT_STAGE/usr/lib/pkgconfig/$PCFILE
+        sed -i "s#libdir=/usr/lib#libdir=\${prefix}/usr/lib#g" $CRAFT_STAGE/usr/lib/pkgconfig/$PCFILE
+        sed -i "s#datarootdir=/usr/lib#datarootdir=\${prefix}/usr/lib#g" $CRAFT_STAGE/usr/lib/pkgconfig/$PCFILE
+        sed -i "s#datadir=/usr/lib#datadir=\${prefix}/usr/lib#g" $CRAFT_STAGE/usr/lib/pkgconfig/$PCFILE
+        sed -i "s#privincludedir=/usr/include/#privincludedir=\${prefix}/usr/include/#g" $CRAFT_STAGE/usr/lib/pkgconfig/$PCFILE
+      done
+      cp $CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so $CRAFT_STAGE/usr/lib/
+    build-packages:
+      - libkrb5-dev
+      # 26.04's libical-glib 3.0 is used (as in the E-D-S/gcal debs)
+      - libical-dev
+      - gperf
+      - zlib1g-dev
+    stage-packages:
+      # runtime libical stack for the snap (the core24 recipe built its
+      # own libical; the deb-aligned 3.0 comes from the archive now,
+      # and 26.04's libical3t64 bundles the glib bindings)
+      - libical3t64
+      - libicu78
+
+  geoclue:
+    source: https://gitlab.freedesktop.org/geoclue/geoclue.git
+    source-tag: '2.8.2'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Ddebug=true
+      - -Denable-backend=false
+      - -Dlibgeoclue=true
+      - -Dintrospection=true
+      - -Dgtk-doc=false
+
+  gnome-calendar:
+    after: [ evolution-data-server, geoclue ]
+    source: https://gitlab.gnome.org/GNOME/gnome-calendar.git
+    source-type: git
+    source-tag: '49.0.1'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Calendar.appdata.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    build-environment:
+      - C_INCLUDE_PATH: ${C_INCLUDE_PATH:+$C_INCLUDE_PATH:}$CRAFT_STAGE/usr/include/evolution-data-server
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib:$CRAFT_STAGE/usr/lib/evolution-data-server:$LD_LIBRARY_PATH
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig:$PKG_CONFIG_PATH
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Calendar.svg $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.Calendar.desktop $CRAFT_PART_INSTALL/meta/gui/
+      sed -i -e 's|=org.gnome.Calendar$|=${SNAP}/meta/gui/org.gnome.Calendar.svg|g' $CRAFT_PART_INSTALL/meta/gui/org.gnome.Calendar.desktop
+

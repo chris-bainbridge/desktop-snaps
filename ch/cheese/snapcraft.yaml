@@ -1,0 +1,81 @@
+name: cheese
+adopt-info: cheese
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+issues: https://github.com/ubuntu/cheese/issues
+contact: https://github.com/ubuntu/cheese/issues
+
+slots:
+  # for GtkApplication registration
+  cheese:
+    interface: dbus
+    bus: session
+    name: org.gnome.Cheese
+
+apps:
+  cheese:
+    extensions: [ gnome ]
+    command: usr/bin/cheese
+    desktop: usr/share/applications/org.gnome.Cheese.desktop
+    plugs:
+      - gsettings
+      - audio-playback
+      - camera
+      - home
+    environment:
+      DISABLE_WAYLAND: 'true'
+
+parts:
+  cheese:
+    source: https://gitlab.gnome.org/Archive/cheese.git
+    source-type: git
+    source-tag: '44.1'
+    source-depth: 1
+    parse-info: [usr/share/metainfo/org.gnome.Cheese.appdata.xml]
+    override-build: |
+      # glib 2.90 returns GObject* from g_object_ref; cast to the field type
+      # (gcc 15 makes incompatible pointer assignment an error)
+      sed -i 's|priv->parent = g_object_ref (parent);|priv->parent = GTK_WIDGET (g_object_ref (parent));|g' $CRAFT_PART_SRC/libcheese/cheese-flash.c
+      sed -i.bak -e 's|=org.gnome.Cheese$|=${SNAP}/meta/gui/org.gnome.Cheese.svg|g' $CRAFT_PART_SRC/data/org.gnome.Cheese.desktop.in
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/scalable/org.gnome.Cheese.svg $CRAFT_PART_INSTALL/meta/gui/
+    plugin: meson
+    meson-parameters:
+     - --prefix=/usr
+     - --buildtype=release
+     # the sdk does not ship GStreamer girs, which the Cheese gir generation
+     # would need; the Cheese typelib has no consumers in this snap
+     - -Dintrospection=false
+     - -Dgtk_doc=false
+     - -Dman=false
+    build-packages:
+     - libcanberra-gtk3-dev
+     - libclutter-gst-3.0-dev
+     # clutter-gtk dropped from gnome-core26-sdk; use the 26.04 archive one
+     - libclutter-gtk-1.0-dev
+     - libgstreamer-plugins-bad1.0-dev
+     - cmake
+     - libgnome-desktop-3-dev
+    stage-packages:
+    # clutter stack is not in the gnome-core26 content snap either
+    - libclutter-1.0-0
+    - libclutter-gtk-1.0-0
+    - libclutter-gst-3.0-0
+
+  # dropped from the 26.04 archive; build the (data-only) effects from
+  # source so cheese keeps its camera effects at runtime
+  gnome-video-effects:
+    source: https://gitlab.gnome.org/GNOME/gnome-video-effects.git
+    source-tag: '0.6.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+     - --prefix=/usr
+
+  libraries:
+    plugin: nil
+    prime:
+      - "-*"
+

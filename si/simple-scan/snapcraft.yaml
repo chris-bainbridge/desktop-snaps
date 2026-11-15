@@ -1,0 +1,151 @@
+name: simple-scan
+adopt-info: simple-scan
+summary: Document Scanning Application
+version: 49.1
+description: |
+  A really easy way to scan both documents and photos from a scanner (e.g. a flatbed scanner).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+# this is not used or needed for anything other than to trigger automatic
+# installation of the cups snap via "default-provider: cups"
+plugs:
+  foo-install-cups:
+    interface: content
+    content: foo
+    default-provider: cups
+    target: $SNAP_DATA/foo
+
+slots:
+  # for GtkApplication registration
+  simple-scan:
+    interface: dbus
+    bus: session
+    name: org.gnome.SimpleScan
+
+# Make our libsane find the SANE backends (scanner drivers)
+layout:
+  /etc:
+    bind: $SNAP/etc
+  /usr/lib/sane:
+    bind: $SNAP/usr/lib/sane
+
+
+apps:
+  simple-scan:
+    plugs:
+      - gsettings
+      - network
+      - home
+      - cups
+      - raw-usb   #This will need manual connection
+      - hardware-observe
+      - avahi-observe
+    command: usr/bin/simple-scan
+    extensions: [ gnome ]
+    desktop: usr/share/applications/org.gnome.SimpleScan.desktop
+    environment:
+      GSETTINGS_SCHEMA_DIR: $SNAP/share/glib-2.0/schemas
+
+parts:
+  libsane:
+# ext: updatesnap
+    source: https://gitlab.com/sane-project/backends.git
+    source-type: git
+    source-tag: '1.4.0'
+    source-depth: 1
+    plugin: autotools
+    # gcc 15/16 (26.04) fixups for sane-backends 1.4.0, as shipped in the
+    # 26.04 sane-backends deb (upstream commits)
+    override-pull: |
+      craftctl default
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/fix-ftbfs-gcc16-c23.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/fix-ftbfs-glibc-2_43-1.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/fix-ftbfs-glibc-2_43-2.patch"
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --sysconfdir=/etc
+      - --with-api-spec=no
+      - --with-avahi
+    build-packages:
+      # Everything of the build dependencies of the sane-backends
+      # Debian package ...
+      - libavahi-client-dev
+      - libcups2-dev
+      - libcurl4-gnutls-dev
+      - libgphoto2-dev
+      - libieee1284-3-dev
+      - libjpeg-dev
+      - libltdl3-dev
+      - libpoppler-glib-dev
+      - libsnmp-dev
+      - libsystemd-dev
+      - libtiff-dev
+      - libusb-1.0-0-dev
+      - libxml2-dev
+      - python3-minimal
+    stage-packages:
+      - libexif12
+      - libgphoto2-6t64
+      - libgphoto2-port12t64
+      - libsnmp40t64
+    organize:
+      snap/simple-scan/current/usr: usr
+
+  libsane-airscan:
+# ext: updatesnap
+    after: [libsane]
+    source: https://github.com/alexpevzner/sane-airscan
+    source-type: git
+    # 0.99.37 fixes the gcc 15/16 const-correct strchr usage (FTBFS in
+    # 26.04) and is exactly the version the 26.04 sane-airscan deb ships
+    source-tag: '0.99.37'
+    source-depth: 1
+    plugin: make
+    make-parameters:
+      - prefix=/usr
+      - sysconfdir=/etc
+      - libdir=/usr/lib
+    build-packages:
+      # Everything of the build dependencies of the sane-airscan
+      # Debian package ...
+      - libavahi-client-dev
+      - libavahi-common-dev
+      - libjpeg-turbo8-dev
+      - libpng-dev
+      - libxml2-dev
+
+  simple-scan:
+    after: [libsane]
+    source: https://gitlab.gnome.org/GNOME/simple-scan.git
+    source-type: git
+    source-tag: '49.1'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.SimpleScan.appdata.xml]
+    meson-parameters:
+      - --prefix=/usr
+    override-build: |
+      sed -i.bak -e 's|Icon=org.gnome.SimpleScan$|Icon=${SNAP}/meta/gui/org.gnome.SimpleScan.svg|g' $CRAFT_PART_SRC/data/org.gnome.SimpleScan.desktop.in
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.SimpleScan.svg $CRAFT_PART_INSTALL/meta/gui/
+      craftctl default
+    build-packages:
+      - desktop-file-utils
+      - gnome-common
+      - intltool
+      - libcolord-dev
+      - libgusb-dev
+      - libpackagekit-glib2-dev
+
+  libs:
+    plugin: nil
+    stage-packages:
+      - libgusb2a
+      - libpackagekit-glib2-18
+      - libieee1284-3t64
+      - libgphoto2-6t64
+      - libsnmp40t64
+      - libgphoto2-port12t64

@@ -1,0 +1,101 @@
+name: eog
+summary: Eye of Gnome
+description: |
+  Eye of Gnome is an image viewer for Gnome
+
+adopt-info: eog
+license: "GPL-3.0+"
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+layout:
+  # libpeas loaders live at the libdir libpeas was compiled with
+  # (/usr/lib/<triplet>/libpeas-1.0). gnome-core26 does not ship libpeas,
+  # so bind that path to the copy staged inside the snap.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/eog:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/eog
+  /usr/share/eog:
+    bind: $SNAP/usr/share/eog
+
+slots:
+  # for GtkApplication registration
+  eog:
+    interface: dbus
+    bus: session
+    name: org.gnome.eog
+
+apps:
+  eog:
+    common-id: org.gnome.eog.desktop
+    command: usr/bin/eog
+    extensions: [gnome]
+    plugs:
+      - gsettings
+      - home
+      - mount-observe
+      - removable-media
+    environment:
+      LD_LIBRARY_PATH: :$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/eog:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/eog
+      GI_TYPELIB_PATH: $SNAP/usr/lib/eog/girepository-1.0:$SNAP/usr/lib/girepository-1.0:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages:$SNAP/gnome-platform/usr/lib/python3/dist-packages
+
+parts:
+  eog:
+    source: https://gitlab.gnome.org/GNOME/eog.git
+    source-type: git
+    source-tag: '49.1'
+    source-depth: 1
+    parse-info: [usr/share/metainfo/eog.appdata.xml]
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dintrospection=true
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # port to the girepository-2.0 API used by libpeas 1.38 / pygobject 3.52
+      # (as in the eog 49.1 deb, patch from Fedora via Debian)
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/libgirepository-2.0.patch"
+      # rsvg_handle_get_pixbuf was dropped in librsvg 2.59 (the gnome-core26-sdk
+      # ships a newer librsvg); render to a cairo surface instead
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/librsvg-2.59-render-document.patch"
+    override-build: |
+      sed -i 's|g_file_test ("/.flatpak-info", G_FILE_TEST_EXISTS);|TRUE;|g' $CRAFT_PART_SRC/src/eog-util.c
+      sed -i.bak -e 's|=org.gnome.eog$|=${SNAP}/meta/gui/org.gnome.eog.svg|g' $CRAFT_PART_SRC/data/org.gnome.eog.desktop.in.in
+      sed -i.bak -e 's|media: media,|media: media, symlink_media: false,|g' $CRAFT_PART_SRC/help/meson.build
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/scalable/apps/org.gnome.eog.svg $CRAFT_PART_INSTALL/meta/gui/
+    build-packages:
+      # libpeas-gtk-1.0 is no longer in the gnome-core26-sdk (GNOME 49+ stack
+      # moved to libpeas-2); 26.04's libpeas-dev still ships it
+      - libpeas-dev
+      - libexempi-dev
+      - libexif-dev
+      - libjpeg-dev
+      - liblcms2-dev
+      - zlib1g-dev
+      - xkb-data
+    build-environment:
+      - XDG_DATA_DIRS: $CRAFT_STAGE/usr/share:/usr/share:$XDG_DATA_DIRS
+
+  libraries:
+    after: [eog]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 does not ship libpeas (the 2404 content snap did), so
+      # stage it from the 26.04 archive for eog's plugin engine
+      - gir1.2-peas-1.0
+      - libpeas-1.0-1
+      - libexif12
+      - libexempi8
+    prime:
+      - usr/lib/*/girepository-1.0/Peas*
+      - usr/lib/*/libpeas*
+      - "usr/lib/*/libexif*"
+      - "usr/lib/*/libexempi*"
+
