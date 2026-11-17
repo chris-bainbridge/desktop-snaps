@@ -20,24 +20,26 @@ Nothing here is wired to CI or to the Snap Store. No build ever uploads.
 
 ## Layout
 
-Packages are sharded by the first two characters of the **snap name** (the
-store identity), as in Nixpkgs:
+Every package lives in a top-level directory named after its **snap name**
+(the store identity):
 
 ```
-gn/gnome-calculator/
-gn/gnome-contacts/
-si/simple-scan/
-th/thunderbird/
+gnome-calculator/
+gnome-contacts/
+simple-scan/
+thunderbird/
 ...
 ```
 
-The directory name is always the snap name and matches `metadata.yaml`.
+A two-letter shard (`gn/`, `th/`, as in Nixpkgs) is deliberately not used:
+with a dozen packages a flat layout is easier to scan, and sharding can be
+added later if the repository grows to hundreds.
 
-Each package directory is a complete build project in whatever shape its
-upstream uses, plus a `metadata.yaml`:
+The directory name matches `snap:` in `metadata.yaml`. Each package directory
+is a complete build project in whatever shape its upstream uses:
 
 ```
-gn/gnome-logs/
+gnome-logs/
 ├── metadata.yaml       # provenance and build mode
 ├── snapcraft.yaml      # the recipe
 └── ...                 # patches, snap/, or whatever the recipe needs
@@ -49,8 +51,7 @@ gn/gnome-logs/
 
 ```console
 ./build --list                     # all packages, mode and publisher
-./build gnome-logs                 # build gn/gnome-logs
-./build gn/gnome-logs              # same, shard prefix accepted
+./build gnome-logs                 # build the gnome-logs package
 ./build gnome-calculator --dry-run # show what would happen
 ./build gnome-calculator --keep    # keep the workspace for inspection
 ./build gnome-calculator -- --build-for=arm64   # extra args go to snapcraft

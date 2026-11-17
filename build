@@ -25,8 +25,8 @@ usage() {
     cat <<'EOF'
 Usage: ./build [options] <snap>
 
-Build a snap from its package directory (first two letters of the snap name,
-e.g. gn/gnome-logs). Builds run out of tree in a temporary workspace.
+Build a snap from its top-level package directory (e.g. gnome-logs). Builds
+run out of tree in a temporary workspace.
 
 Options:
   --list               list packages and exit
@@ -43,7 +43,6 @@ Environment:
 Examples:
   ./build --list
   ./build gnome-logs
-  ./build gn/gnome-logs
   ./build gnome-calculator --dry-run
   ./build gnome-calculator -- --build-for=arm64
 EOF
@@ -85,7 +84,7 @@ list_packages() {
             "$(meta_get "$pkgdir" mode)" \
             "$(meta_get "$pkgdir" base)" \
             "$(meta_get "$pkgdir" store.publisher)"
-    done < <(find "$ROOT" -mindepth 3 -maxdepth 3 -name metadata.yaml | sort)
+    done < <(find "$ROOT" -mindepth 2 -maxdepth 2 -name metadata.yaml | sort)
 }
 
 name=""
@@ -139,17 +138,16 @@ done
     exit 1
 }
 
-# Accept both "gnome-logs" and "gn/gnome-logs".
+# Accept both "gnome-logs" and a path to the package directory.
 name="${name#./}"
 name="${name%/}"
 if [[ "$name" == */* ]]; then
     name="${name##*/}"
 fi
 
-shard="${name:0:2}"
-pkgdir="$ROOT/$shard/$name"
+pkgdir="$ROOT/$name"
 
-[[ -d "$pkgdir" ]] || die "no such snap: $name (looked in $shard/$name); try ./build --list"
+[[ -d "$pkgdir" ]] || die "no such snap: $name; try ./build --list"
 [[ -f "$pkgdir/metadata.yaml" ]] || die "missing $pkgdir/metadata.yaml"
 
 snap="$(meta_get "$pkgdir" snap)"
