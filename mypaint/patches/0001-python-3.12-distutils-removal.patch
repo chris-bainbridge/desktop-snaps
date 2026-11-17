@@ -1,0 +1,83 @@
+From: Boyuan Yang <byang@debian.org>
+Date: Tue, 30 Jan 2024 00:49:00 -0500
+Subject: Handle python3-distutils removal
+
+Bug: https://github.com/mypaint/mypaint/issues/1228
+---
+ setup.py                      | 22 ++--------------------
+ tests/unported/performance.py |  6 +++---
+ 2 files changed, 5 insertions(+), 23 deletions(-)
+
+diff --git a/setup.py b/setup.py
+index c6f88d2..4b557fb 100644
+--- a/setup.py
++++ b/setup.py
+@@ -14,8 +14,7 @@ import textwrap
+ import tempfile
+ import shutil
+ 
+-from distutils.command.build import build
+-from distutils.command.clean import clean
++from setuptools.command.build import build
+ 
+ from setuptools import setup
+ from setuptools import Extension
+@@ -495,23 +494,6 @@ class Install (install):
+         install.run(self)
+ 
+ 
+-class Clean (clean):
+-    """Custom clean: also remove swig-generated wrappers.
+-
+-    distutils's clean has always left these lying around in the source,
+-    and they're a perpetual trip hazard when sharing the same source
+-    tree with a Windows VM.
+-
+-    """
+-
+-    def run(self):
+-        build_temp_files = glob.glob("lib/mypaintlib_wrap.c*")
+-        for file in build_temp_files:
+-            self.announce("removing %r" % (file,), level=2)
+-            os.unlink(file)
+-        return clean.run(self)
+-
+-
+ class Demo (Command):
+     """Builds, then do a test run from a temporary install tree"""
+ 
+@@ -1000,7 +982,7 @@ setup(
+         "managed_install": ManagedInstall,
+         "managed_uninstall": ManagedUninstall,
+         "install_scripts": InstallScripts,
+-        "clean": Clean,
++#        "clean": Clean,
+     },
+     scripts=[
+         "mypaint.py",
+diff --git a/tests/unported/performance.py b/tests/unported/performance.py
+index ebb10cc..8b626ab 100755
+--- a/tests/unported/performance.py
++++ b/tests/unported/performance.py
+@@ -6,7 +6,7 @@ import os
+ import subprocess
+ import cProfile
+ from time import time, sleep
+-import distutils.spawn
++import shutil
+ 
+ import numpy as np
+ 
+@@ -447,10 +447,10 @@ if __name__ == '__main__':
+ 
+     if options.show_profile:
+         gprof2dot = "gprof2dot.py" \
+-            if distutils.spawn.find_executable("gprof2dot.py") \
++            if shutil.which("gprof2dot.py") \
+             else "gprof2dot"
+         viewer = "feh" \
+-            if distutils.spawn.find_executable("feh") \
++            if shutil.which("feh") \
+             else "eog"
+         # FIXME: use gui.profiling's improved code somehow
+         os.system(

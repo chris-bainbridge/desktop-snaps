@@ -1,0 +1,117 @@
+name: easytag
+version: '2.4.3'
+summary: Audio file metadata (tag) editor
+description: |
+  EasyTAG is a utility for viewing, editing and writing the tags of audio
+  files. It supports MP3/MP2 (ID3v1, ID3v2.3 and ID3v2.4), FLAC, Ogg Vorbis,
+  Ogg Opus, Ogg Speex, MP4/AAC, MusePack, Monkey's Audio and WavPack files.
+
+  It can rename files from tag fields, fill tags from file names using masks,
+  look up album data in CDDB databases, create playlists and edit the tags of
+  many files at once.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://wiki.gnome.org/Apps/EasyTAG
+source-code: https://gitlab.gnome.org/GNOME/easytag
+issues: https://gitlab.gnome.org/GNOME/easytag/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  easytag:
+    interface: dbus
+    bus: session
+    name: org.gnome.EasyTAG
+
+apps:
+  easytag:
+    extensions: [gnome]
+    command: usr/bin/easytag
+    desktop: usr/share/applications/easytag.desktop
+    common-id: easytag.desktop
+    plugs:
+      - gsettings
+      - home
+      # CDDB album lookups talk to freedb/gnudb over the network
+      - network
+      # tag collections on USB sticks and other removable media
+      - removable-media
+
+# EasyTAG 2.4.3 is the last upstream release (2016). The git master branch
+# has continued to receive build fixes but has never been released, so the
+# release tag is pinned and the small set of Debian 2.4.3-12 patches that
+# make it build against the 26.04 toolchain are applied below. There is no
+# classic fallback: the snap is strict because it has to run on Core Desktop.
+parts:
+  easytag:
+    source: https://gitlab.gnome.org/GNOME/easytag.git
+    source-type: git
+    source-tag: 'easytag-2.4.3'
+    source-depth: 1
+    plugin: autotools
+    build-environment:
+      # id3lib 3.8.3's headers typedef bool, which conflicts with the C23
+      # default of GCC 15. Build the C sources as C17, as Debian does.
+      - CFLAGS: -O2 -std=gnu17
+    autotools-configure-parameters:
+      - --prefix=/usr
+      # The 2016 code produces warnings with GCC 15; do not fail on them.
+      - --disable-Werror
+      # The Nautilus extension needs the libnautilus-extension API, which is
+      # not in the gnome-core26 SDK (and current Nautilus no longer loads
+      # extensions this way).
+      - --disable-nautilus-actions
+      # No man page or test suite in the snap; skip their build dependencies.
+      - --disable-man
+      - --disable-tests
+    build-packages:
+      # GTK3, GLib, GIO, gdk-pixbuf, pkg-config, autoconf, automake, gettext,
+      # libtool and the gdk-pixbuf loaders come from the gnome-core26-sdk
+      # build snap. Only the codec/tag libraries and the help/translation
+      # tooling are missing from it.
+      - intltool
+      - libflac-dev
+      - libid3-3.8.3-dev
+      - libid3tag0-dev
+      - libogg-dev
+      - libopus-dev
+      - libopusfile-dev
+      - libspeex-dev
+      - libtag-dev
+      - libvorbis-dev
+      - libwavpack-dev
+      - yelp-tools
+    override-pull: |
+      craftctl default
+      # Debian 2.4.3-12 fixes, needed for a modern toolchain:
+      # 0001 drop the retired gdk-pixbuf-pixdata preprocessor
+      # 0002 revert an Ogg tag corruption bug
+      # 0003/0004 port the TagLib code to the 2.x API
+      # 0005 install AppStream metadata without appdata-tools
+      for patch_file in "${CRAFT_PROJECT_DIR}"/patches/*.patch; do
+          patch -p1 --forward < "${patch_file}"
+      done
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=easytag$|Icon=${SNAP}/meta/gui/easytag.svg|g' data/easytag.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/easytag.svg $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    after: [easytag]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides GTK3, gdk-pixbuf, libFLAC14, TagLib, WavPack,
+      # Speex, Vorbis, Ogg and Opus. It does not ship these three, so stage
+      # their 26.04 archive versions (libid3-3.8.3v5 is id3lib, used to write
+      # ID3v2.3 tags; libid3tag0 reads MP3 tags; libopusfile0 handles Opus).
+      - libid3-3.8.3v5
+      - libid3tag0
+      - libopusfile0

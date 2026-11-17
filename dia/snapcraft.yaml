@@ -1,0 +1,122 @@
+name: dia
+version: '0.98.0+git20260425'
+summary: Diagram editor
+description: |
+  Dia is a diagram creation program for GNOME. It can be used to draw
+  entity-relationship diagrams, UML diagrams, flowcharts, network diagrams
+  and many other kinds of diagrams. Diagrams are stored in Dia's own XML
+  format and can be exported to SVG, PNG, PDF, EPS, DXF, VDX and several
+  other formats.
+
+  Shapes and plug-ins extend the editor, and Python scripts can automate it.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://gitlab.gnome.org/GNOME/dia
+source-code: https://gitlab.gnome.org/GNOME/dia
+issues: https://gitlab.gnome.org/GNOME/dia/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+# Upstream has never tagged a 0.98 release: the newest tag is DIA_0_97_2
+# (0.97.2, 2011), the 0.97.3 tarball (2014) was not tagged, and the 0.98.0
+# development series is still unreleased. 0.97.3 is a GTK2 application built
+# with autotools and optional Python 2 bindings; it no longer builds with the
+# core26 toolchain (it requires the removed freetype-config and trips several
+# modern GCC diagnostics). The 0.98.0 branch is the GTK3/meson/Python 3 port
+# that Debian and Ubuntu package, so pin the current master commit instead of
+# a non-existent release tag.
+#
+# Strict confinement limitations:
+# - The home interface exposes the real home directory except its top-level
+#   hidden entries; $HOME itself is the snap's private writable directory,
+#   where only the XDG user directories are linked into the real home. Files
+#   elsewhere are reachable only through the desktop document portal (the
+#   gnome extension sets GTK_USE_PORTAL=1).
+# - removable-media, network and cups-control are deliberately not declared.
+#   Dia has no network features, but it cannot read USB sticks directly, and
+#   printing to a printer needs cups-control; exporting to PDF, SVG and PNG
+#   still works.
+# - User settings and user shape sheets live in the snap's private XDG
+#   directories, not in the host's ~/.dia, so existing preferences and user
+#   shapes are not imported.
+# - The help manual is not built (-Ddoc=disabled: dblatex and xsltproc are not
+#   in gnome-core26-sdk), so Help > Manual reports a missing manual.
+
+apps:
+  dia:
+    extensions: [gnome]
+    command: usr/bin/dia
+    desktop: usr/share/applications/org.gnome.Dia.desktop
+    common-id: org.gnome.Dia.desktop
+    plugs:
+      - gsettings
+      - home
+
+parts:
+  xpm-pixbuf:
+    # Dia 0.98 uses xpm-pixbuf for the XPM pixmaps in its shape sheets.
+    # gdk-pixbuf no longer guarantees its XPM loader and no distribution
+    # packages xpm-pixbuf, so build it as a small private library. Upstream
+    # has no tags; pin the current main commit.
+    source: https://gitlab.gnome.org/ZanderBrown/xpm-pixbuf.git
+    source-type: git
+    source-commit: d290a0c846687b22d2a8c5aaec83a6689f30e1c3
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    prime:
+      - usr/lib/*/libxpm-pixbuf.so*
+
+  dia:
+    after: [xpm-pixbuf]
+    source: https://gitlab.gnome.org/GNOME/dia.git
+    source-type: git
+    source-commit: ad68cc378b7a187706bc2648c48b44d16fb80819
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/dia/current/usr
+      - --buildtype=release
+      # The API reference and the DocBook manual need gtk-doc, dblatex and
+      # xsltproc, none of which are part of gnome-core26-sdk.
+      - -Dgtk_doc=false
+      - -Ddoc=disabled
+      - -Dtests=false
+    build-packages:
+      # GTK3, GLib, gdk-pixbuf, libxml2, graphene and the Python 3 embedding
+      # files come from gnome-core26-sdk. libxslt is not part of the SDK;
+      # without its development files Dia silently skips its XSLT plug-in.
+      - libxslt1-dev
+    override-pull: |
+      craftctl default
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=org.gnome.Dia$|Icon=${SNAP}/meta/gui/org.gnome.Dia.svg|g' data/org.gnome.Dia.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/org.gnome.Dia.svg $CRAFT_PART_INSTALL/meta/gui/
+    organize:
+      snap/dia/current/usr: usr
+
+  libraries:
+    after: [dia]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 does not ship libxml2, which Dia uses for its native
+      # diagram format and for SVG/VDX import and export (and which the
+      # content snap's libxslt resolves at run time). Stage it from the 26.04
+      # archive. The gnome/cleanup part deletes staged libraries that also
+      # exist in the SDK, so keep it outside the SDK's path layout;
+      # $SNAP/usr/lib is in the LD_LIBRARY_PATH that snapcraft generates.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* $CRAFT_PART_INSTALL/usr/lib/
+    prime:
+      - usr/lib/libxml2.so.16*

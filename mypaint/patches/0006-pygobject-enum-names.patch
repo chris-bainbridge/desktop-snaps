@@ -1,0 +1,105 @@
+Description: use PyGObject enum names instead of the removed value_name/value_nick
+ PyGObject 3.56 replaced its GEnum wrapper with real Python enums, so enum
+ members no longer expose the value_name and value_nick attributes that
+ MyPaint 2.0.1 uses for logging, drag-and-drop targets and device settings
+ keys. lib.glib.init_user_dir_caches() hits this on every start, which makes
+ the application abort with an AttributeError before a window is shown.
+ Enum members still have .name, which carries the same upper-case constant
+ name for all of the affected enums (GLib.UserDirectory, Gdk.InputSource,
+ Gdk.GrabStatus, Gdk.EventType and Gtk.TreeViewDropPosition); the values are
+ only used for messages and for building persisted preference keys.
+Origin: local
+Forwarded: not-needed
+
+diff --git a/gui/device.py b/gui/device.py
+index 97b0fe1..e45ac0c 100644
+--- a/gui/device.py
++++ b/gui/device.py
+@@ -277,7 +277,7 @@ class Monitor (object):
+                 "New device %r"
+                 " (%s, axes:%d, class=%s, vendor=%r, product=%r)",
+                 device.get_name(),
+-                source.value_name,
++                source.name,
+                 num_axes,
+                 device.__class__.__name__,
+                 vendor_id,
+@@ -354,7 +354,7 @@ class Monitor (object):
+ 
+         logger.debug(
+             "Device change: name=%r source=%s",
+-            new_device.name, new_device.source.value_name,
++            new_device.name, new_device.source.name,
+         )
+ 
+         # When editing brush settings, it is often more convenient to use the
+@@ -554,7 +554,7 @@ class SettingsEditor (Gtk.Grid):
+     def _device_type_datafunc(self, column, cell, model, iter_, *data):
+         device = model.get_value(iter_, 0)
+         source = device.get_source()
+-        text = _DEVICE_TYPE_STRING.get(source, source.value_nick)
++        text = _DEVICE_TYPE_STRING.get(source, source.name)
+         cell.set_property("text", text)
+ 
+     def _device_usage_datafunc(self, column, cell, model, iter_, *data):
+@@ -633,7 +633,7 @@ def _device_prefs_key(device):
+     source = device.get_source()
+     name = device.get_name()
+     n_axes = device.get_n_axes()
+-    return u"%s:%s:%d" % (name, source.value_nick, n_axes)
++    return u"%s:%s:%d" % (name, source.name, n_axes)
+ 
+ 
+ def device_is_eraser(device):
+diff --git a/gui/inputtestwindow.py b/gui/inputtestwindow.py
+index 41bbd17..6f7318b 100644
+--- a/gui/inputtestwindow.py
++++ b/gui/inputtestwindow.py
+@@ -118,7 +118,7 @@ class InputTestWindow (windowing.SubWindow):
+         t = str(getattr(event, 'time', '-'))
+         msg = '% 6s % 15s' % (
+             t[-6:],
+-            event.type.value_name.replace('GDK_', ''),
++            event.type.name.replace('GDK_', ''),
+         )
+ 
+         if hasattr(event, 'x') and hasattr(event, 'y'):
+diff --git a/gui/layers.py b/gui/layers.py
+index cd6e806..75cf887 100644
+--- a/gui/layers.py
++++ b/gui/layers.py
+@@ -623,7 +623,7 @@ class RootStackTreeView (Gtk.TreeView):
+         if dest_treepath is not None:
+             logger.debug(
+                 "Checked destination: %s %r",
+-                drop_pos.value_nick,
++                drop_pos.name,
+                 tuple(dest_treepath),
+             )
+         return (dest_treepath, drop_pos)
+diff --git a/gui/windowing.py b/gui/windowing.py
+index 0c6977b..8fa6f35 100644
+--- a/gui/windowing.py
++++ b/gui/windowing.py
+@@ -282,7 +282,7 @@ class ChooserPopup (Gtk.Window):
+             self._outside_grab_active = True
+         else:
+             logger.warning("grab: failed to acquire grab on %r (status=%s)",
+-                           device, grab_status.value_nick)
++                           device, grab_status.name)
+ 
+     def _ungrab_pointer_outside(self, device, time):
+         if not self._outside_grab_active:
+diff --git a/lib/glib.py b/lib/glib.py
+index ef5d75b..6df25a9 100644
+--- a/lib/glib.py
++++ b/lib/glib.py
+@@ -190,7 +190,7 @@ def init_user_dir_caches():
+         k = GLib.UserDirectory(i)
+         logger.debug(
+             "Init g_get_user_special_dir(%s): %r",
+-            k.value_name,
++            k.name,
+             get_user_special_dir(k),
+         )
+ 

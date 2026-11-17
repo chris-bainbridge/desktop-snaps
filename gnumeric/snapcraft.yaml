@@ -1,0 +1,164 @@
+name: gnumeric
+version: '1.12.62'
+summary: High-precision spreadsheet application
+description: |
+  Gnumeric is a spreadsheet application for interactive manipulation of data.
+  It aims to provide high-accuracy computations, expressive graphs, and a wide
+  selection of statistical analysis tools. Gnumeric can read and write
+  Microsoft Excel (xls/xlsx) and OpenDocument (ods) spreadsheets as well as
+  CSV, TSV, Lotus 1-2-3 and many other formats.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.gnumeric.org/
+source-code: https://gitlab.gnome.org/GNOME/gnumeric
+issues: https://gitlab.gnome.org/GNOME/gnumeric/-/issues
+
+# Both upstream projects are still autotools-only; there is no meson build.
+#
+# Strict-confinement notes (Core Desktop has no classic snaps):
+#   * Only $HOME, removable media mounted under /media, /mnt or /run/media,
+#     and the snap's own data directories are reachable. Spreadsheets kept
+#     elsewhere (e.g. /srv, /opt) cannot be opened.
+#   * Printing goes through the CUPS socket (cups-control). Direct printer
+#     device access is not available.
+#   * Help (F1 / Help > Contents) asks the desktop for help:gnumeric, which
+#     would need yelp; yelp is neither in the snap nor reachable from a
+#     confined snap, so the help pages do not open.
+#   * The perl and python plugin loaders are disabled (see below): they embed
+#     an interpreter and would need dev headers and runtime paths that are not
+#     shipped inside the snap.
+#   * Remote (gvfs/smb/sftp) locations are not available; files are opened
+#     from, and saved to, the local filesystem only.
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  gnumeric:
+    extensions: [gnome]
+    command: usr/bin/gnumeric
+    desktop: usr/share/applications/org.gnumeric.gnumeric.desktop
+    common-id: org.gnumeric.gnumeric.desktop
+    plugs:
+      # goffice stores its configuration through GSettings/dconf
+      - gsettings
+      # open and save spreadsheets in the user's home directory
+      - home
+      # spreadsheets and backups on USB sticks / SD cards
+      - removable-media
+      # File > Print
+      - cups-control
+
+parts:
+  goffice:
+    # gnome-core26 neither ships libgoffice nor libgsf (checked against the
+    # gnome-core26 content snap's package manifest), and the 26.04 archive
+    # only has goffice 0.10.57 while gnumeric 1.12.62 requires >= 0.10.61.
+    # Build the matching goffice release from source. The tarball is generated
+    # from the upstream tag GOFFICE_0_10_62.
+    source: https://download.gnome.org/sources/goffice/0.10/goffice-0.10.62.tar.xz
+    source-checksum: sha256/500eaff50628faa75adb3cd560236a4db498d9e7c52c036b78fa9a57f21805b3
+    plugin: autotools
+    autotools-configure-parameters:
+      # goffice bakes its data, plugin and library directories into the
+      # library, and it has no environment-variable override for the plugin
+      # directory. Use the runtime mount path so the paths compiled into the
+      # library are valid inside the confined snap; organize moves the tree
+      # back under usr/ in the snap.
+      - --prefix=/snap/gnumeric/current/usr
+      - --disable-static
+      - --disable-introspection
+      - --disable-gtk-doc
+      # lasem (EMF/WMF vector import) is not packaged in 26.04; librsvg, which
+      # gnome-core26 provides, is used for SVG instead.
+      - --with-lasem=no
+    organize:
+      snap/gnumeric/current/usr: usr
+    build-packages:
+      # GTK3, GLib, libxml2, librsvg, fribidi and zlib development files come
+      # from the gnome-core26-sdk build snap. These three are not part of it.
+      - intltool
+      - libgsf-1-dev
+      - libxslt1-dev
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*.la
+      - -usr/lib/goffice/**/*.la
+      - -usr/share/doc
+
+  gnumeric:
+    after: [goffice]
+    # Tarball generated from the upstream tag GNUMERIC_1_12_62.
+    source: https://download.gnome.org/sources/gnumeric/1.12/gnumeric-1.12.62.tar.xz
+    source-checksum: sha256/89331121321b9bad72d37af5a6d13a0a636f0fbb0880f0ea1f2cf8b7ab9ae631
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/snap/gnumeric/current/usr
+      # The goffice component is only useful for embedding Gnumeric sheets in
+      # other office applications; it installs into goffice's plugin directory
+      # and is not needed in the snap.
+      - --disable-component
+      - --disable-introspection
+      - --disable-gtk-doc
+      # Both loaders embed a language runtime; see the confinement notes above.
+      - --without-perl
+      - --without-python
+    organize:
+      snap/gnumeric/current/usr: usr
+    build-environment:
+      # Build against the staged goffice, not any host copy. The staged .pc is
+      # rewritten in override-build below; the resulting library keeps the
+      # /snap/gnumeric/current/usr prefix it needs at runtime.
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig:$CRAFT_STAGE/usr/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    build-packages:
+      # GTK3, GLib, libxml2, librsvg, fribidi, zlib and gettext development
+      # files come from the gnome-core26-sdk build snap.
+      - bison
+      - intltool
+      - libgsf-1-dev
+      - libxslt1-dev
+    override-build: |
+      # The staged goffice .pc points at the runtime prefix
+      # (/snap/gnumeric/current/usr). Point its prefix at the staging area for
+      # the duration of the build: -Werror=missing-include-dirs would reject
+      # the not-yet-existing /snap/gnumeric path otherwise. The library itself
+      # keeps the runtime prefix in its compiled-in constants.
+      sed -i "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+        "$CRAFT_STAGE/usr/lib/pkgconfig/libgoffice-0.10.pc"
+      craftctl default
+      # Ship the upstream icon instead of relying on the host icon theme.
+      sed -i -e 's|Icon=org.gnumeric.gnumeric$|Icon=${SNAP}/meta/gui/org.gnumeric.gnumeric.png|' \
+        "$CRAFT_PART_INSTALL/snap/gnumeric/current/usr/share/applications/org.gnumeric.gnumeric.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui/"
+      cp "$CRAFT_PART_SRC/icons/256x256/apps/org.gnumeric.gnumeric.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*.la
+      - -usr/share/gir-1.0
+
+  libraries:
+    after: [gnumeric]
+    plugin: nil
+    stage-packages:
+      # libgsf is not part of the GNOME stack in gnome-core26 and is required
+      # by both goffice and gnumeric (>= 1.14.45). The archive has 1.14.53.
+      - libgsf-1-114
+    prime:
+      - usr/lib/*/libgsf-1.so.*
+
+  cleanup:
+    after: [gnumeric]
+    plugin: nil
+    override-prime: |
+      set -eux
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .

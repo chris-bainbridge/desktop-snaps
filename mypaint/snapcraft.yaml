@@ -1,0 +1,167 @@
+name: mypaint
+version: '2.0.1'
+summary: Digital painting for graphics tablets
+description: |
+  MyPaint is a fast, distraction-free painting program for digital artists.
+  Its brush engine is designed for pressure- and tilt-sensitive graphics
+  tablets, and it supports layers, unlimited canvas sizes, the OpenRaster
+  format and a large collection of brushes.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - MyPaint can only open and save files in your home directory (non-hidden
+    paths) and, when the removable-media interface is connected, on removable
+    drives. Files in system directories, in hidden directories such as
+    ~/.cache, or in another application's private data are not visible.
+  - Settings, brushes and scratchpads are stored in the snap's private
+    per-user area (~/snap/mypaint/...) instead of ~/.config/mypaint and
+    ~/.local/share/mypaint. They are not shared with a distribution-packaged
+    MyPaint.
+  - The OpenRaster thumbnailer is not installed: snapd cannot register a
+    thumbnailer with the host file manager from inside a snap.
+  - Help links that MyPaint opens with Python's webbrowser module cannot start
+    a browser from inside the sandbox. Links that are opened through GTK use
+    the desktop portal and work.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything MyPaint needs beyond the GNOME
+# runtime is built from source or staged from the 26.04 archive; no vendor
+# binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://mypaint.org/
+source-code: https://github.com/mypaint/mypaint
+issues: https://github.com/mypaint/mypaint/issues
+
+icon: snap/local/mypaint.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  mypaint:
+    extensions: [gnome]
+    command: bin/mypaint-launcher
+    desktop: usr/share/applications/mypaint.desktop
+    common-id: mypaint.desktop
+    plugs:
+      - gsettings       # GTK reads the theme, fonts and other desktop settings
+      - home            # open and save paintings in the user's home
+      - removable-media # paintings on USB sticks and other removable media
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/mypaint-launcher
+      # A raster copy of the upstream icon, used as the store icon and as a
+      # fallback next to the scalable icon that setup.py installs.
+      mypaint.png: usr/share/icons/hicolor/512x512/apps/org.mypaint.MyPaint.png
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, GTK 3, librsvg and the GTK 3
+      # typelibs. numpy and MyPaint's own dependencies are not part of it:
+      - python3-numpy # imported by both the GUI and the C extension
+      # numpy is linked against the reference BLAS/LAPACK and libgfortran
+      - libblas3
+      - liblapack3
+      - libgfortran5
+      - libmypaint-1.5-1 # the C brush engine MyPaint 2.0 links against
+      - libjson-c5      # libmypaint dependency, also not in gnome-core26
+      - libmypaint-common # libmypaint's message catalogs
+      - mypaint-brushes   # the default brush collection (2.0 data)
+    # Stage only the runtime files. An explicit list keeps the interpreter and
+    # its standard library out of the snap (python3-numpy depends on python3);
+    # the gnome/cleanup part of the extension removes any shared object that
+    # the platform already ships, so these are only the platform's gaps.
+    stage:
+      - usr/lib/*/libblas.so.3*
+      - usr/lib/*/libgfortran.so.5*
+      - usr/lib/*/libjson-c.so.5*
+      - usr/lib/*/liblapack.so.3*
+      - usr/lib/*/libmypaint*.so*
+      - usr/lib/python3/dist-packages/numpy
+      - usr/lib/python3/dist-packages/numpy-*.dist-info
+      - usr/share/locale/*/LC_MESSAGES/libmypaint.mo
+      - usr/share/mypaint-data/2.0/brushes
+
+  mypaint:
+    source: https://github.com/mypaint/mypaint.git
+    source-type: git
+    source-tag: 'v2.0.1'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      # The gnome-core26-sdk build snap provides the GTK 3, GLib, libpng and
+      # lcms2 development files; these are the dependencies it does not carry.
+      - gettext # msgfmt for the message catalogs
+      - libmypaint-dev
+      - mypaint-brushes # pkg-config module mypaint-brushes-2.0
+      - python-gi-dev   # pkg-config module pygobject-3.0
+      - python3-dev
+      - python3-numpy   # numpy headers for the C extension
+      - python3-setuptools
+      - swig
+    override-pull: |
+      craftctl default
+      # MyPaint 2.0.1 predates Python 3.11/3.12, numpy 2.x and PyGObject 3.56.
+      # The first five patches are the ones Ubuntu applies to its 2.0.1
+      # package; the last one is local (see the headers in each file).
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-python-3.12-distutils-removal.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0002-python-3.11-newlines-and-gettext.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0003-openmp-acquire-gil.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0004-numpy-2.3-strokemap-tobytes.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0005-numpy-2.3-stroke-tobytes.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0006-pygobject-enum-names.patch"
+    override-build: |
+      set -eux
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly. It is the 3.14 from the core26
+      # archive, the same ABI as the platform interpreter, and unlike the SDK
+      # interpreter it sees the numpy installed from build-packages.
+      /usr/bin/python3 setup.py build
+      # BuildConfig bakes the brush directory reported by pkg-config
+      # (/usr/share/mypaint-data/2.0/brushes) into lib/config.py. Point it at
+      # the copy staged inside the snap instead: mypaint.py resolves the
+      # literal {installation-prefix} placeholder against its own prefix.
+      sed -i \
+        "s|^mypaint_brushdir = u'.*'|mypaint_brushdir = u'{installation-prefix}/share/mypaint-data/2.0/brushes'|" \
+        build/lib.*/lib/config.py
+      # install --skip-build reuses the tree built above, including the
+      # message catalogs created by the build_translations subcommand.
+      /usr/bin/python3 setup.py install \
+        --skip-build \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/mypaint \
+        --install-scripts=/usr/bin \
+        --install-data=/usr/share \
+        --single-version-externally-managed \
+        --record=install-files.txt
+      # Drop build metadata from the snap's private module tree.
+      rm -rf "$CRAFT_PART_INSTALL"/usr/lib/mypaint/MyPaint-*.egg-info
+      # core26 has no /usr/bin/python3. The launcher runs the platform
+      # interpreter explicitly, but keep direct invocation inside the snap
+      # working too.
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' \
+        "$CRAFT_PART_INSTALL/usr/bin/mypaint"
+      # snapd cannot install thumbnailers into the host file manager, so the
+      # registration file (which names a helper the host cannot run) would
+      # only be dead weight.
+      rm -rf \
+        "$CRAFT_PART_INSTALL"/usr/share/thumbnailers \
+        "$CRAFT_PART_INSTALL"/usr/bin/mypaint-ora-thumbnailer
+      # TryExec is resolved on the host, where /snap/bin may be missing from
+      # PATH; a failed check makes desktops hide the entry. Match the window
+      # to the launcher: Gdk.set_program_class("MyPaint") in gui/application.py.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/mypaint.desktop"
+      sed -i -e '/^TryExec=/d' "$desktop"
+      printf 'StartupWMClass=MyPaint\n' >> "$desktop"

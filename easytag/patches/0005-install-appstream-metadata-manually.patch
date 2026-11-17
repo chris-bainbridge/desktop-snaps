@@ -1,0 +1,52 @@
+Description: Manually install appstream metadata
+ As opposed to using appdata-xml.m4 from the soon to be removed
+ appstream-util package.
+Author: James Cowgill <jcowgill@debian.org>
+Bug-Debian: https://bugs.debian.org/1119097
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1,7 +1,6 @@
+ ACLOCAL_AMFLAGS = -I m4
+ 
+ AM_DISTCHECK_CONFIGURE_FLAGS = \
+-	--enable-appdata-check \
+ 	--enable-flac \
+ 	--enable-id3v23 \
+ 	--enable-ogg \
+@@ -279,10 +278,10 @@ endif
+ 	$(AM_V_at)$(MKDIR_P) $(@D)
+ 	$(AM_V_at)touch $@
+ 
+-@APPDATA_XML_RULES@
+ @INTLTOOL_XML_RULE@
+ appdata_in_files = data/easytag.appdata.xml.in $(nautilus_appdata_in_file)
+-appdata_XML = $(appdata_in_files:.xml.in=.xml)
++appdatadir = $(datadir)/metainfo
++appdata_DATA = $(appdata_in_files:.xml.in=.xml)
+ 
+ @INTLTOOL_DESKTOP_RULE@
+ desktopdir = $(datadir)/applications
+@@ -578,7 +577,7 @@ TESTS = \
+ endif
+ 
+ CLEANFILES = \
+-	$(appdata_XML) \
++	$(appdata_DATA) \
+ 	$(check_SCRIPTS) \
+ 	$(desktop_DATA) \
+ 	$(easytag_rc) \
+--- a/configure.ac
++++ b/configure.ac
+@@ -33,10 +33,6 @@ AC_DEFINE_UNQUOTED([GETTEXT_PACKAGE], ["
+ AS_IF([test "x$USE_NLS" != "xno"],
+       [AC_DEFINE([ENABLE_NLS], [1], [Native Language support is enabled])])
+ 
+-dnl AppData
+-m4_ifdef([APPDATA_XML], [APPDATA_XML],
+-         [AC_MSG_ERROR([appdata-tools is required for appdata-xml.m4])])
+-
+ dnl -------------------------------
+ dnl Checks for programs.
+ dnl -------------------------------

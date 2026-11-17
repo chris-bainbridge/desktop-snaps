@@ -1,0 +1,6 @@
+snap: mypaint
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/mypaint/mypaint (v2.0.1)
+imported: '2026-11-17'
