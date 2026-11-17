@@ -1,0 +1,235 @@
+name: lyx
+version: '2.5.3'
+summary: WYSIWYM document processor for LaTeX
+description: |
+  LyX is a document processor that encourages an approach to writing based on
+  the structure of documents (WYSIWYM) rather than their appearance. It
+  combines the typesetting quality of TeX/LaTeX with a graphical editor,
+  including an integrated equation editor, cross-references, bibliographies,
+  indexes and a large set of document classes.
+
+  This snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has important consequences:
+
+  - LyX needs a TeX distribution to compile documents. Installing TeX Live on
+    the host does not help: a strictly confined snap cannot execute host
+    binaries, and this snap deliberately does not bundle the hundreds of
+    megabytes of a usable TeX Live. Compiling and previewing therefore require
+    a separate TeX Live content snap (mounted into the snap's filesystem and
+    added to PATH), which does not exist yet. Until then the editor can open,
+    edit and save .lyx files, but Document > View/Update and export will fail.
+  - The same applies to the other external programs LyX can call: Ghostscript,
+    ImageMagick, xsltproc/DocBook stylesheets (ePub export), Perl, Java/Saxon,
+    version-control clients, spell checkers other than the bundled Hunspell
+    dictionary, and computer-algebra systems are not included and cannot be
+    reached on the host.
+  - Documents can be opened and saved in the user's home directory (except
+    hidden top-level entries such as ~/.config or ~/.ssh) and, when the
+    removable-media interface is connected, on removable drives. Files in
+    system directories and in other applications' private data are invisible.
+    The file dialog starts in the snap's private home; the real home is
+    reachable from it as /home/<user>.
+  - Configuration, preferences and temporary files live in the snap's private
+    per-user area (~/snap/lyx/...) instead of ~/.lyx. They are not shared with
+    a distribution-packaged LyX, so existing preferences are not imported.
+  - Spell checking uses the bundled US English Hunspell dictionary; the host's
+    dictionaries are not visible. The thesaurus is not bundled.
+  - Only the bundled DejaVu fonts are available; fonts installed on the host
+    are not visible. Additional fonts can be placed in the snap's private
+    ~/.fonts directory.
+  - The user interface is translated using the translations shipped in the
+    snap, but Qt uses the Fusion style rather than the host's Qt/KDE theme.
+  - Printing is not available: LyX has no print command. Use Export and print
+    the resulting PDF from another application.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. LyX 2.5 uses Qt 6; Qt is staged from the 26.04
+# archive because the KDE neon extensions (kde-neon-6 and kde-neon-qt6) only
+# support core22 and core24, and the kf6-core26 content snap has no snapcraft
+# extension yet. LyX uses only Qt Core/Gui/Widgets/Concurrent/Svg, not KDE
+# Frameworks, so a KDE content snap would add a large, unnecessary dependency.
+# The [gpu] extension is used for its core26 integration with mesa-2604; Qt's
+# platform plugins themselves are staged in the runtime part below.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.lyx.org/
+source-code: https://git.lyx.org/repos/lyx.git
+issues: https://www.lyx.org/trac/wiki/BugTrackerHome
+
+icon: snap/local/lyx.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  lyx:
+    extensions: [gpu]
+    command: bin/lyx-launcher
+    desktop: usr/share/applications/lyx.desktop
+    common-id: lyx.desktop
+    plugs:
+      - desktop        # xdg-open/snapctl user-open for links and bundled docs
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home            # open and save documents in the user's home
+      - opengl          # GPU access for Qt and the mesa-2604 content snap
+      - removable-media # documents on USB sticks and other removable media
+      - wayland         # native Wayland session
+      - x11             # X11 session, and XWayland on Wayland desktops
+
+parts:
+  local:
+    plugin: dump
+    source: snap/local
+    organize:
+      lyx-launcher: bin/lyx-launcher
+      # Used both as the store icon and as the icon referenced by the desktop
+      # file; the host icon theme cannot see icons inside the snap.
+      lyx.png: meta/gui/lyx.png
+
+  lyx:
+    # Release tarball from the official LyX FTP server. It contains the
+    # generated configure script, so the build does not need autoconf/automake.
+    source: https://ftp.lip6.fr/pub/lyx/stable/2.5.x/lyx-2.5.3.tar.xz
+    source-checksum: sha256/85faab35915974be1701cbcc6a18606a34e62cc7c86e0336f152acbc6156a8a6
+    plugin: autotools
+    # Upstream supports both autotools and CMake. Use autotools: it is the
+    # build documented in INSTALL and the one Debian/Ubuntu use for LyX,
+    # whereas the CMake files are primarily maintained for Windows.
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --enable-build-type=release
+      - --enable-nls
+      - --with-x
+      # Use the system Hunspell, Enchant and MyThes libraries instead of the
+      # copies bundled in 3rdparty/.
+      - --without-aspell
+      - --without-included-mythes
+      # Saxon and the DocBook XSL stylesheets are only needed for ePub
+      # export. Do not bundle a Java runtime or the stylesheets; see the
+      # confinement notes in the description.
+      - --without-saxon
+      - --without-xslt-stylesheets
+    build-packages:
+      # The core26 build environment provides make, a C++17 compiler and the
+      # standard build tools.
+      - build-essential
+      - gettext        # msgfmt, for the NLS catalogs
+      - libenchant-2-dev
+      - libhunspell-dev
+      - libmagic-dev
+      - libmythes-dev
+      - libx11-dev
+      - libxkbcommon-dev
+      - patch
+      - pkgconf
+      - python3        # AM_PATH_PYTHON and the build-time helper scripts
+      - qt6-base-dev
+      - qt6-svg-dev
+      - zlib1g-dev
+    override-pull: |
+      craftctl default
+      # Make LyX prefer the host's xdg-open when it looks for viewers. The
+      # base ships an xdg-open that calls snapctl user-open, which is the only
+      # way a strictly confined application can hand a URL or file to the
+      # desktop's default handler. Carried from Debian's lyx package.
+      patch -p1 --batch < "$CRAFT_PROJECT_DIR/patches/0001-prefer-xdg-open.patch"
+    override-build: |
+      craftctl default
+      # Qt's compiled-in Prefix is /usr, which is the base inside the snap.
+      # A qt.conf next to the binary relocates the plugin and translation
+      # paths to the staged tree. Prefix is relative to /usr/bin.
+      {
+        printf '[Paths]\n'
+        printf 'Prefix = ..\n'
+        printf 'Plugins = lib/%s/qt6/plugins\n' "$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+        printf 'Translations = share/qt6/translations\n'
+      } > "$CRAFT_PART_INSTALL/usr/bin/qt.conf"
+      # lyx2lyx and the helper scripts are installed with a hard-coded
+      # /usr/bin/python3 shebang. That path is the base, not the staged
+      # interpreter; use env so the snap's python3 is found through PATH.
+      if grep -rq --binary-files=without-match '^#! */usr/bin/python3' \
+           "$CRAFT_PART_INSTALL/usr/share/lyx"; then
+        grep -rl --binary-files=without-match '^#! */usr/bin/python3' \
+          "$CRAFT_PART_INSTALL/usr/share/lyx" |
+        while IFS= read -r script; do
+          sed -i '1s|^#! */usr/bin/python3|#!/usr/bin/env python3|' "$script"
+        done
+      fi
+      # TryExec is resolved on the host, where /snap/bin may not be in PATH;
+      # a failed check makes desktops hide the entry. Point the icon at the
+      # copy staged under meta/gui, which snapd can resolve inside the snap.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/lyx.desktop"
+      sed -i -e '/^TryExec=/d' \
+             -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/lyx.png|' "$desktop"
+
+  runtime:
+    after: [lyx]
+    plugin: nil
+    stage-packages:
+      # TeX Live is deliberately not staged: a usable LaTeX installation is
+      # far too large for a sane default, and a strict snap cannot execute the
+      # host's TeX binaries. A separate TeX Live content snap is required; see
+      # the description for the resulting limitation.
+      #
+      # The core26 base has no Qt, Python 3, fonts, spell-check data or
+      # libmagic database, so stage the complete runtime stack the application
+      # needs. The gpu extension supplies Mesa separately.
+      - libqt6core6t64
+      - libqt6gui6
+      - libqt6widgets6
+      - libqt6concurrent6
+      - libqt6svg6
+      - libqt6svgwidgets6
+      - qt6-svg-plugins  # SVG icon engine for QIcon (LyX ships SVG icons)
+      # libqt6gui6 ships the xcb, minimal and offscreen platform plugins.
+      # Stage the Wayland client plugin and its xdg-shell integration without
+      # the compositor/QML extras in the qt6-wayland package.
+      - libqt6waylandclient6
+      - libqt6wlshellintegration6
+      - libenchant-2-2
+      - libhunspell-1.7-0
+      - libmythes-1.2-0
+      - libmagic1t64      # file type detection; pulls libmagic-mgc
+      - python3           # lyx2lyx and the Python helper scripts
+      - fonts-dejavu-core # the base has only the Plymouth font
+      - hunspell-en-us    # one sane default dictionary
+    override-build: |
+      craftctl default
+      # fontconfig-config's conf.d entries are absolute symlinks into
+      # /usr/share/fontconfig.  Inside the snap that path is the base, so make
+      # them relative to the staged tree; otherwise the aliases (including
+      # sans-serif -> DejaVu Sans) are silently ignored.
+      if [ -d "$CRAFT_PART_INSTALL/etc/fonts/conf.d" ]; then
+        find "$CRAFT_PART_INSTALL/etc/fonts/conf.d" -type l |
+        while IFS= read -r link; do
+          target="$(readlink "$link")"
+          case "$target" in
+            /usr/share/fontconfig/*)
+              ln -sfn "../../../usr/share/fontconfig/${target#/usr/share/fontconfig/}" "$link"
+              ;;
+          esac
+        done
+      fi
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*.la
+
+  cleanup:
+    after: [lyx, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      # Everything under these paths is provided by the core26 base itself.
+      # Remove the staged duplicates left by stage-packages' dependency
+      # closure, keeping the Qt/Python/font/spell stack the base lacks.
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

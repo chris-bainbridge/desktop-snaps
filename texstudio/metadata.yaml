@@ -1,0 +1,6 @@
+snap: texstudio
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/texstudio-org/texstudio (4.9.9)
+imported: '2026-11-17'

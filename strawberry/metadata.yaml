@@ -1,0 +1,6 @@
+snap: strawberry
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/strawberrymusicplayer/strawberry (1.2.31)
+imported: '2026-11-17'

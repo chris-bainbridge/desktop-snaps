@@ -1,0 +1,232 @@
+name: strawberry
+version: '1.2.31'
+summary: Music player and music collection organizer
+description: |
+  Strawberry is a music player and music collection organizer for people who
+  care about their music collection. It plays local files, internet radio
+  streams and Subsonic, Tidal, Spotify, Qobuz, Plex and Jellyfin libraries,
+  manages playlists, reads and edits tags, fetches cover art and lyrics,
+  scrobbles to Last.fm and ListenBrainz, and transcodes between formats.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Strawberry can only open and save files in non-hidden paths of your home
+    directory and, when the removable-media interface is connected, on
+    removable drives. Hidden directories such as ~/.local/share, and files in
+    system paths, are not visible.
+  - Settings, the library database, playlists and caches live in the snap's
+    private per-user area (~/snap/strawberry/...), not in ~/.config/strawberry,
+    and are not shared with a distribution-packaged Strawberry.
+  - Playback goes through the desktop's PulseAudio/PipeWire sound server.
+    Direct ALSA output and Strawberry's bit-perfect mode are unavailable
+    because a strict snap cannot open /dev/snd.
+  - Audio CDs cannot be played: optical drives are not exposed to strict
+    snaps, and the CD backend is disabled at build time. MTP players and
+    iPods need raw USB or udev access and are disabled too. Mounted USB
+    storage still works through the removable-media interface, and its files
+    can be browsed like any other directory.
+  - Devices are detected through UDisks2, which is a manually connected
+    interface: run `snap connect strawberry:udisks2`. Without it, the
+    Devices panel stays empty and only the file browser reaches removable
+    media (`snap connect strawberry:removable-media`).
+  - Global keyboard shortcuts through KGlobalAccel need KDE Plasma; the X11
+    backend only works while Strawberry runs under XWayland. The system tray
+    icon needs a StatusNotifierItem host such as the GNOME AppIndicator
+    extension. Discord Rich Presence cannot reach the Discord client's socket.
+  - Credentials are stored through the desktop keyring only when the
+    password-manager-service interface is connected (it is not automatic,
+    run `snap connect strawberry:password-manager-service`); otherwise they
+    are kept unencrypted in the snap's private configuration.
+  - GStreamer comes from the gnome-core26 content snap. On top of its MP3,
+    FLAC, Vorbis, Opus, Speex, WAV, WavPack, MP4/AAC container and DSD
+    decoders, the snap adds AAC (faad), Musepack, AIFF and ASF demuxing.
+    ALAC, Monkey's Audio (APE), WMA and TTA are not available: their only
+    decoder is gst-libav, whose FFmpeg dependency set is far larger than
+    this snap. MP3 tag writing during transcoding uses the staged id3tag
+    plugin.
+  - The application uses Qt's Fusion style, so it follows neither the GNOME
+    theme nor its accent colours.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. No vendor binaries are embedded; the application
+# is built from the upstream release tag and everything else is staged from
+# the 26.04 archive or provided by the gnome-core26 content snap.
+#
+# Qt approach: Strawberry 1.2.31 is a Qt 6 application (Qt 6.4 or newer; Qt 5
+# is no longer supported, so there is no Qt5 option). Snapcraft 9.2.1 ships
+# kde-neon-6 and kde-neon-qt6 extensions that support only core22 and core24,
+# so neither can be used on core26. KDE does publish kde-qt6-core26 (Qt
+# 6.11.3) and kde-qt6-core26-sdk content snaps, but snapcraft has no extension
+# for them; hand-wiring the content interface, the multiarch plugin paths and
+# the desktop-launch command chain would be unverified. Qt 6 is therefore
+# staged from the 26.04 archive (6.10.2), and the supported gnome-core26
+# extension is used for the pieces a Qt/KDE content snap would normally
+# provide and that Strawberry needs as well: GStreamer base/good, TagLib,
+# GLib/GIO, fontconfig and fonts, the Mesa drivers and desktop integration.
+# The staged Qt libraries duplicate some platform libraries; the cleanup part
+# removes every primed library that the platform also ships, so only one copy
+# of each library is loaded at run time.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.strawberrymusicplayer.org/
+source-code: https://github.com/strawberrymusicplayer/strawberry
+issues: https://github.com/strawberrymusicplayer/strawberry/issues
+
+icon: snap/local/strawberry.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  strawberry:
+    extensions: [gnome]
+    command: bin/strawberry-launcher
+    desktop: usr/share/applications/org.strawberrymusicplayer.strawberry.desktop
+    common-id: org.strawberrymusicplayer.strawberry
+    slots:
+      # org.mpris.MediaPlayer2.strawberry is registered by src/mpris2/mpris2.cpp
+      # (kServiceName). The mpris interface is an implicit slot: listing it
+      # here allows the app to bind org.mpris.MediaPlayer2.<snap name> and
+      # lets desktop shells control the player.
+      - mpris
+    plugs:
+      - audio-playback  # PulseAudio/PipeWire playback and volume
+      - home            # music library in the user's home directory
+      - removable-media # music on USB sticks and other removable media
+      - network         # streams, cover art, lyrics, scrobbling, services
+      # UDisks2 is the device backend that works under confinement: it mounts
+      # removable drives through the system bus instead of udev. The plug is
+      # not auto-connected.
+      - udisks2
+      # libsecret talks to the desktop keyring over the session bus. The plug
+      # is not auto-connected either; without it Strawberry keeps passwords in
+      # its private configuration.
+      - password-manager-service
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/strawberry-launcher
+      # A 512x512 raster copy of the upstream icon, used as the store icon and
+      # installed next to the 48x48, 64x64 and 128x128 icons that the build
+      # installs, so launchers get a high-resolution version.
+      strawberry.png: usr/share/icons/hicolor/512x512/apps/strawberry.png
+
+  strawberry:
+    source: https://github.com/strawberrymusicplayer/strawberry.git
+    source-type: git
+    source-tag: '1.2.31'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # A strict snap cannot open optical drives or raw USB devices, and the
+      # iPod backend needs udev enumeration, so those device backends are left
+      # out.
+      - -DENABLE_AUDIOCD=OFF
+      - -DENABLE_MTP=OFF
+      - -DENABLE_GPOD=OFF
+    build-packages:
+      # The gnome extension mounts the gnome-core26 SDK, but that SDK is
+      # GTK-focused and does not carry Qt. The archive's development packages
+      # for Qt 6 and for every library Strawberry links are listed explicitly,
+      # so the build does not depend on which subset the SDK happens to ship.
+      - cmake
+      - make
+      - g++
+      - pkg-config
+      - qt6-base-dev       # Core, Concurrent, Gui, Widgets, Network, Sql, DBus
+      - qt6-tools-dev      # Qt6LinguistTools (lrelease for the translations)
+      # The configure step runs a QSQLITE smoke test; without the driver it
+      # only warns, but the driver belongs in the build environment anyway.
+      - libqt6sql6-sqlite
+      - libkdsingleapplication-qt6-dev # single-instance handling (>= 1.1)
+      - libtag-dev         # TagLib 2.2: tag reading and writing
+      - libboost-dev       # header-only multi_index and operators
+      - libssl-dev         # OpenSSL Crypto, used by the Spotify/Tidal code
+      - libicu-dev
+      - libasound2-dev     # ALSA device enumeration and the optional backend
+      - libx11-xcb-dev     # X11 global shortcuts (FindX11 X11_xcb)
+      - libglib2.0-dev
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libsqlite3-dev
+      - libuchardet-dev
+      - libpulse-dev       # PulseAudio device and volume integration
+      - libsecret-1-dev    # keyring credential storage
+      - libchromaprint-dev # AcoustID fingerprinting
+      - libfftw3-dev       # fast spectrum moodbar
+      - libebur128-dev     # EBU R128 loudness analysis
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # Qt 6 is not part of the gnome-core26 platform, so it is staged here.
+      # The xcb and minimal platform plugins live in libqt6gui6, the Wayland
+      # platform plugin in libqt6waylandclient6 (pulled by qt6-wayland).
+      - libqt6core6t64
+      - libqt6concurrent6
+      - libqt6gui6
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6sql6
+      - libqt6sql6-sqlite # QSQLITE driver for the library database
+      - libqt6dbus6       # MPRIS2, notifications and the device backends
+      - qt6-wayland
+      - libkdsingleapplication-qt6-1.0
+      # Runtime libraries the platform does not ship. libtag2, libglib,
+      # libgio, libgstreamer, libpulse, libsecret, libfontconfig, libicu and
+      # the X11/XCB stack come from the platform; the cleanup part removes
+      # the copies that would otherwise be staged as dependencies of Qt.
+      - libuchardet0   # required, detects the encoding of tag strings
+      - libchromaprint1
+      - libfftw3-double3
+      - libebur128-1
+      - libfaad2       # AAC decoder, loaded by the staged faad plugin
+      - libmpcdec6     # Musepack decoder
+
+  # The content snap provides the GStreamer base and good plugin sets (which
+  # already include the MP3, FLAC, Vorbis, Opus, Speex, WAV, WavPack, MP4,
+  # HTTP stream and PulseAudio/PipeWire elements that Strawberry uses) but no
+  # bad, ugly or libav plugins. Staging the full gstreamer1.0-plugins-bad
+  # package would drag in its ONNX/TensorFlow/OpenCV dependencies, so fetch
+  # the package without them and keep only the five plugins the player needs.
+  gst-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstaiff.so     # AIFF demuxing
+      - usr/lib/*/gstreamer-1.0/libgstasf.so      # ASF/WMA demuxing
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so     # AAC/HE-AAC decoding
+      - usr/lib/*/gstreamer-1.0/libgstid3tag.so   # id3v2mux for MP3 transcoding
+      - usr/lib/*/gstreamer-1.0/libgstmusepack.so # Musepack (MPC) decoding
+
+  # The gnome extension's desktop-launch already puts the platform first in
+  # LD_LIBRARY_PATH, and the staged Qt dependency tree contains copies of
+  # libraries the platform ships (GLib, ICU, fontconfig, the X11/XCB stack,
+  # Mesa, ...). Loading two copies of GLib or GStreamer in one process is not
+  # safe, so drop every primed file whose path also exists in gnome-core26,
+  # exactly as the other core26 recipes using the extension do.
+  cleanup:
+    after: [launcher, strawberry, runtime-deps, gst-extras]
+    plugin: nil
+    build-snaps: [gnome-core26]
+    override-prime: |
+      set -eux
+      cd /snap/gnome-core26/current
+      find usr/lib \( -type f -o -type l \) | while IFS= read -r file; do
+        rm -f "$CRAFT_PRIME/$file"
+      done

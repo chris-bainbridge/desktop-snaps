@@ -1,0 +1,269 @@
+name: texstudio
+version: '4.9.9'
+summary: LaTeX editor with integrated PDF viewer
+description: |
+  TeXstudio is an integrated writing environment for LaTeX. It combines an
+  editor with syntax highlighting, command completion, structure navigation,
+  a table editor, a large command and template collection, and an integrated
+  PDF viewer with (almost) word-level SyncTeX support.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - TeXstudio cannot run the host's TeX Live. A strictly confined snap cannot
+    execute binaries from the host, and this snap does not bundle the hundreds
+    of megabytes of a usable TeX distribution. Documents can be opened, edited
+    and saved, and the built-in viewer renders existing PDFs, but Build & View,
+    the bibliography tools and SyncTeX need a TeX Live that the snap can reach.
+    A TeX Live installed under your real home directory (for example
+    /home/<user>/texlive/2026) is visible through the home interface; select
+    its pdflatex, bibtex and synctex binaries in
+    Options -> Configure TeXstudio -> Commands. Script-based tools such as
+    latexmk and biber also need Perl, which is not part of the snap. There is
+    no TeX Live content interface that could mount a distribution into the
+    snap.
+  - Other external programs TeXstudio can call (Ghostscript, ImageMagick,
+    LanguageTool, Perl, Git, texdoc, external PDF viewers) are likewise not
+    included and cannot be reached on the host. The built-in terminal runs
+    inside the snap and only sees the core26 base and the snap's own files.
+  - Files can be opened and saved in the real home directory, except hidden
+    top-level entries such as ~/.config and ~/.ssh, and on removable drives
+    after "snap connect texstudio:removable-media". System directories and
+    other applications' private data are not visible. The snap's own HOME is
+    ~/snap/texstudio/current, so the file dialog starts there; your real home
+    is available under /home/<user>.
+  - Configuration, recently used files, sessions and temporary files live in
+    ~/snap/texstudio/current/.config/texstudio instead of ~/.config/texstudio,
+    and are not shared with a distribution-packaged TeXstudio.
+  - Spell checking and the thesaurus use the bundled English (US and GB)
+    Hunspell dictionaries and the US MyThes thesaurus; the host's dictionaries
+    are not visible. Other dictionaries can be imported in the preferences;
+    they are stored in the snap's private area.
+  - Printing uses the CUPS snap through the cups interface, which is not
+    connected automatically: "snap connect texstudio:cups cups:cups".
+    Print-to-file works without it.
+  - Links and the bundled manual are handed to the host's default handler
+    through snapctl user-open (desktop interface). PDFs are shown in the
+    integrated Poppler-based viewer; no external viewer is bundled. Video
+    annotations in PDFs are not played: the optional Qt Multimedia player is
+    disabled, as it is by default upstream.
+  - Qt 6 is staged from the Ubuntu 26.04 archive because snapcraft's KDE
+    extensions only support core22 and core24. Host Qt/KDE themes are not
+    visible; the built-in Adwaita and Fusion styles are available. The Mesa
+    drivers come from the mesa-2604 content snap connected by the gpu
+    extension; the snap does not ship its own Mesa stack.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. TeXstudio and all of its dependencies are built
+# from the pinned upstream source or staged from the 26.04 archive; no prebuilt
+# TeXstudio binaries are embedded.
+#
+# Qt approach: stage Qt 6 from the 26.04 archive rather than using a KDE/Qt
+# content snap.
+#   * snapcraft 9.2.1 offers kde-neon, kde-neon-6 and kde-neon-qt6 only for
+#     core22 and core24, and the snapcraft main branch still does. The KDE
+#     project does publish kde-qt6-core26 (Qt 6.11.3) and kf6-core26 content
+#     snaps with matching SDK snaps, but no snapcraft extension exists for them
+#     yet: a recipe would have to declare the content plug, build against the
+#     KDE SDK snap and wire the content snap's library, plugin and QML paths by
+#     hand.
+#   * TeXstudio needs only Qt Core, Gui, Widgets, Network, Xml, Concurrent,
+#     PrintSupport, Svg, Qml, DBus and UiTools, and no KDE Frameworks. Pulling
+#     the KDE content snap would add a large KDE/Qt stack and couple the recipe
+#     to KDE's SDK for no KDE functionality.
+#   * A Qt 5 build is not an alternative: the kde-neon Qt 5 extension is also
+#     limited to core22/core24, and TeXstudio 4.9.9 is built against Qt 6 by
+#     upstream's release builds and by Debian.
+#   * The 26.04 archive carries Qt 6.10.2, built for exactly the Ubuntu release
+#     the core26 base ships. The staged Qt therefore shares the base's libc,
+#     libstdc++, GLib, OpenSSL, libpng, freetype and libxkbcommon.
+#   * The kde-neon extensions also pull in host theme and icon content. A
+#     TeXstudio snap only needs its own Qt stack and the built-in Adwaita
+#     style, which upstream compiles into the binary.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libEGL/libGL/libGLX and the DRI drivers that Qt's
+# platform plugins link against, and its cleanup part removes the Mesa copies
+# that the Qt stage-packages would otherwise leave in the snap.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.texstudio.org/
+source-code: https://github.com/texstudio-org/texstudio
+issues: https://github.com/texstudio-org/texstudio/issues
+
+icon: snap/local/texstudio.svg
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Poppler was built with a data directory of /usr/share/poppler and has no
+  # environment override; inside the snap /usr is the core26 base, which has
+  # no Poppler data. Bind the staged CMaps and Unicode maps there so text
+  # extraction, search and CID/CJK fonts work.
+  /usr/share/poppler:
+    bind: $SNAP/usr/share/poppler
+  # QTermWidget compiles its colour-scheme directory as
+  # /usr/share/qtermwidget6/color-schemes, which is the base inside the snap.
+  /usr/share/qtermwidget6:
+    bind: $SNAP/usr/share/qtermwidget6
+  # libproxy (used by Qt Network) looks for its backend modules in the
+  # multiarch libproxy directory, which the base does not provide.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libproxy:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libproxy
+
+apps:
+  texstudio:
+    extensions: [gpu]
+    command: bin/texstudio-launcher
+    desktop: usr/share/applications/texstudio.desktop
+    common-id: texstudio.desktop
+    plugs:
+      - desktop        # snapctl user-open for links and the bundled manual
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home           # open and save documents in the user's home
+      - network        # the update checker and help links
+      - opengl         # /dev/dri access for the mesa-2604 content snap
+      - removable-media # documents on USB sticks and other removable media
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+      - cups           # printing through the CUPS snap
+
+parts:
+  local:
+    # The launcher fixes up the paths that Qt and fontconfig look up outside
+    # the snap's staged tree; xdg-open hands URLs to the host through snapd.
+    plugin: dump
+    source: snap/local
+    organize:
+      texstudio-launcher: bin/texstudio-launcher
+      xdg-open: usr/bin/xdg-open
+    prime:
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -texstudio.svg
+
+  texstudio:
+    # 4.9.9 is the latest stable upstream release (2026-10-23), tag commit
+    # d285921900394dc8aa151a12f5a12022bddbb351. The GitHub archive contains
+    # the generated manual, the .qm translations and the bundled third-party
+    # sources; the checksum pins exactly the tag.
+    source: https://github.com/texstudio-org/texstudio/archive/refs/tags/4.9.9.tar.gz
+    source-checksum: sha256/3654ef4c7273cafda5209caae487453b7ea58a7cc5c9144cb5f8a441852eeafa
+    plugin: cmake
+    cmake-parameters:
+      # TeXstudio compiles its data and documentation directory into the
+      # binary (PREFIX) and has no runtime override, so use the runtime mount
+      # path and let organize move the tree back under usr/ in the snap.
+      - -DCMAKE_INSTALL_PREFIX=/snap/texstudio/current/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # The test suite needs Qt Test and the upstream test data; it is not
+      # shipped.
+      - -DTEXSTUDIO_ENABLE_TESTS=OFF
+      # PDF video annotations would need Qt Multimedia and a working media
+      # backend. They are rare and the player is off by default upstream.
+      - -DTEXSTUDIO_ENABLE_MEDIAPLAYER=OFF
+      # Compile the bundled Adwaita style, since the host's KDE/GNOME Qt
+      # styles are not part of the snap.
+      - -DTEXSTUDIO_BUILD_ADWAITA=ON
+    organize:
+      snap/texstudio/current/usr: usr
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, Qt, Poppler, Hunspell or X11 headers.
+      - build-essential
+      - cmake
+      - pkg-config
+      - qt6-base-dev       # Core, Gui, Widgets, Network, Xml, Concurrent,
+                           # PrintSupport and DBus
+      - qt6-tools-dev      # Qt6UiTools and the Qt6LinguistTools config
+      - qt6-declarative-dev # Qt6Qml, linked by TeXstudio's script engine
+      - qt6-svg-dev        # Qt6Svg, for the SVG icon set
+      - qt6-5compat-dev    # QTextCodec; also required by QuaZip's config
+      - libpoppler-dev
+      - libpoppler-cpp-dev
+      - libpoppler-qt6-dev
+      - libhunspell-dev
+      - libqtermwidget6-2-dev # the optional built-in terminal
+      - libquazip1-qt6-dev
+      - libbz2-dev         # QuaZip's CMake target links libbz2 directly
+      - libx11-dev         # find_package(X11 REQUIRED) in upstream's CMake
+      - zlib1g-dev
+    override-build: |
+      craftctl default
+
+      # The upstream install copies the complete OpenOffice dictionary and
+      # thesaurus collection (about 320 MB) into share/texstudio. Keep only the
+      # small stop-word lists and take the spell-check and thesaurus data from
+      # the staged hunspell/mythes packages instead.
+      data="$CRAFT_PART_INSTALL/snap/texstudio/current/usr/share/texstudio"
+      find "$data" -maxdepth 1 -type f \
+        \( -name '*.dic' -o -name '*.aff' -o -name '*.dat' \
+           -o -name 'README*' \) -delete
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates Qt's data, plugin,
+      # translation and QML paths to the staged tree. Prefix is relative to
+      # usr/bin, so Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/snap/texstudio/current/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Qml2Imports = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/qml
+      Translations = share/texstudio
+      EOF
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out every package that is already in the base's chisel manifest,
+    # so the base's libc, libstdc++, GLib, OpenSSL, freetype, libpng, zlib and
+    # libxkbcommon are not duplicated here.
+    after: [texstudio]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6gui6        # also ships the xcb platform plugin in 26.04
+      - libqt6widgets6
+      - libqt6network6
+      # Qt Network reads proxy settings through libproxy; stage it explicitly
+      # so the /usr/lib/<triplet>/libproxy layout below always has a source.
+      - libproxy1v5
+      - libqt6xml6
+      - libqt6concurrent6
+      - libqt6printsupport6
+      - libqt6uitools6
+      - libqt6svg6
+      - libqt6qml6
+      - libqt6dbus6
+      - libqt6core5compat6 # QTextCodec, used by TeXstudio's editor
+      - qt6-svg-plugins   # libqsvgicon: TeXstudio's icons are SVG
+      - libqt6waylandclient6     # native Wayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell etc. for the Wayland plugin
+      # The built-in terminal, PDF viewer, spell checker and zip handling.
+      - libqtermwidget6-2
+      - qtermwidget6-data # colour schemes
+      - libpoppler-qt6-3t64
+      - libpoppler-cpp3
+      # The Adobe CMaps and Unicode maps that Poppler recommends for CID and
+      # CJK documents; visible through the /usr/share/poppler layout above.
+      - poppler-data
+      - libhunspell-1.7-0
+      - libquazip1-qt6-1t64
+      # The base has no fonts beyond Plymouth.ttf, no Hunspell data and no
+      # thesaurus, so ship DejaVu and English dictionaries/thesaurus. Other
+      # dictionaries can be imported through TeXstudio's preferences.
+      - fonts-dejavu-core
+      - hunspell-en-us
+      - hunspell-en-gb
+      - mythes-en-us
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig

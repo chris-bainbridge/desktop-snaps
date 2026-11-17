@@ -1,0 +1,72 @@
+#!/bin/sh
+# Launcher for the strictly confined LyX snap.
+#
+# Snapcraft installs the staged tree under $SNAP, while the binaries and the
+# Python interpreter were configured for the usual /usr prefix.  Point the
+# locations that LyX and Qt read from the environment at the snap, and rely on
+# the relative search in src/support/Package.cpp for the main data directory.
+set -eu
+
+# Qt lives in usr/lib/<triplet> inside the snap; Qt's compiled-in plugin path
+# is /usr/lib/<triplet>/qt6, which is the core26 base in the snap namespace.
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64)
+        triplet=x86_64-linux-gnu
+        ;;
+    arm64|aarch64)
+        triplet=aarch64-linux-gnu
+        ;;
+    *)
+        triplet="$(uname -m)-linux-gnu"
+        ;;
+esac
+export QT_PLUGIN_PATH="$SNAP/usr/lib/$triplet/qt6/plugins:$SNAP/usr/lib/$triplet/qt6${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$SNAP/usr/lib/$triplet/qt6/plugins/platforms"
+
+# Core Desktop is Wayland-first. Try the staged Wayland plugin and fall back
+# to xcb on an X11 session or when no compositor is reachable.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# LyX locates its data relative to the installed binary, but be explicit: the
+# hard-coded paths point at /usr, which is the base inside the snap.
+export LYX_DIR_25x="$SNAP/usr/share/lyx"
+export LYX_LOCALEDIR="$SNAP/usr/share/locale"
+
+# The staged Python has a compiled-in prefix of /usr.  It needs this to find
+# its standard library and the LyX helper modules under $SNAP/usr/lib.
+export PYTHONHOME="$SNAP/usr"
+
+# libmagic and hunspell search fixed system directories by default; the
+# staged runtime data is under $SNAP/usr/share.
+export MAGIC="$SNAP/usr/share/misc/magic.mgc"
+export DICPATH="$SNAP/usr/share/hunspell:$SNAP/usr/share/myspell"
+
+# The base has no fonts and no fontconfig configuration.  Build a small
+# configuration that adds the staged DejaVu fonts and then includes the
+# staged fontconfig defaults (for aliases and match rules).
+if [ -f "$SNAP/etc/fonts/fonts.conf" ]; then
+    mkdir -p "$SNAP_USER_DATA"
+    fontconf="$SNAP_USER_DATA/fontconfig.conf"
+    cat >"$fontconf" <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>$SNAP/usr/share/fonts</dir>
+  <include ignore_missing="yes">$SNAP/etc/fonts/fonts.conf</include>
+</fontconfig>
+EOF
+    export FONTCONFIG_FILE="$fontconf"
+fi
+
+# Qt looks up icons, desktop files and its own translations through the XDG
+# data directories; the base does not include $SNAP/usr/share.
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# Compose and input-method locale data, staged as a libX11 dependency.
+if [ -d "$SNAP/usr/share/X11/locale" ]; then
+    export XLOCALEDIR="$SNAP/usr/share/X11/locale"
+fi
+
+exec "$SNAP/usr/bin/lyx" "$@"

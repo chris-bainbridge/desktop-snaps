@@ -1,0 +1,27 @@
+#!/bin/sh
+# Strawberry is a Qt 6 application. Qt, KDSingleApplication and the codecs the
+# gnome-core26 content snap lacks (faad, Musepack, AIFF, ASF demux, id3tag) are
+# staged inside this snap; everything else comes from the platform's content
+# snap through the desktop-launch command chain the gnome extension installs.
+#
+# Qt was built by Debian with a multiarch plugin directory
+# (/usr/lib/<triplet>/qt6/plugins), which does not exist in the base. Point
+# Qt at the staged copy without hardcoding the architecture.
+for plugins in "$SNAP"/usr/lib/*/qt6/plugins; do
+    if [ -d "$plugins" ]; then
+        QT_PLUGIN_PATH="$plugins"
+        export QT_PLUGIN_PATH
+        break
+    fi
+done
+
+# snapd starts strict snaps with HOME set to the private per-user area
+# (~/snap/strawberry/<revision>) so that applications do not write into the
+# real home. Strawberry's file chooser, its default music folder and the "~"
+# expansion all use HOME, so point it at the user's real home, which the home
+# interface exposes. Configuration, the library database and caches stay in
+# the snap's private area: snapd sets XDG_CONFIG_HOME, XDG_DATA_HOME and
+# XDG_CACHE_HOME explicitly, and Strawberry uses QStandardPaths for them.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+exec "$SNAP/usr/bin/strawberry" "$@"

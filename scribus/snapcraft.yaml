@@ -1,0 +1,314 @@
+name: scribus
+version: '1.6.7'
+summary: Open source desktop publishing
+description: |
+  Scribus is an open source desktop publishing program for professional page
+  layout. It supports CMYK colour and ICC colour management, master pages,
+  vector drawing, Unicode text (including right-to-left and complex scripts
+  through HarfBuzz), PDF forms and JavaScript, and import of PDF, EPS, SVG,
+  TIFF, JPEG, PNG and many other formats. Documents are stored in the native
+  .sla format and exported to press-ready PDF and PostScript.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - $HOME is the snap's private per-user directory
+    (~/snap/scribus/<revision>), not your real home. Documents and images
+    under non-hidden paths of the real home are reachable through the home
+    interface, but top-level hidden entries such as ~/.config, ~/.fonts and
+    ~/.local/share are not. Settings, scripts, colour profiles and user fonts
+    therefore live in the private home and are not shared with a
+    distribution-packaged Scribus.
+  - Only the bundled fonts (DejaVu, Liberation and URW base35) are available
+    initially. Put additional fonts in
+    ~/snap/scribus/current/.local/share/fonts; host font directories are not
+    visible.
+  - Spell checking ships with a US English dictionary only.
+  - Printing needs the cups-control interface, which is not connected
+    automatically:
+      sudo snap connect scribus:cups-control
+    Without it, exporting to PDF or PostScript still works.
+  - USB drives, camera cards and other removable media need the
+    removable-media interface:
+      sudo snap connect scribus:removable-media
+  - Snap desktop entries cannot add MIME types to the host's shared-mime-info
+    database, so .sla files are not associated with the snap.
+  - Programs installed on the host are not available. Ghostscript is bundled
+    for PostScript/EPS import and print preview; an external image editor or
+    other helper can only be selected from a path inside the snap, the
+    private home or connected removable media.
+  - The Python scripter works with the bundled Python 3.14, but scripts that
+    import third-party modules (PIL, numpy, ...) fail. The optional font
+    sampler helper (python3-tk) is not bundled.
+  - ICC profiles from the host (/usr/share/color/icc) are not visible. The
+    profiles bundled with Ghostscript are available, and additional profiles
+    can be placed in ~/snap/scribus/current/.local/share/color/icc.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Scribus needs beyond the core26 base
+# is either built from the pinned upstream source or staged from the 26.04
+# archive; no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.scribus.net/
+source-code: https://sourceforge.net/p/scribus/code/HEAD/tree/
+issues: https://bugs.scribus.net/
+
+icon: snap/local/scribus.png
+
+platforms:
+  amd64:
+  arm64:
+
+# Expose the staged runtime data at the absolute paths that fontconfig,
+# Ghostscript and Scribus were compiled to expect. These binds only affect the
+# snap's mount namespace. /etc/fonts, /usr/share/X11 and /usr/share/fonts
+# already exist in the base (the last one holds only Plymouth.ttf); snapd
+# creates the remaining bind targets, which the base lacks.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /etc/ghostscript:
+    bind: $SNAP/etc/ghostscript
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/color:
+    bind: $SNAP/usr/share/color
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+  /usr/share/ghostscript:
+    bind: $SNAP/usr/share/ghostscript
+  /usr/share/glvnd:
+    bind: $SNAP/usr/share/glvnd
+  /usr/share/hunspell:
+    bind: $SNAP/usr/share/hunspell
+  /usr/share/hunspell-bdic:
+    bind: $SNAP/usr/share/hunspell-bdic
+  /usr/share/poppler:
+    bind: $SNAP/usr/share/poppler
+  /usr/share/qt5:
+    bind: $SNAP/usr/share/qt5
+
+apps:
+  scribus:
+    command: usr/bin/scribus
+    desktop: usr/share/applications/scribus.desktop
+    common-id: scribus.desktop
+    command-chain:
+      - snap/command-chain/scribus-launch
+    environment:
+      # Qt 5 defaults to xcb. Try the bundled Wayland plugin first and fall
+      # back to X11/XWayland when no compositor socket is available.
+      QT_QPA_PLATFORM: "wayland;xcb"
+      # Make the snap's hicolor icons and MIME database visible to Qt.
+      XDG_DATA_DIRS: $SNAP/usr/share:/usr/local/share:/usr/share
+    plugs:
+      - desktop         # desktop file and launcher integration
+      - desktop-legacy  # legacy desktop helpers used by Qt
+      - opengl          # OpenGL contexts for the optional 3D frame
+      - wayland         # native Wayland session
+      - x11             # X11/XWayland session
+      - home            # documents, images and the file chooser
+      - removable-media # documents and images on USB drives and cards
+      - cups-control    # printers, connected manually (see description)
+
+# No gsettings plug: Scribus is a Qt 5 application and stores its settings
+# with QSettings below ~/.config/scribus. It does not use GSettings, and no
+# GLib schemas are staged for it to read.
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      scribus-launch: snap/command-chain/scribus-launch
+    # scribus.png only feeds the top-level icon key, which snapcraft reads
+    # from the project directory.
+    prime:
+      - snap/command-chain/scribus-launch
+
+  scribus:
+    # 1.6.7 is the current stable release (2026-10-27). The official release
+    # source is the SourceForge tarball; the GitHub repository is a mirror and
+    # has no 1.6.7 tag yet. The tarball is reproducible (verified by fetching
+    # it twice); the checksum below is its SHA-256.
+    source: https://downloads.sourceforge.net/project/scribus/scribus/1.6.7/scribus-1.6.7.tar.xz
+    source-checksum: sha256/8c0c25b7afe0117d681a1d5e8cdc3652b72682f907cdeb30ded50a9b30bb50bf
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # Scribus derives its data, plugin, script and template paths from the
+      # executable's location when WANT_RELOCATABLE is on. That makes the
+      # tree relocatable into $SNAP instead of baking /usr or /snap/... into
+      # the binary.
+      - -DWANT_RELOCATABLE=ON
+      # Do not write a relative DT_RUNPATH ("lib/scribus/plugins/"), which
+      # ld.so would resolve against the current directory. snapd supplies
+      # $SNAP/usr/lib/<triplet> through LD_LIBRARY_PATH.
+      - -DWANT_NORPATH=ON
+      # 1.6.x defaults to Qt 5. The Qt 6 path needs Core5Compat and does not
+      # yet cover Qt6 PrintSupport/OpenGL; do not enable it.
+      - -DWANT_QT6=OFF
+      - -DWANT_PYTHON_2X=OFF
+      - -DWANT_PCH=OFF
+      # Build the optional GraphicsMagick image import and the OpenSceneGraph
+      # 3D frame, as the Ubuntu package does.
+      - -DWANT_GRAPHICSMAGICK=1
+    build-packages:
+      # The core26 cmake plugin provides cmake and gcc but not a C++ compiler
+      # or make (snapcraft installs build packages without recommends).
+      - build-essential
+      - pkg-config
+      # Qt 5.15 development files. Qt5LinguistTools comes from qttools5-dev;
+      # lrelease/lupdate come from qttools5-dev-tools.
+      - qtbase5-dev
+      - libqt5opengl5-dev
+      - qttools5-dev
+      - qttools5-dev-tools
+      # Required by Scribus' CMake checks: poppler, cairo, CUPS, fontconfig,
+      # freetype, harfbuzz (with ICU and subset), ICU, libxml2, lcms2, zlib,
+      # JPEG, PNG, TIFF and the Python 3 development files.
+      - libcairo2-dev
+      - libcups2-dev
+      - libfontconfig1-dev
+      - libfreetype-dev
+      - libharfbuzz-dev
+      - libicu-dev
+      - libjpeg-dev
+      - libpng-dev
+      - libtiff-dev
+      - libxml2-dev
+      - liblcms2-dev
+      - libpoppler-cpp-dev
+      # Scribus' Findpoppler.cmake looks for poppler-config.h, which is a
+      # private header shipped by libpoppler-private-dev, not libpoppler-dev.
+      - libpoppler-private-dev
+      - libpodofo-dev
+      - python3-dev
+      - zlib1g-dev
+      # Spell checking in text frames.
+      - libhunspell-dev
+      # GraphicsMagick-backed image import (WANT_GRAPHICSMAGICK=1).
+      - libgraphicsmagick++1-dev
+      # Import filters for CorelDRAW, FreeHand, Publisher, PageMaker, QuarkXPress,
+      # Visio and Zoner documents.
+      - libcdr-dev
+      - libfreehand-dev
+      - libmspub-dev
+      - libpagemaker-dev
+      - libqxp-dev
+      - librevenge-dev
+      - libvisio-dev
+      - libzmf-dev
+      # OpenSceneGraph for the 3D frame. libpodofo-dev pulls libboost-dev in
+      # the 26.04 archive, so the optional 2geom tools plugin is built as
+      # well; it needs no additional runtime library.
+      - libopenscenegraph-dev
+    override-build: |
+      craftctl default
+      # TryExec is resolved on the host, where no scribus binary exists, and a
+      # failed TryExec makes desktop environments hide the entry. Point the
+      # icon at the snap's own copy and drop the Ubuntu-specific app-install
+      # hints.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/scribus.desktop"
+      sed -i -e '/^TryExec=/d' \
+        -e 's|^Icon=scribus$|Icon=${SNAP}/meta/gui/scribus.png|' \
+        -e '/^X-AppInstall-Package=/d' \
+        -e '/^X-AppInstall-Section=/d' \
+        "$desktop"
+
+  libraries:
+    # core26 provides glibc, libstdc++, zlib, freetype, glib, expat, png and
+    # the Python 3.14 standard library, but no Qt, no X11/Wayland client
+    # stack and no desktop libraries. Stage every runtime dependency that the
+    # base lacks. Qt 5.15.18, cairo, poppler, CUPS and the import-filter and
+    # 3D libraries all come from the 26.04 archive.
+    after: [scribus]
+    plugin: nil
+    stage-packages:
+      # Qt 5.15 runtime. The KDE/Qt content extensions are not an option on
+      # core26: kde-neon, kde-neon-6 and kde-neon-qt6 all declare support for
+      # core22/core24 only in snapcraft 9.2.1, and the KDE 6 ones are Qt6
+      # only. Scribus 1.6.x is a Qt 5 application, so its Qt stack is staged
+      # from the archive instead.
+      - libqt5core5t64
+      - libqt5gui5t64
+      - libqt5widgets5t64
+      - libqt5xml5t64
+      - libqt5network5t64
+      - libqt5opengl5t64
+      - libqt5printsupport5t64
+      # QPA plugins: the Wayland platform plugin is not part of qtbase, and
+      # the extra image-format plugins add WebP/TIFF loading through Qt.
+      - qtwayland5
+      - qt5-image-formats-plugins
+      # Translations for Qt's own dialogs (file chooser, message boxes).
+      - qttranslations5-l10n
+      # libxkbcommon needs the keyboard layout database; the base has neither
+      # /usr/share/X11/xkb nor the X11 locale data, which the layout above
+      # exposes from the staged copies.
+      - xkb-data
+      - libx11-data
+      # Scribus links these directly.
+      - libcairo2
+      - libcups2t64
+      - libfontconfig1
+      - libfreetype6
+      - libharfbuzz0b
+      - libharfbuzz-icu0
+      - libharfbuzz-subset0
+      - libicu78
+      - libjpeg8
+      - liblcms2-2
+      - libpng16-16t64
+      - libtiff6
+      - libxml2-16
+      # Import filters and PDF/AI import.
+      - libcdr-0.1-1
+      - libfreehand-0.1-1
+      - libmspub-0.1-1
+      - libpagemaker-0.0-0
+      - libqxp-0.0-0
+      - librevenge-0.0-0
+      - libvisio-0.1-1
+      - libzmf-0.0-0
+      - libpoppler156
+      - libpodofo0.9.8t64
+      # CJK CMaps for PDF import; the layout above exposes them at the path
+      # poppler was compiled with.
+      - poppler-data
+      # Spell checking, GraphicsMagick and the 3D frame. Only a US English
+      # dictionary is bundled; the layout above exposes it at the path
+      # hunspell expects.
+      - libhunspell-1.7-0
+      - hunspell-en-us
+      - libgraphicsmagick-q16-3t64
+      - libopenscenegraph161
+      - libopenthreads21
+      # Embedded Python interpreter used by the scripter. The standard
+      # library is already in the base.
+      - libpython3.14
+      # Ghostscript is invoked for PostScript/EPS import and print preview.
+      # libgs-common also supplies the ICC profiles Scribus finds under
+      # /usr/share/color/icc.
+      - ghostscript
+      # fontconfig (not just libfontconfig1) supplies /etc/fonts/fonts.conf
+      # and the fc-* tools; the config and conf.avail are exposed through the
+      # layouts above.
+      - fontconfig
+      # Core26 ships no usable text fonts (only Plymouth.ttf). These cover the
+      # Latin default and PostScript's base-35 set; further fonts can be put
+      # in the snap's private ~/.local/share/fonts.
+      - fonts-dejavu-core
+      - fonts-liberation
+      - fonts-urw-base35
+    # The base already ships the Python 3.14 standard library. libpython3.14
+    # pulls libpython3.14-stdlib as a dependency; keep only the shared
+    # library and interpreter, not a second copy of the stdlib.
+    stage:
+      - -usr/lib/python3*

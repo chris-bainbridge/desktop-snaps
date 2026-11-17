@@ -1,0 +1,49 @@
+#!/bin/sh
+# Command-chain entry point for the strictly confined Scribus snap.
+#
+# Qt, OpenSceneGraph, GraphicsMagick and Mesa are staged from the 26.04
+# archive, while the core26 base contains none of them. Several of these
+# libraries load plugins or data from paths compiled into them that point
+# into the base; point them at the staged copies instead. The multiarch and
+# versioned directory names are globbed so the script keeps working when the
+# archive updates a package.
+set -eu
+
+# Qt's compiled-in plugin path (/usr/lib/<triplet>/qt5/plugins) is in the
+# base, which has no Qt.
+for qt_plugins in "$SNAP"/usr/lib/*-linux-gnu/qt5/plugins; do
+    if [ -d "$qt_plugins" ]; then
+        export QT_PLUGIN_PATH="$qt_plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+        export QT_QPA_PLATFORM_PLUGIN_PATH="$qt_plugins/platforms"
+        break
+    fi
+done
+
+# OpenSceneGraph reads 3D models through plugins from osgPlugins-<version>.
+for osg_plugins in "$SNAP"/usr/lib/*-linux-gnu/osgPlugins-*; do
+    if [ -d "$osg_plugins" ]; then
+        export OSG_LIBRARY_PATH="$osg_plugins${OSG_LIBRARY_PATH:+:$OSG_LIBRARY_PATH}"
+        break
+    fi
+done
+
+# GraphicsMagick's compiled configuration directory is /usr/share, not the
+# snap. The coders are built into the library; the configuration files carry
+# colour and logging settings.
+for gm_config in "$SNAP"/usr/share/GraphicsMagick-*/config; do
+    if [ -d "$gm_config" ]; then
+        export MAGICK_CONFIGURE_PATH="$gm_config${MAGICK_CONFIGURE_PATH:+:$MAGICK_CONFIGURE_PATH}"
+        break
+    fi
+done
+
+# Mesa's DRI drivers are in the multiarch directory; without this libGL only
+# looks in the base, which has no Mesa.
+for dri_dir in "$SNAP"/usr/lib/*-linux-gnu/dri; do
+    if [ -d "$dri_dir" ]; then
+        export LIBGL_DRIVERS_PATH="$dri_dir${LIBGL_DRIVERS_PATH:+:$LIBGL_DRIVERS_PATH}"
+        break
+    fi
+done
+
+exec "$@"
