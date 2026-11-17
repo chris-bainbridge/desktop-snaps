@@ -1,0 +1,118 @@
+# Upstream projects that develop their own source code and keep their snap
+# recipe in the same repository. Their recipe belongs with the source, so they
+# are excluded from this monorepo's package tree and from ./build.
+#
+# They are listed here so there is still one inventory of every desktop snap:
+# what the project is, where it lives, which branch carries the core26 work,
+# and where the local working copy is. Bulk changes can target these entries
+# the same way they target the packaging-only packages in this repository.
+#
+# Not listed here:
+#   - snaps that only repackage another upstream: those are the packages in
+#     this repository (see README.md)
+#   - firefox: also a repackage, excluded because Mozilla publishes it
+#
+# local-commit records the working copy at the time of writing; the
+# merge-request is the authoritative pending change once it lands.
+
+excluded-projects:
+  - project: app-center
+    snap: snap-store
+    repo: https://github.com/ubuntu/app-center
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/app-center
+    local-branch: core26-update
+    local-commit: d85d71ef3e9e5825ca7c0b56370df5256acc453b
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/ubuntu/app-center/pull/2280
+
+  - project: authd
+    snap: authd-google
+    repo: https://github.com/canonical/authd
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/authd
+    local-branch: core26-update
+    local-commit: 4b9d4a87c5641247c4f78c6a05651f655cfd108b
+    recipe: snap/variants/google/snapcraft.yaml
+    prepare: snap/scripts/prepare-variant --broker google --copy
+    merge-request: https://github.com/canonical/authd/pull/2188
+
+  - project: desktop-security-center
+    snap: desktop-security-center
+    repo: https://github.com/canonical/desktop-security-center
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/desktop-security-center
+    local-branch: core26-update
+    local-commit: 329c0a525996ed6390d20000414d3ab63cfcd67d
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/desktop-security-center/pull/288
+
+  - project: firmware-updater
+    snap: firmware-updater
+    repo: https://github.com/canonical/firmware-updater
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/firmware-updater
+    local-branch: core26-update
+    local-commit: b9858776630643ec9fa7d629066a4898302d81b9
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/firmware-updater/pull/445
+
+  - project: prompting-client
+    snap: prompting-client
+    repo: https://github.com/canonical/prompting-client
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/prompting-client
+    local-branch: core26-update
+    local-commit: 0aed9c3cd2cb7edb151931e6d090cb99999c0e1e
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/prompting-client/pull/399
+
+  - project: snap-tpmctl
+    snap: snap-tpmctl
+    repo: https://github.com/canonical/snap-tpmctl
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/snap-tpmctl
+    local-branch: core26-update
+    local-commit: 4c2b080cce4789ea21dff6747c5224a07a2db280
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/snap-tpmctl/pull/88
+
+  - project: snapd-desktop-integration
+    snap: snapd-desktop-integration
+    repo: https://github.com/snapcore/snapd-desktop-integration
+    branch: main
+    local: /home/chrb/git/snaps-core26-update/github/snapd-desktop-integration
+    local-branch: core26-update
+    local-commit: ba97608b5963ac8b88b66bd8be78acb6e905d2a5
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/snapcore/snapd-desktop-integration/pull/175
+
+  - project: ubuntu-desktop-provision
+    snap: ubuntu-desktop-bootstrap
+    repo: https://github.com/canonical/ubuntu-desktop-provision
+    branch: snap/ubuntu-desktop-bootstrap/main
+    local: /home/chrb/git/snaps-core26-update/github/udp-bootstrap
+    local-branch: core26-update
+    local-commit: 9a0f780be2d7aac2d6f4dffd36091299d8810a93
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/ubuntu-desktop-provision/pull/1613
+
+  - project: ubuntu-desktop-provision
+    snap: ubuntu-desktop-init
+    repo: https://github.com/canonical/ubuntu-desktop-provision
+    branch: snap/ubuntu-desktop-init/main
+    local: /home/chrb/git/snaps-core26-update/github/udp-init
+    local-branch: core26-update
+    local-commit: dda916f0f1aa80f13e1d0903878914c80ae0f411
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/ubuntu-desktop-provision/pull/1615
+
+  - project: ubuntu-desktop-provision
+    snap: factory-reset-tools
+    repo: https://github.com/canonical/ubuntu-desktop-provision
+    branch: snap/factory-reset-tools/main
+    local: /home/chrb/git/snaps-core26-update/github/udp-reset
+    local-branch: core26-update
+    local-commit: 3e8ef53be0b4e630c86dc9345043ca0a2ebabc2c
+    recipe: snap/snapcraft.yaml
+    merge-request: https://github.com/canonical/ubuntu-desktop-provision/pull/1614

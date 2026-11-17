@@ -44,8 +44,8 @@ Examples:
   ./build --list
   ./build gnome-logs
   ./build gn/gnome-logs
-  ./build snap-store --dry-run
-  ./build snap-store -- --build-for=arm64
+  ./build gnome-calculator --dry-run
+  ./build gnome-calculator -- --build-for=arm64
 EOF
 }
 

@@ -1,14 +1,20 @@
 # snaps
 
-Build recipes for the Ubuntu desktop snaps maintained by the desktop team,
-stored in a single repository using the Gentoo/Nixpkgs "one directory per
-package" model.
+Build recipes for the Ubuntu desktop snaps that only repackage another
+upstream project, stored in a single repository using the Gentoo/Nixpkgs
+"one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains the 23 snaps migrated to `core26`
-in the 2026-11 migration, all of which are published by Canonical or by
-Canonical desktop-team members. Firefox is deliberately excluded: it is
-published by Mozilla.
+one-repository-per-snap setup. It contains the 13 repackage snaps from the
+2026-11 `core26` migration, all of which are published by Canonical or by
+Canonical desktop-team members.
+
+Projects that develop their own source code and keep their snap recipe in
+the same repository (app-center, authd, firmware-updater, the
+ubuntu-desktop-provision snaps, ...) are out of scope: their recipe belongs
+with the source. They are inventoried in `excluded-projects.yaml` so that
+bulk changes can still target them. Firefox is also excluded here: it is a
+repackage, but Mozilla publishes it.
 
 Nothing here is wired to CI or to the Snap Store. No build ever uploads.
 
@@ -20,12 +26,12 @@ store identity), as in Nixpkgs:
 ```
 gn/gnome-calculator/
 gn/gnome-contacts/
-sn/snap-store/
+si/simple-scan/
+th/thunderbird/
 ...
 ```
 
-The directory name is always the snap name, even when the upstream project is
-called something else (`sn/snap-store` comes from `ubuntu/app-center`).
+The directory name is always the snap name and matches `metadata.yaml`.
 
 Each package directory is a complete build project in whatever shape its
 upstream uses, plus a `metadata.yaml`:
@@ -45,9 +51,9 @@ gn/gnome-logs/
 ./build --list                     # all packages, mode and publisher
 ./build gnome-logs                 # build gn/gnome-logs
 ./build gn/gnome-logs              # same, shard prefix accepted
-./build snap-store --dry-run       # show what would happen
-./build snap-store --keep          # keep the workspace for inspection
-./build snap-store -- --build-for=arm64   # extra args go to snapcraft
+./build gnome-calculator --dry-run # show what would happen
+./build gnome-calculator --keep    # keep the workspace for inspection
+./build gnome-calculator -- --build-for=arm64   # extra args go to snapcraft
 ```
 
 Builds happen **out of tree**, in `${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>`,
@@ -67,64 +73,74 @@ and a working LXD.
 
 The package directory is the upstream packaging project, checked in verbatim
 (minus `.git`, `.github/` and `.gitignore`). The build copies it into the
-workspace and runs snapcraft there. Used for the Launchpad
-`~desktop-snappers` recipes (which are packaging-only repositories) and for
-the `ubuntu-desktop-provision` snap branches.
+workspace and runs snapcraft there. Every package here uses this mode: the
+Launchpad `~desktop-snappers` recipes and `ubuntu/thunderbird` contain only
+packaging.
 
 ### `mode: overlay`
 
 Only the `snap/` subtree is checked in. The build clones the upstream source
 repository at a pinned commit and copies `snap/` over the checkout, because
 those recipes use `source: .` and other repo-relative paths and cannot build
-from the recipe alone. Used for app-center, authd, desktop-security-center,
-firmware-updater, prompting-client, snap-tpmctl and
-snapd-desktop-integration.
+from the recipe alone.
 
-A package may also set `prepare:` (authd-google runs
-`snap/scripts/prepare-variant --broker google --copy` after the overlay).
+No package currently uses this mode: every project whose recipe lives inside
+its source tree is excluded (see `excluded-projects.yaml`). The mode is kept
+for a repackage snap whose upstream ships a recipe that we can only augment.
+
+A package may also set `prepare:` to run a command in the workspace before
+snapcraft.
 
 ## metadata.yaml
 
 ```yaml
-snap: snap-store                 # store name = directory name
+snap: gnome-calculator           # store name = directory name
 base: core26                     # snap base of the migrated recipe
-mode: overlay                    # vendored | overlay
+mode: vendored                   # vendored | overlay
 
-# overlay mode only
-overlay-repo: https://github.com/ubuntu/app-center
-overlay-commit: bb0c969d1932...  # upstream base commit the recipe applies to
-overlay-to: snap                 # where snap/ is copied inside the checkout
-prepare: ...                     # optional command, run in the workspace
-
-upstream: https://github.com/ubuntu/app-center (main)
-recipe-commit: d85d71ef3e9e...   # commit these recipe files came from
-merge-request: https://github.com/ubuntu/app-center/pull/2280
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-calculator (snap)
+recipe-commit: 89048f8fae2e...   # commit these recipe files came from
+merge-request: https://code.launchpad.net/~desktop-snappers/gnome-calculator/+git/snap/+merge/514128
 
 store:
   publisher: Canonical           # actual publisher on the store
   verified: true
 ```
 
-The core26 recipes are currently pinned to the migration branches. Once the
-merge proposals and pull requests land, the overlay commits should be
-re-pinned to upstream and the overlays re-checked against upstream `snap/`.
+Overlay packages additionally set `overlay-repo`, `overlay-commit` and
+`overlay-to`; none currently do.
+
+The recipes are pinned to the `core26` migration branches. Once the merge
+proposals land, refresh the vendored copies from the merged refs.
 
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (23)
+## Snaps in scope (13)
 
-`snap-store`, `firmware-updater`, `desktop-security-center`,
-`prompting-client`, `snapd-desktop-integration`, `snap-tpmctl`,
-`authd-google`, `ubuntu-desktop-bootstrap`, `ubuntu-desktop-init`,
-`factory-reset-tools`, `gnome-calculator`, `gnome-contacts`,
-`gnome-characters`, `eog`, `gnome-logs`, `evince`, `cheese`, `simple-scan`,
-`gnome-text-editor`, `gnome-calendar`, `gedit`, `gnome-clocks`,
-`thunderbird`.
+`gnome-calculator`, `gnome-contacts`, `gnome-characters`, `eog`,
+`gnome-logs`, `evince`, `cheese`, `simple-scan`, `gnome-text-editor`,
+`gnome-calendar`, `gedit`, `gnome-clocks`, `thunderbird`.
+
+All of them repackage another upstream project: the first twelve are GNOME
+applications whose source lives at gitlab.gnome.org, thunderbird is Mozilla
+source. The `~desktop-snappers` and `ubuntu/thunderbird` repositories contain
+only packaging.
 
 Store publishers are not all `Canonical`: `evince`, `cheese` and
-`gnome-text-editor` are published by Ken VanDine, and `ubuntu-desktop-init`
-by Sebastien Bacher (seb128). They are desktop-team snaps and are included.
+`gnome-text-editor` are published by Ken VanDine. They are desktop-team
+snaps and are included.
+
+## Excluded upstream projects
+
+`excluded-projects.yaml` lists the snaps whose project develops its own
+source and carries its own recipe. It records the snap, repository, target
+branch, local working copy and pending merge request for each, so bulk
+changes can target them along with the packages here. They are not built by
+`./build`.
+
+Firefox is not in that list either: it is a repackage, but Mozilla publishes
+it.
 
 Content snaps (`mesa-2604`, `gnome-core26`) are separate projects and are not
 in this repository.
