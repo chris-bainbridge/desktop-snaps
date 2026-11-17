@@ -1,0 +1,72 @@
+name: gnome-chess
+adopt-info: gnome-chess
+summary: Play the classic two-player board game of chess
+description: |
+  GNOME Chess is a simple chess game. You can play against your computer at
+  three different difficulty levels, or against a friend at your computer.
+
+  Computer chess enthusiasts will appreciate GNOME Chess’s compatibility with
+  nearly all modern computer chess engines, and its ability to detect several
+  popular engines automatically if installed.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+slots:
+  gnome-chess:
+    interface: dbus
+    bus: session
+    name: org.gnome.Chess
+
+layout:
+  /usr/engines/gnome-chess:
+    symlink: $SNAP/usr/engines/gnome-chess
+
+apps:
+  gnome-chess:
+    extensions: [gnome]
+    command: usr/bin/gnome-chess
+    plugs:
+      - home # Needed for save game handling
+    desktop: usr/share/applications/org.gnome.Chess.desktop
+    environment:
+      PATH: $SNAP/usr/games:$PATH
+
+parts:
+  gnome-chess:
+    source: https://gitlab.gnome.org/GNOME/gnome-chess.git
+    source-type: git
+    source-tag: '49.2'
+    source-depth: 1
+    parse-info: [usr/share/metainfo/org.gnome.Chess.appdata.xml]
+    override-build: |
+      sed -i.bak -e 's|Icon=org.gnome.Chess$|Icon=${SNAP}/meta/gui/org.gnome.Chess.svg|g' $CRAFT_PART_SRC/data/org.gnome.Chess.desktop.in
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Chess.svg $CRAFT_PART_INSTALL/meta/gui/
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --sysconfdir=/usr/engines
+      - --buildtype=release
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+
+  gnuchess:
+    plugin: nil
+    stage-packages:
+      - gnuchess
+
+  # Find files provided by the base and platform snap and ensure they aren't
+  # duplicated in this snap
+  cleanup:
+    after: [gnome-chess, gnuchess]
+    plugin: nil
+    build-snaps: [core24, gtk-common-themes, gnome-46-2404]
+    override-prime: |
+      set -eux
+      for snap in "core24" "gtk-common-themes" "gnome-46-2404"; do
+        cd "/snap/$snap/current" && find . -type f,l -name *.so.* -exec rm -f "$CRAFT_PRIME/{}" \;
+      done

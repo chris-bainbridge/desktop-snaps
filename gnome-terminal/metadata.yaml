@@ -1,0 +1,10 @@
+# Build metadata for gnome-terminal (imported 2026-11-17; core26 migration pending).
+snap: gnome-terminal
+base: core20
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-terminal (master)
+recipe-commit: a85a13a7d450ef383368dd141fd26b3dfc41f2b5
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

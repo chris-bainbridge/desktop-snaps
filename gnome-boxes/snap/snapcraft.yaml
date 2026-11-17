@@ -1,0 +1,506 @@
+name: gnome-boxes
+adopt-info: gnome-boxes
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+layout:
+  /usr/share/OVMF:
+    bind: $SNAP/usr/share/OVMF
+  /usr/share/gnome-boxes:
+    bind: $SNAP/usr/share/gnome-boxes
+  /usr/share/osinfo:
+    bind: $SNAP/usr/share/osinfo
+  /usr/share/misc/usb.ids:
+    symlink: $SNAP/usr/share/misc/usb.ids
+  /usr/share/misc/pci.ids:
+    symlink: $SNAP/usr/share/misc/pci.ids
+  /usr/share/libosinfo/pci.ids:
+    symlink: $SNAP/usr/share/libosinfo/pci.ids
+  /usr/share/libosinfo/usb.ids:
+    symlink: $SNAP/usr/share/libosinfo/usb.ids
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvirt:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvirt
+  /usr/share/libvirt:
+    bind: $SNAP/usr/share/libvirt
+  /usr/lib/libvirt:
+    bind: $SNAP/usr/lib/libvirt
+  /usr/share/seabios:
+    bind: $SNAP/usr/share/seabios
+  /usr/lib/ipxe:
+    bind: $SNAP/usr/lib/ipxe
+  /usr/bin/qemu-system-x86_64:
+    bind-file: $SNAP/usr/bin/qemu-system-x86_64
+  /usr/sbin/virtchd:
+    symlink: $SNAP/usr/sbin/virtchd
+  /usr/sbin/virtinterfaced:
+    symlink: $SNAP/usr/sbin/virtinterfaced
+  /usr/sbin/virtlockd:
+    symlink: $SNAP/usr/sbin/virtlockd
+  /usr/sbin/virtlogd:
+    symlink: $SNAP/usr/sbin/virtlogd
+  /usr/sbin/virtlxcd:
+    symlink: $SNAP/usr/sbin/virtlxcd
+  /usr/sbin/virtnetworkd:
+    symlink: $SNAP/usr/sbin/virtnetworkd
+  /usr/sbin/virtnodedevd:
+    symlink: $SNAP/usr/sbin/virtnodedevd
+  /usr/sbin/virtnwfilterd:
+    symlink: $SNAP/usr/sbin/virtnwfilterd
+  /usr/sbin/virtproxyd:
+    symlink: $SNAP/usr/sbin/virtproxyd
+  /usr/sbin/virtqemud:
+    symlink: $SNAP/usr/sbin/virtqemud
+  /usr/sbin/virt-sanlock-cleanup:
+    symlink: $SNAP/usr/sbin/virt-sanlock-cleanup
+  /usr/sbin/virtsecretd:
+    symlink: $SNAP/usr/sbin/virtsecretd
+  /usr/sbin/virtstoraged:
+    symlink: $SNAP/usr/sbin/virtstoraged
+  /usr/sbin/virtvboxd:
+    symlink: $SNAP/usr/sbin/virtvboxd
+  /usr/sbin/virtxend:
+    symlink: $SNAP/usr/sbin/virtxend
+  /usr/sbin/dnsmasq:
+    bind-file: $SNAP/usr/sbin/dnsmasq
+  /usr/libexec/spice-client-glib-usb-acl-helper:
+    symlink: $SNAP/usr/libexec/spice-client-glib-usb-acl-helper
+  /usr/share/qemu:
+    bind: $SNAP/usr/share/qemu
+  /etc/libvirt:
+    bind: $SNAP/etc/libvirt
+  /usr/libexec/libvirt_iohelper:
+    bind-file: $SNAP/usr/libexec/libvirt_iohelper
+  /var/lib/libvirt:
+    bind: $SNAP/var/lib/libvirt
+
+slots:
+  # for GtkApplication registration
+  gnome-boxes:
+    interface: dbus
+    bus: session
+    name: org.gnome.Boxes
+
+apps:
+  gnome-boxes:
+    command: usr/bin/gnome-boxes
+    command-chain: [ bin/launcher ]
+    extensions: [gnome]
+    plugs:
+      - audio-record
+      - audio-playback
+      - camera
+      - hardware-observe
+      - home
+      - kvm
+      - login-session-observe
+      - mount-observe
+      - network
+      - network-bind
+      - network-status
+      - process-control
+      - raw-usb
+      - removable-media
+      - system-observe
+      - time-control
+      - udisks2
+      - upower-observe
+    desktop: usr/share/applications/org.gnome.Boxes.desktop
+    common-id: org.gnome.Boxes.desktop
+    environment:
+      LD_LIBRARY_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-boxes
+      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-boxes/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}
+      GTK_USE_PORTAL: '0'
+      LIBVIRT_DEFAULT_URI: 'qemu+unix:///session'
+
+parts:
+  libpciaccess:
+    source: https://gitlab.freedesktop.org/xorg/lib/libpciaccess.git
+    source-depth: 1
+    source-tag: libpciaccess-0.19
+    plugin: meson
+    build-packages:
+      - zlib1g-dev
+      - xutils-dev
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dzlib=enabled
+      - -Dpci-ids=/usr/share/misc
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  libvirt:
+    source: https://gitlab.com/libvirt/libvirt.git
+    source-depth: 1
+    source-tag: 'v12.6.0'
+# There's something, starting from 10.5.0 that breaks libvirt to work inside
+# the snap environment, launching `virsh` just hangs and inside boxes no VM
+# is loaded, with an infinite loading spinner.
+# ext:updatesnap
+#   version-format:
+#     lower-than: 13.0.0
+    plugin: meson
+    after:
+      - libpciaccess
+    build-packages:
+      - libxml2-dev
+      - libncurses5-dev
+      - libreadline-dev
+      - zlib1g-dev
+      - libgcrypt20-dev
+      - libgnutls28-dev
+      - libsasl2-dev
+      - libxen-dev
+      - libparted-dev
+      - libdevmapper-dev
+      - uuid-dev
+      - libudev-dev
+      - libcurl4-gnutls-dev
+      - libpolkit-gobject-1-dev
+      - libcap-ng-dev
+      - libnl-3-dev
+      - libnl-route-3-dev
+      - libyajl-dev
+      - libpcap0.8-dev
+      - libnuma-dev
+      - libsanlock-dev
+      - libaudit-dev
+      - libselinux1-dev
+      - libapparmor-dev
+      - libdbus-1-dev
+      - systemtap-sdt-dev
+      - libzfslinux-dev
+      - librbd-dev
+      - librados-dev
+      - libglusterfs-dev
+      - libjson-c-dev
+      - libtirpc-dev
+      - libwiretap-dev
+      - libfuse-dev
+      - qemu-utils
+      - python3-docutils
+      - qemu-system-common
+      - xsltproc
+      - libxslt1-dev
+    stage-packages:
+      - libacl1
+      - libapparmor1
+      - libaudit1
+      - libblkid1
+      - libcap-ng0
+      - libcurl3-gnutls
+      - libdbus-1-3
+      - libdevmapper1.02.1
+      - libfuse2
+      - libgcc-s1
+      - libgfapi0
+      - libgfrpc0
+      - libgfxdr0
+      - libglib2.0-0
+      - libglusterfs0
+      - libgnutls30
+      - libjson-c5
+      - libnl-3-200
+      - libnuma1
+      - libparted2
+      - libpcap0.8
+      - librados2
+      - librbd1
+      - libsanlock-client1
+      - libsasl2-2
+      - libselinux1
+      - libtirpc3
+      - libudev1
+      - libxencall1
+      - libxenmisc4.17t64
+      - libxendevicemodel1
+      - libxenevtchn1
+      - libxenforeignmemory1
+      - libxengnttab1
+      - libxenstore4
+      - libxentoolcore1
+      - libxentoollog1
+      - libxml2
+      - libyajl2
+    build-environment:
+      - CFLAGS: "-Wno-error"
+    override-pull: |
+      craftctl default
+      git apply $CRAFT_PROJECT_DIR/patches/libvirt-qemu.patch
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Ddriver_qemu=enabled
+      - -Ddocs=disabled
+      - -Dtests=disabled
+      - -Dwireshark_dissector=disabled
+    stage:
+      - -usr/lib/*/ceph/libceph-common.so.* # conflicts with qemu part
+      - -usr/lib/*/ceph/librbd/libceph_librbd_parent_cache.so.* # conflicts with qemu part
+      - -usr/lib/*/ceph/librbd/libceph_librbd_pwl_cache.so.* # conflicts with qemu part
+      - -usr/lib/*/libboost_*.so.* # conflicts with qemu part
+      - -usr/lib/*/libdaxctl.so.* # conflicts with the qemu part
+      - -usr/lib/*/libgfapi.so.* # conflicts with qemu part
+      - -usr/lib/*/libgfrpc.so.* # conflicts with qemu part
+      - -usr/lib/*/libgfxdr.so.* # conflicts with qemu part
+      - -usr/lib/*/libglusterfs.so.* # conflicts with qemu part
+      - -usr/lib/*/libibverbs.so.* # conflicts with the qemu part
+      - -usr/lib/*/libndctl.so.* # conflicts with the qemu part
+      - -usr/lib/*/libnuma.so.* # conflicts with the qemu part
+      - -usr/lib/*/libpmem.so.* # conflicts with the qemu part
+      - -usr/lib/*/libpmemobj.so.* # conflicts with the qemu part
+      - -usr/lib/*/librados.so.* # conflicts with qemu part
+      - -usr/lib/*/librbd.so.* # conflicts with qemu part
+      - -usr/lib/*/librdmacm.so.* # conflicts with the qemu part
+      - -usr/lib/*/libxen*.so.* # conflicts with qemu part
+      - -usr/lib/*/libxml2.so.* # conflicts with qemu part
+      - -usr/lib/*/libyajl.so.* # conflicts with qemu part
+      - -usr/lib/*/rsocket # conflicts with qemu part
+      - -usr/share/doc/libboost-* # conflicts with qemu part
+      - -usr/share/doc/libdaxctl* # conflicts with qemu part
+      - -usr/share/doc/libibverbs* # conflicts with qemu part
+      - -usr/share/doc/libndctl* # conflicts with qemu part
+      - -usr/share/doc/libnghttp* # conflicts with qemu part
+      - -usr/share/doc/libsasl* # conflicts with qemu part
+      - -usr/share/doc/libyajl* # conflicts with qemu part
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  libvirt-glib:
+    source: https://github.com/libvirt/libvirt-glib.git
+    source-tag: v5.0.0
+    after: [ libvirt ]
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    prime:
+      - usr/lib/*/*.so.*
+
+  libosinfo:
+    source: https://gitlab.com/libosinfo/libosinfo.git
+    source-commit: 08f0772b7da207acc6015eec2d873c6ada3c2f8e
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Denable-gtk-doc=false
+      - -Denable-tests=false
+      - -Dlibsoup-abi=3.0
+    override-build: |
+      craftctl default
+      sed -i "s#includedir=/usr/include#includedir=$CRAFT_STAGE/usr/include#g" $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig/libosinfo-1.0.pc
+      sed -i "s#libdir=/usr/lib#libdir=$CRAFT_STAGE/usr/lib#g" $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig/libosinfo-1.0.pc
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  libspice-protocol:
+    source: https://gitlab.freedesktop.org/spice/spice-protocol.git
+    source-tag: 'v0.14.5'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+
+  libspice-gtk:
+    after: [ libspice-protocol ]
+    source: https://gitlab.freedesktop.org/spice/spice-gtk.git
+    source-tag: 'v0.43'
+    source-depth: 1
+    plugin: meson
+    override-pull: |
+      python3 -m pip install --break-system-packages six pyparsing asciidoc
+      craftctl default
+      git apply -3 $CRAFT_PROJECT_DIR/patches/libspice-gtk-permissions-error-explain.patch
+    meson-parameters:
+      - --prefix=/usr
+      - -Dgtk=enabled
+      - -Dwayland-protocols=enabled
+      - -Dintrospection=enabled
+      - -Dgtk_doc=disabled
+      - -Dsmartcard=enabled
+      - -Dusbredir=enabled
+      - -Dpolkit=disabled
+      - -Dlz4=enabled
+      - -Dusb-acl-helper-dir=/usr/libexec
+      - -Dusb-ids-path=/usr/share/misc/usb.ids
+      - -Dwebdav=enabled
+      - -Dvapi=enabled
+      - -Degl=enabled
+    build-packages:
+      - libcacard-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libgstreamer1.0-dev
+      - libopus-dev
+      - libphodav-3.0-dev
+      - libusb-1.0-0-dev
+      - libusbredirhost-dev
+      - libusbredirparser-dev
+      - libva-dev
+    stage-packages:
+      - libopus0
+      - libphodav-3.0-0
+      - libva-x11-2
+      - libva-wayland2
+      - usb.ids
+    stage:
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.* # conflicts with qemu
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  gnome-boxes:
+    after:
+      - libspice-gtk
+      - libvirt-glib
+      - libosinfo
+    source: https://gitlab.gnome.org/GNOME/gnome-boxes.git
+    source-tag: '50.0'
+    source-depth: 1
+# ext:updatesnap
+#   version-format:
+#     lower-than: 51.0
+    parse-info: [usr/share/metainfo/org.gnome.Boxes.metainfo.xml]
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Ddistributor_name=Ubuntu
+    organize:
+      snap/gnome-boxes/current/usr: usr
+    build-packages:
+      - libarchive-dev
+      - libgtk-vnc-2.0-dev
+      - libusb-1.0-0-dev
+      - cmake
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      sed -i.bak -e "s|symlink_media: true|symlink_media: false|g" $CRAFT_PART_SRC/help/meson.build
+      # Ensure we save VMs in $SNAP_USER_COMMON
+      git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-snap-user-common.patch
+      # Update recommended downloads
+      git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-recommended-downloads.patch
+      git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-explain-usb-error.patch
+      # Downloader hardcodes /var/tmp, which isn't writable in strict
+      # confinement; use $XDG_DOWNLOAD_DIR instead when available (exported
+      # by the gnome-46-2404 content snap's desktop-launch script)
+      git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-snap-tmp-dir.patch
+    build-environment:
+      - C_INCLUDE_PATH: ${C_INCLUDE_PATH:+$C_INCLUDE_PATH:}$CRAFT_STAGE/usr/include/libvirt-gconfig-1.0:$CRAFT_STAGE/usr/include/libvirt-glib-1.0:$CRAFT_STAGE/usr/include/libvirt-gobject-1.0
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  libraries:
+    after: [ gnome-boxes ]
+    plugin: nil
+    stage-packages:
+      - libcurl3-gnutls
+      - libgtk-vnc-2.0-0
+      - libgvnc-1.0-0
+      - libldap2
+      - libnghttp2-14
+      - libnspr4
+      - libnss3
+      - librtmp1
+      - libsasl2-2
+      - libssh-4
+      - pci.ids
+    stage:
+      - -usr/lib/*/libxml2.so.* # conflicts with qemu part
+    prime:
+      - usr/lib/*/libcaca*.so.*
+      - usr/lib/*/libcurl*.so.*
+      - usr/lib/*/libgss**.so.*
+      - usr/lib/*/libgtk-vnc*.so.*
+      - usr/lib/*/libgvnc*.so.*
+      - usr/lib/*/libhcrypt*.so.*
+      - usr/lib/*/libhei*.so.*
+      - usr/lib/*/libhx*.so.*
+      - usr/lib/*/libkrb*.so.*
+      - usr/lib/*/liblber*.so.*
+      - usr/lib/*/libldap*.so.*
+      - usr/lib/*/libng*.so.*
+      - usr/lib/*/libns*.so*
+      - usr/lib/*/libnuma*.so.*
+      - usr/lib/*/libopus*.so.*
+      - usr/lib/*/libphodav*.so.*
+      - usr/lib/*/libplc*.so*
+      - usr/lib/*/libpld*.so*
+      - usr/lib/*/libroken*.so.*
+      - usr/lib/*/librtmp*.so.*
+      - usr/lib/*/libsasl*.so.*
+      - usr/lib/*/libspice*.so.*
+      - usr/lib/*/libssh*.so.*
+      - usr/lib/*/libusb*.so.*
+      - usr/lib/*/libva*.so.*
+      - usr/bin/osinfo*
+      - usr/share/misc/pci.ids
+      - usr/share/misc/usb.ids
+
+  osinfo-db:
+    source: https://gitlab.com/libosinfo/osinfo-db.git
+    source-depth: 1
+    plugin: make
+    build-packages:
+      - gettext
+      - osinfo-db-tools
+      - wget
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/usr/share/osinfo
+      tar xf osinfo-db-*.tar.xz --strip-components=1 -C $CRAFT_PART_INSTALL/usr/share/osinfo
+      VERSION=$(wget -qO- https://changelogs.ubuntu.com/meta-release-development | python3 -c '
+      import sys
+
+      def ver_tuple(v):
+          return tuple(int(p) for p in v.split("."))
+
+      best = None
+      block = {}
+      for line in sys.stdin:
+          line = line.strip()
+          if not line:
+              if block.get("Supported") == "0":
+                  v = ver_tuple(block.get("Version", "0"))
+                  if best is None or v > best[0]:
+                      best = (v, block.get("Dist"))
+              block = {}
+              continue
+          if ":" in line:
+              k, val = line.split(":", 1)
+              block[k.strip()] = val.strip()
+      if block.get("Supported") == "0":
+          v = ver_tuple(block.get("Version", "0"))
+          if best is None or v > best[0]:
+              best = (v, block.get("Dist"))
+      if best:
+          print(best[1])
+      ')
+      sed "s/@VERSION@/$VERSION/g" $CRAFT_PROJECT_DIR/ubuntu-daily.xml \
+        > $CRAFT_PART_INSTALL/usr/share/osinfo/os/ubuntu.com/ubuntu-daily.xml
+    prime:
+      - usr/share/osinfo
+
+  qemu:
+    plugin: nil
+    stage-snaps: [ qemu-virgil/latest/edge ]
+    stage-packages:
+      - dnsmasq-base
+
+  launcher:
+    plugin: dump
+    after: [ qemu ]
+    source: scripts
+    organize:
+      launcher.sh: bin/launcher

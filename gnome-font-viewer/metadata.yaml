@@ -1,0 +1,10 @@
+# Build metadata for gnome-font-viewer (imported 2026-11-17; core26 migration pending).
+snap: gnome-font-viewer
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/desktop (stable)
+recipe-commit: 95f97b97d97dde5dc268a3c2dfce9639205804c7
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

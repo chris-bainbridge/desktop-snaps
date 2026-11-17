@@ -1,0 +1,47 @@
+name: gnome-tetravex
+adopt-info: gnome-tetravex
+summary: Reorder tiles to fit a square
+description: |
+  Each square piece has a number on each side. Position the pieces on the left
+  side of the board so that the same numbers are next to each other. If the
+  numbers don't match, you can't put the piece there. Move quickly: you're
+  being timed!
+
+  You can make the game easier or harder by changing the size of the board.
+
+license: GPL-3.0+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+slots:
+  # for GtkApplication registration
+  gnome-tetravex:
+    interface: dbus
+    bus: session
+    name: org.gnome.Tetravex
+
+apps:
+  gnome-tetravex:
+    command: usr/bin/gnome-tetravex
+    extensions: [ gnome ]
+    desktop: usr/share/applications/org.gnome.Tetravex.desktop
+
+parts:
+  gnome-tetravex:
+# ext:updatesnap
+    source: https://gitlab.gnome.org/GNOME/gnome-tetravex.git
+    source-type: git
+    source-tag: '3.38.3'
+    source-depth: 1
+    parse-info: [usr/share/metainfo/org.gnome.Tetravex.appdata.xml]
+    override-build: |
+      sed -i.bak -e 's|Icon=org.gnome.Tetravex$|Icon=${SNAP}/meta/gui/org.gnome.Tetravex.svg|g' $SNAPCRAFT_PART_SRC/data/org.gnome.Tetravex.desktop.in
+      craftctl default
+      mkdir -p $SNAPCRAFT_PART_INSTALL/meta/gui/
+      cp $SNAPCRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.Tetravex.svg $SNAPCRAFT_PART_INSTALL/meta/gui/
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+    prime:
+      - -usr/lib/*/libgtk*

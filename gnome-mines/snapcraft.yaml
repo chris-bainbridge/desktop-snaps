@@ -1,0 +1,59 @@
+name: gnome-mines
+adopt-info: gnome-mines
+summary: Clear hidden mines from a minefield
+description: |
+  GNOME Mines is a puzzle game where you search for hidden mines. Flag the
+  spaces with mines as quickly as possible to make the board a safer place. You
+  win the game when you’ve flagged every mine on the board. Be careful not to
+  trigger one, or the game is over!
+
+  You can select the size of the field you want to play on at the start of the
+  game. If you get stuck, you can ask for a hint: there’s a time penalty, but
+  that’s better than hitting a mine!
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+# Launchpad doesn't recognize these fields yet
+passthrough:
+  license: GPL-3.0+
+  title: GNOME Mines
+
+slots:
+  # for GtkApplication registration
+  gnome-mines:
+    interface: dbus
+    bus: session
+    name: org.gnome.Mines
+
+layout:
+  /usr/share/gnome-mines:
+    symlink: $SNAP/usr/share/gnome-mines
+
+apps:
+  gnome-mines:
+    command: usr/bin/gnome-mines
+    extensions: [ gnome ]
+    desktop: usr/share/applications/org.gnome.Mines.desktop
+
+parts:
+  gnome-mines:
+# ext:updatesnap
+    source: https://gitlab.gnome.org/GNOME/gnome-mines.git
+    source-type: git
+    source-tag: '48.1'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Mines.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      sed -i.bak -e 's|=org.gnome.Mines$|=${SNAP}/meta/gui/org.gnome.Mines.svg|g' $CRAFT_PART_SRC/data/org.gnome.Mines.desktop.in
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.Mines.svg $CRAFT_PART_INSTALL/meta/gui/

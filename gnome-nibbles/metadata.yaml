@@ -1,0 +1,10 @@
+# Build metadata for gnome-nibbles (imported 2026-11-17; core26 migration pending).
+snap: gnome-nibbles
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-nibbles (stable)
+recipe-commit: 6bc843eb5b4a172de51eaaa109e684a2a61d1e10
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

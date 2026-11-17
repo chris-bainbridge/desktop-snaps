@@ -1,0 +1,54 @@
+name: gnome-mahjongg
+adopt-info: gnome-mahjongg
+summary: Match tiles and clear the board
+description: |
+  A solitaire version of the classic Eastern tile game. Tiles are stacked on
+  the board at the start of the game. The goal is to remove all the tiles in
+  as little time as possible. Select two matching tiles and they will disappear
+  from the board, but you can only select a tile if there is an empty space to
+  its left or right at the same level. Be careful: tiles that look alike
+  may actually be slightly different.
+
+  GNOME Mahjongg features a variety of starting layouts, some easy and some
+  difficult. If you get stuck, you can ask for a hint, but this adds a large
+  time penalty.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+slots:
+  # for GtkApplication registration
+  gnome-mahjongg:
+    interface: dbus
+    bus: session
+    name: org.gnome.Mahjongg
+
+layout:
+  /usr/share/gnome-mahjongg:
+    symlink: $SNAP/usr/share/gnome-mahjongg
+
+apps:
+  gnome-mahjongg:
+    command: usr/bin/gnome-mahjongg
+    extensions: [ gnome ]
+    plugs:
+      - gsettings
+    desktop: usr/share/applications/org.gnome.Mahjongg.desktop
+
+parts:
+  gnome-mahjongg:
+# ext:updatesnap
+    source: https://gitlab.gnome.org/GNOME/gnome-mahjongg.git
+    source-type: git
+    source-tag: '48.1'
+    source-depth: 1
+    parse-info: [usr/share/metainfo/org.gnome.Mahjongg.metainfo.xml]
+    override-build: |
+      sed -i -e 's|=org.gnome.Mahjongg$|=${SNAP}/meta/gui/org.gnome.Mahjongg.svg|g' $CRAFT_PART_SRC/data/org.gnome.Mahjongg.desktop.in.in
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.Mahjongg.svg $CRAFT_PART_INSTALL/meta/gui/
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr

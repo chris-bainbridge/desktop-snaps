@@ -1,0 +1,119 @@
+name: gnome-terminal
+adopt-info: gnome-terminal
+summary: GNOME Terminal
+description: |
+  GNOME Terminal is a terminal emulator application for accessing a UNIX shell environment which can be used to run programs available on your system.
+
+  It supports several profiles, multiple tabs and implements several keyboard shortcuts.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core20
+
+slots:
+  # for GtkApplication registration
+  gnome-terminal:
+    interface: dbus
+    bus: session
+    name: org.gnome.Terminal
+
+plugs:
+  dot-files:
+    interface: personal-files
+    read:
+    - $HOME/.bashrc
+    - $HOME/.bash_aliases
+    - $HOME/.bash_history
+    write:
+    - $HOME/.bashrc
+    - $HOME/.bash_aliases
+    - $HOME/.bash_history
+
+apps:
+  gnome-terminal:
+    command: usr/bin/gnome-terminal
+    extensions: [gnome-3-38]
+    plugs:
+      - gsettings
+      - network
+      - home
+      - log-observe
+      - process-control
+      - system-observe
+      - kernel-module-observe
+      - hardware-random-observe
+      - hardware-observe
+      - dot-files
+    desktop: usr/share/applications/org.gnome.Terminal.desktop
+    common-id: org.gnome.Terminal.desktop
+    environment:
+      HOME: $SNAP_REAL_HOME
+  gnome-terminal-service:
+    extensions: [gnome-3-38]
+    command: usr/libexec/gnome-terminal-server
+    daemon: simple
+    passthrough:
+      activates-on: [gnome-terminal]
+      daemon-scope: user
+    plugs:
+      - gsettings
+      - network
+      - home
+      - log-observe
+      - process-control
+      - system-observe
+      - kernel-module-observe
+      - hardware-random-observe
+      - hardware-observe
+      - dot-files
+    environment:
+      HOME: $SNAP_REAL_HOME
+
+parts:
+  vte:
+    after: [ p11-kit ]
+    source: https://gitlab.gnome.org/GNOME/vte.git
+    source-branch: vte-0-62
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+    organize:
+      snap/gnome-terminal/current/usr: usr
+    build-packages:
+      - libsystemd-dev
+      - libgnutls28-dev
+
+  p11-kit:
+    source: https://github.com/p11-glue/p11-kit.git
+    source-tag: 0.23.22
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Dhash_impl=internal
+      - -Dtrust_paths=/etc/ssl/certs/ca-certificates.crt
+    build-packages:
+      - libtasn1-6-dev
+
+  gnome-terminal:
+    after: [ vte ]
+    source: https://gitlab.gnome.org/GNOME/gnome-terminal.git
+    source-branch: gnome-3-38
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --disable-search-provider
+      - --without-nautilus-extension
+    parse-info: [usr/share/metainfo/org.gnome.Terminal.appdata.xml]
+    organize:
+      snap/gnome-terminal/current/usr: usr
+    build-environment:
+    - LD_LIBRARY_PATH: $SNAPCRAFT_STAGE/usr/lib/$SNAPCRAFT_ARCH_TRIPLET:$SNAPCRAFT_STAGE/usr/lib:/snap/gnome-3-38-2004-sdk/current/lib/$SNAPCRAFT_ARCH_TRIPLET:/snap/gnome-3-38-2004-sdk/current/usr/lib/$SNAPCRAFT_ARCH_TRIPLET:/snap/gnome-3-38-2004-sdk/current/usr/lib:/snap/gnome-3-38-2004-sdk/current/usr/lib/vala-current
+    build-packages:
+      - libdconf-dev
+      - uuid-dev
+      - yelp-tools
+      - docbook-xsl
+      - git
+    override-pull: |
+      snapcraftctl pull
+      snapcraftctl set-version $(git describe --tags --abbrev=10)

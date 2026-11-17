@@ -1,0 +1,10 @@
+# Build metadata for drawing (imported 2026-11-17; core26 migration pending).
+snap: drawing
+base: core22
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/drawing (stable)
+recipe-commit: 46262febce224e91121382392383b45d95d0e335
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

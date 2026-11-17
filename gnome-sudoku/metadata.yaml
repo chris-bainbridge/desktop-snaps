@@ -1,0 +1,10 @@
+# Build metadata for gnome-sudoku (imported 2026-11-17; core26 migration pending).
+snap: gnome-sudoku
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-sudoku (stable)
+recipe-commit: b9d4e2a9410592fd892529f86cf4702905978c72
+imported: '2026-11-17'
+store:
+  publisher: Canonical
+  verified: true

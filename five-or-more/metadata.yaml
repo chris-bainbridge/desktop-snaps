@@ -1,0 +1,10 @@
+# Build metadata for five-or-more (imported 2026-11-17; core26 migration pending).
+snap: five-or-more
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/five-or-more (stable)
+recipe-commit: 787028cbcb0ab4f4e4e4731d2b7afacd496cb678
+imported: '2026-11-17'
+store:
+  publisher: Jeremy Bicha (jbicha)
+  verified: false

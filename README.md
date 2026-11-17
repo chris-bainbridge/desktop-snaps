@@ -5,9 +5,13 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains the 13 repackage snaps from the
-2026-11 `core26` migration, all of which are published by Canonical or by
-Canonical desktop-team members.
+one-repository-per-snap setup. It contains 39 repackage snaps: the 13
+migrated to `core26` in the 2026-11 migration, plus 26 packaging recipes
+imported from other `~desktop-snappers` repositories on 2026-11-17.
+
+All 39 are published by Canonical or by Canonical desktop-team members. The
+26 imports still use their original bases (23 `core24`, one `core22`, two
+`core20`) and have not been migrated.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
@@ -109,7 +113,9 @@ store:
 ```
 
 Overlay packages additionally set `overlay-repo`, `overlay-commit` and
-`overlay-to`; none currently do.
+`overlay-to`; none currently do. Imported packages (2026-11-17) carry
+`imported: YYYY-MM-DD` and no `merge-request`; their `recipe-commit` is the
+packaging repository head they were copied from.
 
 The recipes are pinned to the `core26` migration branches. Once the merge
 proposals land, refresh the vendored copies from the merged refs.
@@ -117,20 +123,40 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (13)
+## Snaps in scope (39)
+
+### Migrated to core26 (13)
 
 `gnome-calculator`, `gnome-contacts`, `gnome-characters`, `eog`,
 `gnome-logs`, `evince`, `cheese`, `simple-scan`, `gnome-text-editor`,
 `gnome-calendar`, `gedit`, `gnome-clocks`, `thunderbird`.
 
-All of them repackage another upstream project: the first twelve are GNOME
-applications whose source lives at gitlab.gnome.org, thunderbird is Mozilla
-source. The `~desktop-snappers` and `ubuntu/thunderbird` repositories contain
-only packaging.
+### Imported 2026-11-17, migration pending (26)
 
-Store publishers are not all `Canonical`: `evince`, `cheese` and
-`gnome-text-editor` are published by Ken VanDine. They are desktop-team
-snaps and are included.
+Published by Canonical:
+
+`gnome-boxes`, `shotwell`, `gnome-system-monitor`, `gnome-sudoku`.
+
+Published by Canonical desktop staff:
+
+`epiphany`, `drawing`, `glade`, `gnome-2048`, `gnome-chess`,
+`gnome-font-viewer`, `gnome-klotski`, `gnome-weather`, `gnome-mahjongg`,
+`gnome-mines`, `gnome-nibbles`, `gnome-recipes`, `gnome-robots`,
+`gnome-taquin`, `gnome-tetravex`, `iagno`, `lightsoff`, `swell-foop`,
+`tali`, `five-or-more`, `fractal`, `gnome-terminal`.
+
+All of them repackage another upstream project: nearly all are GNOME
+applications whose source lives at gitlab.gnome.org; thunderbird is Mozilla
+source, fractal is the Matrix client. The `~desktop-snappers` and
+`ubuntu/thunderbird` repositories contain only packaging.
+
+The imports are pinned to their stable refs (`main` for fractal, `master`
+for gnome-terminal). `fractal` and `gnome-terminal` are still `core20`;
+`drawing` is `core22`; the rest are `core24`.
+
+Store publishers are not all `Canonical`: Ken VanDine publishes 20 of the
+39, Jeremy Bicha (`jbicha`) four and Robert Ancell one. They are
+desktop-team snaps and are included.
 
 ## Excluded upstream projects
 
@@ -154,5 +180,7 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
+- `core26` migration of the 26 imported packages; they still build on their
+  original `core24`/`core22`/`core20` bases.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

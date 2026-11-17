@@ -1,0 +1,165 @@
+name: epiphany
+adopt-info: epiphany
+summary: Web browser for GNOME
+description: |
+  The web browser for GNOME, featuring tight integration with the desktop
+  and a simple and intuitive user interface that allows you to focus on your
+  web pages. If you’re looking for a simple, clean, beautiful view of the
+  web, this is the browser for you.
+
+  GNOME Web is often referred to by its code name, Epiphany.
+
+grade: stable
+confinement: strict
+base: core24
+
+# Launchpad doesn't recognize these fields yet
+passthrough:
+  title: GNOME Web
+
+slots:
+  # for GtkApplication registration
+  epiphany:
+    interface: dbus
+    bus: session
+    name: org.gnome.Epiphany
+
+layout:
+  /usr/share/epiphany:
+    bind: $SNAP/usr/share/epiphany
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0
+
+apps:
+  epiphany:
+    command: bin/snapcraft-preload $SNAP/usr/bin/epiphany
+    extensions: [ gnome ]
+    plugs:
+      - audio-playback
+      - audio-record
+      - browser-support
+      - camera
+      - cups
+      - hardware-observe
+      - home
+      - hostname-control
+      - mount-observe
+      - network
+      - network-status
+      - opengl
+      - password-manager-service
+      - removable-media
+      - screen-inhibit-control
+      - upower-observe
+    desktop: usr/share/applications/org.gnome.Epiphany.desktop
+    environment:
+      GSETTINGS_SCHEMA_DIR: $SNAP/usr/share/glib-2.0/schemas
+      GIO_MODULE_DIR: $SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gio/modules/
+      LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/epiphany:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/blas:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/lapack
+
+parts:
+  snapbuildtools:
+# ext:updatesnap
+#   version-format:
+#     allow-neither-tag-nor-branch: true
+    source: https://github.com/sergio-costas/snap-build-tools.git
+    source-depth: 1
+    plugin: nil
+    build-snaps: [core24, gtk-common-themes, gnome-46-2404]
+    override-pull: |
+      craftctl default
+      $CRAFT_PART_SRC/install
+
+  packages:
+    after: [snapbuildtools]
+    source: .
+    plugin: nil
+    override-build: |
+      craftctl default
+      /usr/bin/python3 $CRAFT_PROJECT_DIR/snapbuildtools/remove_common.py
+    build-packages:
+      - python3-yaml
+    stage-packages:
+      - gstreamer1.0-libav
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-plugins-bad
+      - libgcr-4-4
+      - libwebkitgtk-6.0-4
+    stage:
+      - -usr/bin/[a-df-z]*
+      - -usr/include
+      - -usr/lib/*/gtk-3.0/3.0.0/printbackends/libprintbackend*.so*
+      - -usr/lib/*/libfribidi.so.0
+      - -usr/lib/*/libatk-1.0.so.0
+      - -usr/lib/*/libatk-bridge-2.0.so.0
+      - -usr/lib/*/libatspi.so.0
+      - -usr/lib/*/libgio-2.0.so*
+      - -usr/lib/*/libglib-2.0.so*
+      - -usr/lib/*/libgmodule-2.0.so*
+      - -usr/lib/*/libgobject-2.0.so*
+      - -usr/lib/*/libgthread-2.0.so*
+      - -usr/lib/*/libgtk*
+      - -usr/lib/*/libjson-glib-1.0.so*
+      - -usr/lib/*/libpango*.so*
+      - -usr/lib/*/libharfbuzz*.so*
+      - -usr/lib/*/libsecret-1.so.*
+      - -usr/lib/*/libLLVM.so*
+      - -usr/sbin
+      - -usr/share/glib-2.0/schemas/org.gtk*
+      - -usr/share/gtk-4.0
+      - -usr/share/icons
+
+# epiphany needs access to /dev/shm/
+  snapcraft-preload:
+    after: [ packages ]
+    source: https://github.com/sergiusens/snapcraft-preload.git
+    source-depth: 1
+# ext:updatesnap
+#   version-format:
+#     allow-neither-tag-nor-branch: true
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=
+    build-packages:
+      - on amd64:
+          - gcc-multilib
+          - g++-multilib
+
+  epiphany:
+    after: [snapcraft-preload]
+    source: https://gitlab.gnome.org/GNOME/epiphany.git
+    source-type: git
+    source-tag: '48.5'
+    source-depth: 1
+# ext:updatesnap
+#   version-format:
+#     lower-than: '48.99'
+#     no-9x-revisions: true
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Epiphany.appdata.xml]
+    meson-parameters:
+      - --prefix=/usr
+
+    override-pull: |
+      craftctl default
+      sed -i "s|r.stdout().strip()|'Snap Store'|g" $CRAFT_PART_SRC/meson.build
+      sed -i 's|Icon=org.gnome.Epiphany|Icon=${SNAP}/meta/gui/org.gnome.Epiphany.svg|g' $CRAFT_PART_SRC/data/org.gnome.Epiphany.desktop.in.in
+
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Epiphany.svg $CRAFT_PART_INSTALL/meta/gui/
+    build-packages:
+      - libarchive-dev
+      - libgcr-4-dev
+      - libgstreamer1.0-dev
+      - libwebkitgtk-6.0-dev
+
+  cleanup:
+    after: [epiphany]
+    plugin: nil
+    override-prime: |
+      set -eux
+      cd $CRAFT_PRIME/usr/share/glib-2.0/schemas
+      glib-compile-schemas .

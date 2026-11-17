@@ -1,0 +1,10 @@
+# Build metadata for gnome-2048 (imported 2026-11-17; core26 migration pending).
+snap: gnome-2048
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-2048 (stable)
+recipe-commit: 1e0bfa1af9e4af61c7d5c46e7c67d2a016ee5e2a
+imported: '2026-11-17'
+store:
+  publisher: Jeremy Bicha (jbicha)
+  verified: false

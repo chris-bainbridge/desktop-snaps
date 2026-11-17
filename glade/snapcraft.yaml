@@ -1,0 +1,54 @@
+name: glade
+adopt-info: glade
+license: "GPL-3.0+"
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+slots:
+  # for GtkApplication registration
+  glade:
+    interface: dbus
+    bus: session
+    name: org.gnome.Glade
+apps:
+  glade:
+    command: usr/bin/glade
+    extensions: [gnome]
+    environment:
+      GLADE_CATALOG_SEARCH_PATH: "$SNAP/usr/share/glade/catalogs"
+      GLADE_MODULE_SEARCH_PATH: "$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/glade/modules"
+      GLADE_PIXMAP_DIR: "$SNAP/usr/share/glade/pixmaps"
+    plugs:
+      - home
+      - network
+      - removable-media
+      - mount-observe
+    common-id: org.gnome.Glade
+
+parts:
+  glade:
+    source: https://gitlab.gnome.org/GNOME/glade.git
+    source-tag: 'GLADE_3_40_0'
+    source-type: git
+    source-depth: 1
+    parse-info: [usr/share/metainfo/org.gnome.Glade.appdata.xml]
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dman=false
+    override-build: |
+      sed -i.bak -e 's|=org.gnome.Glade$|=snap.$CRAFT_PROJECT_NAME.org.gnome.Glade|g' $CRAFT_PART_SRC/data/org.gnome.Glade.desktop.in.in
+      sed -i.bak '\|<id>org.gnome.Glade</id>|a<icon type="stock">snap.$CRAFT_PROJECT_NAME.org.gnome.Glade</icon>' $CRAFT_PART_SRC/data/org.gnome.Glade.appdata.xml.in
+      sed -i.bak -e 's|symlink_media: true,|symlink_media: false,|g' $CRAFT_PART_SRC/help/meson.build
+      # Remove .git in order to avoid broken vcs_tag branch in src/meson.build
+      rm -rf $CRAFT_PART_BUILD/.git $CRAFT_PART_SRC/.git || :
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Glade.svg $CRAFT_PART_INSTALL/meta/gui/icon.svg
+      cp -r $CRAFT_PART_INSTALL/usr/share/icons $CRAFT_PART_INSTALL/meta/gui/
+      for i in `find $CRAFT_PART_INSTALL/meta/gui/icons -name "*.svg" -o -name "*.png"`
+      do
+        mv $i "`dirname $i`/snap.$CRAFT_PROJECT_NAME.`basename $i`"
+      done

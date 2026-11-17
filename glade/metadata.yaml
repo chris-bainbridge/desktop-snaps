@@ -1,0 +1,10 @@
+# Build metadata for glade (imported 2026-11-17; core26 migration pending).
+snap: glade
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/glade (stable)
+recipe-commit: aaf3018da03d776f98124cb8d58e2400afaab980
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

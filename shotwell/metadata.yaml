@@ -1,0 +1,10 @@
+# Build metadata for shotwell (imported 2026-11-17; core26 migration pending).
+snap: shotwell
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/shotwell (stable)
+recipe-commit: 8f67eed250cd14c5d8b8360a8ca6ea8bd8ce8c30
+imported: '2026-11-17'
+store:
+  publisher: Canonical
+  verified: true

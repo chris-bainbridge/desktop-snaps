@@ -1,0 +1,10 @@
+# Build metadata for gnome-klotski (imported 2026-11-17; core26 migration pending).
+snap: gnome-klotski
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/desktop (stable)
+recipe-commit: f2c314655fb1dbd113c2c79f6635d39b44f45857
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true
