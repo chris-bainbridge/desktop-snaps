@@ -1,0 +1,58 @@
+#!/bin/sh
+# Launcher for the strictly confined Mixxx snap.
+#
+# Mixxx is a Qt 6 application. Qt and the rest of the runtime are staged under
+# $SNAP/usr; the compiled-in paths point at /usr, which is the core26 base in
+# the snap. A qt.conf next to the binary handles the plugin, QML and
+# translation directories; the exports below are belt and braces for the
+# paths Qt and Mixxx read from the environment.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+qt="$SNAP/usr/lib/$triplet/qt6"
+export QT_PLUGIN_PATH="$qt/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$qt/plugins/platforms"
+export QML_IMPORT_PATH="$qt/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+export QML2_IMPORT_PATH="$qt/qml${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+
+# Keep the staged Qt, FFmpeg and codec libraries ahead of the ones the gnome
+# extension's command chain added for the platform. The entries it prepared
+# for the GPU wrapper stay at the end.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Core Desktop is Wayland-first. Use the staged Wayland plugin when a
+# compositor is reachable and fall back to xcb (XWayland) otherwise.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# Snapd starts strict snaps with HOME set to the private per-user area.
+# Mixxx's file chooser and its "~" expansion use HOME, so point it at the real
+# home (which the home interface exposes), while settings and the database are
+# kept in the private area through --settings-path below. A strict snap cannot
+# see ~/.mixxx, so the default $HOME/.mixxx path cannot be used.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+settings="$SNAP_USER_DATA/mixxx"
+mkdir -p "$settings"
+
+# Respect an explicit --settings-path/--settingsPath from the caller, and
+# otherwise keep Mixxx out of the hidden ~/.mixxx directory.
+have_settings=false
+for arg in "$@"; do
+    case "$arg" in
+        --settings-path|--settings-path=*|--settingsPath|--settingsPath=*)
+            have_settings=true
+            ;;
+    esac
+done
+if [ "$have_settings" = false ]; then
+    set -- --settings-path "$settings" "$@"
+fi
+
+exec "$SNAP/usr/bin/mixxx" "$@"

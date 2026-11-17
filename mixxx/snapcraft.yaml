@@ -1,0 +1,349 @@
+name: mixxx
+version: '2.5.6'
+summary: Digital DJ interface
+description: |
+  Mixxx is free DJ software for performing live mixes. It plays MP3, Ogg
+  Vorbis, Opus, FLAC, WAV, AIFF, WavPack, MOD and, through FFmpeg, AAC/ALAC,
+  M4A and WMA files; it provides a database-driven library, crates and
+  playlists, beat and key detection, ReplayGain analysis, timecode vinyl
+  control, effects, recording and Icecast/Shoutcast broadcasting.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Mixxx can only open and save files in non-hidden paths of your home
+    directory and, when the removable-media interface is connected, on
+    removable drives. Hidden top-level directories such as ~/.mixxx,
+    ~/.config and ~/.local/share are not visible. Connect removable media
+    with "snap connect mixxx:removable-media".
+  - Settings, the library database, analysis data, controller settings and
+    logs live in ~/snap/mixxx/current/mixxx, not in ~/.mixxx, and are not
+    shared with a distribution-packaged Mixxx. An existing ~/.mixxx cannot
+    be imported directly because the home interface hides that directory;
+    its contents can be copied into the snap's settings directory from a
+    terminal.
+  - Audio playback and recording go through the desktop's PulseAudio/PipeWire
+    sound server. Mixxx's PortAudio backend also lists ALSA and JACK entries,
+    but they cannot be opened: a strict snap has no /dev/snd, and the host's
+    JACK and PipeWire native sockets are not mounted into the sandbox. Under
+    Preferences > Sound Hardware select the "pulse" API (or the "pulse" ALSA
+    device) before playing. Direct ALSA, JACK transport, bit-perfect output
+    and the lowest-latency hardware paths are unavailable; recording and
+    timecode inputs work only through the sound server's sources, not a raw
+    line input opened via ALSA. Inputs use the audio-record interface; if it
+    is not auto-connected, run "snap connect mixxx:audio-record".
+  - DJ controllers do not work. MIDI controllers need the ALSA sequencer
+    (/dev/snd/seq), USB HID controllers need /dev/hidraw*, and USB Bulk
+    controllers need /dev/bus/usb plus udev rules; none of these are
+    reachable under the interfaces this snap declares, and a snap cannot
+    install udev rules. The bundled controller mappings and scripts are
+    therefore inert. Keyboard shortcuts, the mouse and the on-screen controls
+    work normally. The snap deliberately does not request the privileged,
+    non-auto-connected raw-usb interface, which would still not expose
+    hidraw or the ALSA sequencer.
+  - Host LV2 plugins are invisible. The built-in effects work, and the LV2
+    backend is present, but only plugins shipped inside the snap could be
+    loaded; none are.
+  - The battery meter is disabled: UPower is a system D-Bus service that a
+    strict snap cannot reach. Secure broadcast-password storage through
+    QtKeychain is disabled as well, so Icecast/Shoutcast passwords are kept
+    in plain text in the snap's private broadcast profile file.
+  - External programs on the host cannot be started from the sandbox. Help
+    links are handed to the desktop through the base's xdg-open, which uses
+    the desktop portal.
+  - Qt 6.10.2 is staged from the 26.04 archive because snapcraft's KDE/Qt
+    extensions support only core22 and core24. Host Qt/KDE themes are not
+    visible; the built-in Fusion style is used. Qt translations, the Open
+    Sans and Ubuntu fonts used by the skins, and the Wayland platform plugin
+    are bundled. The snap runs natively on Wayland and falls back to xcb
+    (XWayland) on X11 sessions.
+  - Broadcasting works through the network interface. The snap has no
+    network-bind interface, so it cannot accept incoming connections.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Mixxx is built from the pinned upstream release;
+# Qt and every missing runtime library are staged from the 26.04 archive. No
+# prebuilt Mixxx binaries are embedded.
+#
+# Qt approach: Mixxx 2.5.6 is a Qt 6 application (upstream's Linux builds and
+# Debian's package use Qt 6; Qt 5 support is legacy and would not remove the
+# need for a staged Qt anyway). snapcraft 9.2.1 ships kde-neon-6 and
+# kde-neon-qt6 for core22/core24 only. KDE publishes kde-qt6-core26 and
+# kf6-core26 content snaps, but snapcraft has no extension for them; wiring
+# the content plug, SDK include/library paths and desktop-launch by hand
+# would be unverified. Mixxx also needs no KDE Frameworks, only Qt plus the
+# KDE-independent QtKeychain (disabled here), so a KDE stack would add a lot
+# for nothing. Qt 6.10.2 from the 26.04 archive is built for the same libc,
+# libstdc++, ICU, freetype and X11 stack as core26 and is staged below.
+#
+# Dependency approach: gnome-core26 already provides GLib/GIO, GStreamer,
+# fontconfig and desktop integration, and also FLAC, Opus, Vorbis, libsndfile,
+# TagLib, WavPack, LAME, libshout, SQLite, ALSA, PulseAudio and libudev. The
+# runtime part stages only what is absent: Qt, FFmpeg, PortAudio/PortMidi,
+# HIDAPI/libusb, lilv, rubberband, soundtouch, ebur128, chromaprint,
+# libdjinterop, protobuf-lite, libmad/id3tag, libmodplug, shout-idjc,
+# opusfile and the FFTW double-precision library. The gnome extension's
+# cleanup removes libraries also provided by its SDK; the cleanup part below
+# does the same for the core26 base and the gnome-core26 content snap.
+#
+# libkeyfinder is not packaged in 26.04 (Debian disables key detection), so
+# upstream's pinned libkeyfinder 2.2.8 source is fetched and linked statically
+# by Mixxx's CMake build. FAAD/M4A support is off because 26.04 has no
+# libmp4v2; FFmpeg decodes AAC/ALAC/M4A instead. Battery/UPower and QtKeychain
+# are disabled because their services are unreachable or would add a
+# non-auto-connected keyring plug for a minor feature.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://mixxx.org/
+source-code: https://github.com/mixxxdj/mixxx
+issues: https://github.com/mixxxdj/mixxx/issues
+
+icon: snap/local/mixxx.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  mixxx:
+    extensions: [gnome]
+    command: bin/mixxx-launcher
+    desktop: usr/share/applications/org.mixxx.Mixxx.desktop
+    common-id: org.mixxx.Mixxx
+    plugs:
+      - audio-playback  # PulseAudio/PipeWire playback through PortAudio
+      - audio-record    # recording, broadcasting and timecode inputs
+      - home            # music library in the user's home directory
+      - network         # internet radio, streaming and Icecast/Shoutcast
+      - removable-media # music on USB sticks and other removable media
+
+parts:
+  local:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/mixxx-launcher
+      mixxx.png: meta/gui/mixxx.png
+
+  mixxx:
+    # 2.5.6 is the latest stable upstream release (2026-03-27).
+    source: https://github.com/mixxxdj/mixxx.git
+    source-type: git
+    source-tag: '2.5.6'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # No system udev rules can be installed from a snap; the controller
+      # device nodes are unreachable anyway.
+      - -DINSTALL_USER_UDEV_RULES=OFF
+      # The test and benchmark suites would need GTest, Google Benchmark and
+      # an X server; they are not shipped.
+      - -DBUILD_TESTING=OFF
+      - -DBUILD_BENCH=OFF
+      # UPower is a system D-Bus service outside the sandbox.
+      - -DBATTERY=OFF
+      # QtKeychain would only add a non-auto-connected keyring plug for
+      # broadcast-profile passwords.
+      - -DQTKEYCHAIN=OFF
+      # 26.04 has no libmp4v2; FFmpeg provides AAC/ALAC/M4A decoding.
+      - -DFAAD=OFF
+      # Not packaged in 26.04: upstream fetches and statically links the
+      # pinned libkeyfinder release. FFTW3 is staged as a build dependency.
+      - -DKEYFINDER=ON
+      # Keep the upstream defaults explicit: Qt 6, the QML UI, FFmpeg,
+      # PortMidi, HID/Bulk controllers, Engine Prime export, recording,
+      # broadcasting, LV2 and the pitch-shifting engines.
+      - -DQT6=ON
+      - -DQML=ON
+      - -DFFMPEG=ON
+      - -DPORTMIDI=ON
+      - -DHID=ON
+      - -DBULK=ON
+      - -DENGINEPRIME=ON
+      - -DBROADCAST=ON
+      - -DLILV=ON
+      - -DRUBBERBAND=ON
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, git or Qt. The gnome-core26 SDK is GTK-focused and
+      # carries no Qt development files.
+      - build-essential
+      - cmake
+      - git # cmake/modules/GitInfo.cmake runs git describe/rev-parse
+      - pkg-config
+      - qt6-base-dev            # Core, Gui, Widgets, Network, Concurrent,
+                                # DBus, Sql, OpenGL, PrintSupport, Test, Xml
+      - qt6-base-private-dev    # Qt6GuiPrivate, required from Qt 6.10
+      - qt6-declarative-dev     # Qml, Quick, QuickControls2, QuickWidgets
+      - qt6-declarative-private-dev # QuickShapesPrivate, QuickControls2Impl
+      - qt6-shadertools-dev     # qt_add_shaders
+      - qt6-svg-dev             # Qt6Svg and Qt6SvgWidgets
+      - qt6-5compat-dev         # Qt6Core5Compat and the GraphicalEffects QML
+      - libqt6sql6-sqlite       # QSQLITE smoke test at configure time
+      - libebur128-dev
+      - libchromaprint-dev
+      - libavcodec-dev          # FFmpeg 8 in 26.04
+      - libavformat-dev
+      - libavutil-dev
+      - libswresample-dev
+      - libflac-dev
+      - libogg-dev
+      - libvorbis-dev
+      - libopus-dev
+      - libopusfile-dev
+      - libsndfile1-dev
+      - libsoundtouch-dev
+      - librubberband-dev
+      - libtag-dev              # TagLib 2.2
+      - liblilv-dev             # LV2 effects backend
+      - libmad0-dev             # MP3 decoding
+      - libid3tag0-dev
+      - libmodplug-dev
+      - libwavpack-dev
+      - libmp3lame-dev          # MP3 recording
+      - libshout-idjc-dev       # Icecast/Shoutcast broadcasting
+      - libdjinterop-dev        # Engine Prime export, exactly 0.24.3
+      - libprotobuf-dev
+      - protobuf-compiler
+      - libmsgsl-dev
+      - libsqlite3-dev
+      - portaudio19-dev
+      - libportmidi-dev
+      - libhidapi-dev           # USB HID controllers (compiled, unreachable)
+      - libusb-1.0-0-dev        # USB Bulk controllers (compiled, unreachable)
+      - libfftw3-dev            # static libkeyfinder, rubberband
+      - libx11-dev              # find_package(X11) for screensaver control
+      - zlib1g-dev
+    override-build: |
+      craftctl default
+
+      # Upstream's desktop file runs "pasuspender -- mixxx", which would stop
+      # the sound server and cannot work in a snap (neither command is on the
+      # host PATH at desktop-launch time). Snapd generates the real Exec line
+      # from the app's command, but keep the source desktop file sane too.
+      # Point the icon at the copy snapcraft installs under meta/gui, because
+      # the host icon theme cannot see icons inside the snap.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/org.mixxx.Mixxx.desktop"
+      sed -i -e 's|^Exec=.*|Exec=mixxx|' \
+             -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/mixxx.png|' \
+             -e '/^TryExec=/d' "$desktop"
+
+      # Qt's compiled-in prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates the plugin, QML and
+      # translation lookups to the staged multiarch tree.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Qml2Imports = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/qml
+      Translations = share/qt6/translations
+      EOF
+
+  runtime:
+    after: [mixxx]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive. libqt6gui6 ships the xcb platform
+      # plugin; libqt6waylandclient6 and libqt6wlshellintegration6 provide the
+      # native Wayland plugin and its xdg-shell integration.
+      - libqt6core6t64
+      - libqt6gui6
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6concurrent6
+      - libqt6dbus6
+      - libqt6sql6
+      - libqt6sql6-sqlite
+      - libqt6opengl6
+      - libqt6openglwidgets6
+      - libqt6printsupport6
+      - libqt6test6
+      - libqt6xml6
+      - libqt6svg6
+      - libqt6svgwidgets6
+      - libqt6core5compat6
+      - libqt6qml6
+      - libqt6quick6
+      - libqt6quickwidgets6
+      - libqt6quickcontrols2-6
+      - libqt6quicktemplates2-6
+      - libqt6quickshapes6
+      - libqt6qmlmodels6
+      - libqt6shadertools6
+      - libqt6waylandclient6
+      - libqt6wlshellintegration6
+      - qt6-svg-plugins       # libqsvgicon / libqsvg image plugins
+      - qt6-translations-l10n # Qt's own dialogs and file chooser
+      # The QML modules imported by res/qml. Controls pulls Templates,
+      # Shapes and Window; qml6-module-qtqml brings the QML runtime pieces.
+      - qml6-module-qtquick-controls
+      - qml6-module-qtquick-layouts
+      - qml6-module-qt5compat-graphicaleffects
+      - qml6-module-qt-labs-qmlmodels
+      - qml6-module-qtqml-workerscript
+      # Radio, streaming and broadcasting. The base/content snap provides
+      # OpenSSL and the codec libraries that libshout-idjc3 uses.
+      - libshout-idjc3
+      # Audio I/O. PortAudio is built with ALSA, JACK and PulseAudio host
+      # APIs; only the pulse API is reachable (see the description).
+      - libportaudio2
+      - libportmidi2
+      # Controller backends, compiled in but unusable under strict
+      # confinement; keeping the loaders avoids a Mixxx build that disagrees
+      # with its own controller support flags.
+      - libhidapi-hidraw0
+      - libusb-1.0-0
+      # Analysis and effects.
+      - libebur128-1
+      - libchromaprint1
+      - librubberband3
+      - libsamplerate0        # librubberband3 dependency
+      - libsoundtouch1
+      - libfftw3-double3      # librubberband3 and static libkeyfinder
+      - liblilv-0-0
+      # Codec and container support that gnome-core26 lacks.
+      - libavcodec62
+      - libavformat62
+      - libavutil60
+      - libswresample6
+      - libmad0
+      - libid3tag0
+      - libmodplug1
+      - libopusfile0          # gnome-core26 provides libopus but not opusfile
+      - libdjinterop0
+      - libprotobuf-lite32t64
+      # The skins ask for Open Sans and Ubuntu; the host fonts are invisible.
+      - fonts-open-sans
+      - fonts-ubuntu
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/pkgconfig
+
+  cleanup:
+    # Remove copies of libraries that the core26 base or gnome-core26 already
+    # provides, so one process never loads two different copies of GLib,
+    # SQLite, FFmpeg's dependencies, the X11 stack or Mesa. The gnome
+    # extension's own cleanup does this for its SDK; this part covers the base
+    # and the content snap.
+    after: [local, mixxx, runtime]
+    plugin: nil
+    build-snaps: [core26, gnome-core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      for snap in core26 gnome-core26; do
+        cd "/snap/$snap/current"
+        find . -type f,l -name '*.so.*' -print |
+          sed "s|^\./|$root/|" |
+          xargs -r rm -f
+      done

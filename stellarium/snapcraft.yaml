@@ -1,0 +1,330 @@
+name: stellarium
+version: '26.3'
+summary: Real-time photo-realistic 3D planetarium
+description: |
+  Stellarium is a planetarium for the desktop. It renders the sky in real
+  time and in 3D, as seen with the naked eye, binoculars or a telescope:
+  more than 600,000 stars, the planets and their moons, deep-sky objects,
+  constellation art and asterisms for dozens of sky cultures, landscapes,
+  nebulae, satellite tracking, telescope control, scripting and a web
+  interface for remote control.
+
+  The full upstream data set - star catalogues, nebulae, sky cultures,
+  landscapes, textures and models - is shipped inside the snap, so no large
+  download is needed on first start.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - The snap's HOME is the private ~/snap/stellarium/current, so settings,
+    caches, downloaded data and screenshots that use a relative path live
+    under ~/snap/stellarium/current/.stellarium instead of ~/.stellarium,
+    and are not shared with a distribution-packaged Stellarium. Files in
+    non-hidden paths of the real home are reachable through the home
+    interface; the file dialog starts in the private home, so type
+    /home/<user> or add a bookmark to work there. Top-level hidden entries
+    such as ~/.config and ~/.ssh are not visible. Removable drives need the
+    removable-media interface, which is not connected automatically:
+      sudo snap connect stellarium:removable-media
+  - Online Queries open in the host's web browser. Qt WebEngine is not
+    bundled: it would add hundreds of megabytes and a second Chromium, and
+    the browser fallback is what upstream uses when the module is absent.
+  - The ShowMySky atmosphere model is not included: the 26.04 archive has no
+    libshowmysky package and the recipe does not fetch a second upstream at
+    configure time. Stellarium uses its classic atmosphere model instead.
+  - Excel (.xlsx) export of ephemerides is unavailable: the archive has no
+    Qt 6 QXlsx package and the bundled download is deliberately not enabled.
+  - Speech output is disabled: a strict snap cannot reach the host's
+    speech-dispatcher socket, and Qt TextToSpeech is not staged.
+  - GPS receivers and directly attached serial telescopes are not reachable:
+    the snap cannot open /dev/ttyUSB* or other serial devices. Telescope
+    control works over the network, including INDI: run an INDI server on the
+    host or on the LAN and point Stellarium's Telescope Control plugin at it
+    (the INDI client is built in).
+  - Audio and video playback work through the desktop's PipeWire or
+    PulseAudio server (audio-playback interface) using Qt Multimedia's
+    FFmpeg backend, which is staged in the snap. Speech and camera capture
+    do not.
+  - The Remote Control plugin serves its web interface on a local port;
+    network-bind is connected automatically. Reaching it from another
+    machine still depends on the host firewall.
+  - Qt 6 is staged from the 26.04 archive, so the host's Qt and KDE themes
+    are not visible; Stellarium uses Qt's Fusion style. The fonts it needs
+    (Noto Sans, Noto Sans SC, DejaVu Sans) are bundled by upstream.
+  - Double-clicking a Stellarium script (.ssc) depends on the host knowing
+    upstream's MIME type application/x-stellarium-script. The snap exports
+    its desktop entry, but snapd does not merge MIME definitions into the
+    host's database; pass the script on the command line or open it from the
+    Scripts dialog if the association is missing.
+  - Upstream's user guide is not part of the release tarball and is not
+    installed; Help and the About dialog hand their links to the host
+    browser through the desktop interface.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Stellarium is built from the pinned upstream
+# release tag; Qt and the remaining libraries are staged from the 26.04
+# archive. No prebuilt Stellarium binaries are embedded.
+#
+# Qt approach: stage Qt 6 from the 26.04 archive.
+#   * snapcraft 9.2.1 provides kde-neon, kde-neon-6 and kde-neon-qt6 for
+#     core22 and core24 only; the extension code rejects every other base,
+#     and the snapcraft main branch still does. KDE publishes kde-qt6-core26
+#     (Qt 6.11.3) and kf6-core26 content snaps with matching SDK snaps, but
+#     no snapcraft extension exists for them: a recipe would have to declare
+#     the content plug, build against the KDE SDK and wire the multiarch Qt
+#     library, plugin and QML paths by hand.
+#   * Stellarium is not a KDE application. It uses Qt Core, Gui, Widgets,
+#     Network, Concurrent, OpenGL, OpenGLWidgets, Charts, Positioning, Svg,
+#     SvgWidgets, SerialPort, Multimedia, MultimediaWidgets and Qml, but no
+#     KDE Frameworks. The Qt content snap is 915 MB and kf6-core26 is 1.9 GB;
+#     staging only the linked modules keeps the snap far smaller.
+#   * The 26.04 archive carries Qt 6.10.2, built for exactly the Ubuntu
+#     release the core26 base ships, so the staged Qt shares the base's libc,
+#     libstdc++, GLib, freetype, libpng and zlib. Stellarium 26.3 requires Qt
+#     6.2 or newer and handles Qt >= 6.10 by linking Qt6::GuiPrivate, which
+#     qt6-base-private-dev provides.
+#   * A Qt 5 build is not an alternative: the kde-neon Qt 5 extension is also
+#     limited to core22/core24, and Qt 6 is upstream's default and the better
+#     tested configuration.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libEGL/libGL/libGLX and the DRI drivers that Qt's
+# xcb and Wayland platform plugins link against, and its cleanup part removes
+# the Mesa copies that the Qt stage-packages would otherwise leave in the snap.
+#
+# Optional upstream features that are switched off, and why:
+#   * ENABLE_SHOWMYSKY: there is no libshowmysky in 26.04; leaving it on makes
+#     CMake download and build CalcMySky at configure time. The classic
+#     atmosphere model is used instead.
+#   * ENABLE_XLSX: there is no Qt 6 QXlsx in the archive; leaving it on
+#     downloads QXlsx v1.5.1.1. Ephemeris export to .xlsx is unavailable.
+#   * ENABLE_GPS: gpsd's socket and serial GPS receivers are outside the
+#     strict sandbox. Qt Positioning is still linked, as the build requires it.
+#   * ENABLE_SPEECH: Qt TextToSpeech needs speech-dispatcher, whose socket is
+#     not reachable from a strict snap.
+#   * ENABLE_QTWEBENGINE: Qt WebEngine is far too large for a planetarium and
+#     is not staged. Without it Online Queries opens the system browser, which
+#     is upstream's documented fallback.
+# Bundled-dependency downloads are avoided implicitly: libmd4c-dev,
+# libnlopt-cxx-dev and libindi-dev are installed, so CPMFindPackage finds the
+# system copies and INDI is linked from the archive. SkyCultureMaker's optional
+# converter defaults to off, so its unarr download is not reached either.
+# The upstream tarball is 569 MB and already contains every star catalogue,
+# nebula texture, sky culture, landscape, texture and model that Stellarium
+# installs. The recipe downloads no external data sets.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://stellarium.org/
+source-code: https://github.com/Stellarium/stellarium
+issues: https://github.com/Stellarium/stellarium/issues
+
+icon: snap/local/stellarium.png
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig, font and X11 keyboard/locale data have to appear at
+# the absolute paths their libraries were built with; /usr and /etc inside the
+# snap are the core26 base. The bind targets already exist in the base; the
+# binds replace their contents with the staged copies.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+
+apps:
+  stellarium:
+    extensions: [gpu]
+    command: bin/stellarium-launcher
+    desktop: usr/share/applications/org.stellarium.Stellarium.desktop
+    common-id: org.stellarium.Stellarium
+    plugs:
+      - audio-playback # Qt Multimedia playback through PipeWire/PulseAudio
+      - desktop        # desktop integration, notifications and snapctl user-open
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home           # sky cultures, scripts, images and screenshots
+      - network        # online catalogues, TLEs, queries and RemoteSync
+      - network-bind   # Remote Control web interface and the scripting socket
+      - opengl         # GPU access for Qt and the mesa-2604 content snap
+      - removable-media # data on USB sticks and other removable media
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+
+parts:
+  local:
+    # The launcher fixes up the paths that Qt and Stellarium look up outside
+    # the snap's staged tree. The desktop entry installed by upstream is used
+    # as-is; snapcraft and snapd rewrite its Exec lines.
+    plugin: dump
+    source: snap/local
+    organize:
+      stellarium-launcher: bin/stellarium-launcher
+    prime:
+      # The PNG is installed as meta/gui/icon.png by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -stellarium.png
+
+  stellarium:
+    # 26.3 is the latest stable upstream release (2026-09-28); the tag v26.3
+    # points at commit 3f23cf3a1a59523a9c7b1ec4540c33bca77addfa. The GitHub
+    # archive contains all of upstream's data (star catalogues, nebulae, sky
+    # cultures, landscapes, textures, models) and the bundled helper sources;
+    # the checksum pins exactly the tag.
+    source: https://github.com/Stellarium/stellarium/archive/refs/tags/v26.3.tar.gz
+    source-checksum: sha256/979716e89df588eb0a7df33c414c22c0d3c0ead0a455bdfe87ae827cafd8e254
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSTELLARIUM_RELEASE_BUILD=1
+      # The test suite needs Qt Test and the upstream test data; it is not
+      # shipped, and the tests are not run in the snap build.
+      - -DENABLE_TESTING=OFF
+      # Use the archive's zlib rather than the copy in src/external.
+      - -DUSE_SYSTEM_ZLIB=ON
+      # See the comment block above for these five switches.
+      - -DENABLE_SHOWMYSKY=OFF
+      - -DENABLE_XLSX=OFF
+      - -DENABLE_GPS=OFF
+      - -DENABLE_SPEECH=OFF
+      - -DENABLE_QTWEBENGINE=OFF
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, Qt, OpenGL, INDI, Exiv2 or NLopt headers.
+      - build-essential
+      - cmake
+      - pkg-config
+      - qt6-base-dev        # Core, Gui, Widgets, Network, Concurrent, OpenGL,
+                            # OpenGLWidgets and the xcb platform plugin
+      - qt6-base-private-dev # Qt6::GuiPrivate, required when Qt >= 6.10
+      - qt6-tools-dev       # Qt6LinguistTools config
+      - qt6-l10n-tools      # lconvert, which turns the .po files into .qm
+      - qt6-charts-dev      # Qt6::Charts (AltAz/observability plots)
+      - qt6-positioning-dev # Qt6::Positioning, linked unconditionally
+      - qt6-serialport-dev  # Qt6::SerialPort, linked by Telescope Control
+      - qt6-multimedia-dev  # Qt6::Multimedia and MultimediaWidgets
+      - qt6-svg-dev         # Qt6::Svg and Qt6::SvgWidgets
+      - qt6-declarative-dev # Qt6::Qml, Stellarium's script engine
+      - libexiv2-dev        # lens distortion estimation from image metadata
+      - libmd4c-dev         # markdown rendering in sky culture descriptions
+      - libnlopt-cxx-dev    # lens distortion fit
+      - libindi-dev         # INDI client in the Telescope Control plugin
+      - libnova-dev         # included by libindi's public headers
+      - zlib1g-dev
+      - libgl-dev           # OpenGL headers and the libGL link
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates Qt's data, plugin,
+      # translation and QML paths to the staged tree. Prefix is relative to
+      # usr/bin, so Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/qt6/translations
+      Qml2Imports = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/qml
+      EOF
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out every package that is already in the base's chisel manifest,
+    # so the base's libc, libstdc++, GLib, OpenSSL, freetype, libpng, zlib and
+    # libxkbcommon are not duplicated here.
+    after: [stellarium]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6concurrent6
+      - libqt6gui6        # also ships the xcb, minimal and offscreen plugins
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6charts6
+      - libqt6positioning6
+      - libqt6svg6
+      - libqt6svgwidgets6
+      - libqt6opengl6
+      - libqt6openglwidgets6 # QOpenGLWidget, used by the main view
+      - libqt6multimedia6
+      - libqt6multimediawidgets6
+      - libqt6qml6           # QJSEngine for the scripting engine
+      - libqt6serialport6
+      - libqt6waylandclient6      # libqwayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell and friends
+      - qt6-svg-plugins           # libqsvg image and libqsvgicon plugins
+      - qt6-translations-l10n     # Qt's own dialog translations
+      # Stellarium's non-Qt runtime dependencies.
+      - libmd4c-html0  # markdown in sky culture descriptions
+      - libnlopt-cxx0  # lens distortion fit
+      - libindiclient1 # INDI client, linked by Telescope Control
+      - libexiv2-28    # image metadata for lens distortion estimation
+      # The base has no fontconfig configuration and only the Plymouth font;
+      # the layout above exposes the staged fonts and configuration.
+      - fontconfig
+      - fonts-dejavu-core
+      # QMimeDatabase types the files the Remote Control web UI serves and the
+      # files Stellarium opens; the base ships no MIME database.
+      - shared-mime-info
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty usr/share/X11 and break the layout bind. Fetch
+    # the data packages directly; they contain no binaries.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  cleanup:
+    # The staged Qt, FFmpeg, INDI and Exiv2 dependency trees contain copies of
+    # libraries that the core26 base already ships (libstdc++, GLib, libpng,
+    # zlib, ...). Loading two copies in one process is not safe, so drop every
+    # primed shared library whose path also exists in the base, exactly as the
+    # other core26 recipes do.
+    after: [local, stellarium, runtime, x11-data]
+    plugin: nil
+    build-packages:
+      # update-mime-database, used below.
+      - shared-mime-info
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+
+      # shared-mime-info ships only the XML sources in the archive package; the
+      # maintainer script that normally builds mime.cache does not run for a
+      # staged package. Generate the cache here, after every part has been
+      # primed, so it also covers Stellarium's own application/x-stellarium-
+      # script definition. $SNAP/usr/share is on XDG_DATA_DIRS, so Qt finds it.
+      update-mime-database "$CRAFT_PRIME/usr/share/mime"
+
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

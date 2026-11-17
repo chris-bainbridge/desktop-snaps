@@ -1,0 +1,51 @@
+#!/bin/sh
+# Launcher for the strictly confined Ardour snap.
+#
+# Ardour is built with the conventional /usr prefix, but inside the snap its
+# data, configuration and internal libraries live below $SNAP/usr rather than
+# in the core26 base. Ardour has no compiled-in fallback for these locations:
+# ardour_dll_directory() exits when ARDOUR_DLL_PATH is unset, and the data
+# and configuration search paths are built from the environment variables
+# below. Set them explicitly to the staged copies.
+
+# snapd starts strict snaps with HOME pointing at the private per-user area
+# (~/snap/ardour/<revision>). Ardour's file chooser, its default session
+# location and its "~" expansion use HOME, so point it at the real home that
+# the home interface exposes. XDG_CONFIG_HOME, XDG_DATA_HOME and
+# XDG_CACHE_HOME are set by the gnome extension's desktop-launch to the
+# snap's private area, so configuration, caches and plugin scans stay private
+# while session files land in the user's home.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+# Ardour's internal shared libraries, backends, control surfaces, LV2
+# bundles and helper programs.
+export ARDOUR_DLL_PATH="$SNAP/usr/lib/ardour9"
+
+# System configuration (ardour.menus, key bindings, theme RC files).
+export ARDOUR_CONFIG_PATH="$SNAP/usr/etc/ardour9"
+
+# Data files: templates, export formats, MIDI maps, scripts, web surfaces.
+export ARDOUR_DATA_PATH="$SNAP/usr/share/ardour9"
+
+# Optional instant.xml defaults, following the upstream bundle layout.
+export ARDOUR_INSTANT_XML_PATH="$SNAP/usr/share"
+
+# suil's compiled-in module directory is /usr/lib/ardour9, which is the base
+# inside the snap rather than the snap's own tree.
+export SUIL_MODULE_DIR="$SNAP/usr/lib/ardour9"
+
+# The Vamp host does not use Ardour's DLL path. Point it at the analysis
+# plugins installed by this snap (libardourvampplugins,
+# libardourvamppyin).
+export VAMP_PATH="$SNAP/usr/lib/ardour9/vamp"
+
+# Helper programs and the plugin scanner are looked up through the DLL path,
+# but keep the staged bin directory on PATH for completeness.
+export PATH="$SNAP/usr/bin:$PATH"
+
+# YTK is a GTK2-derived toolkit with an X11 backend only. Be explicit so that
+# no GTK/GDK component can try a Wayland connection; on a Wayland desktop
+# the x11 interface provides the XWayland display.
+export GDK_BACKEND=x11
+
+exec "$SNAP/usr/bin/ardour9" "$@"

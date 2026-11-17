@@ -1,0 +1,268 @@
+name: ardour
+version: '9.10'
+summary: Digital audio workstation for editing, mixing and playback
+description: |
+  Ardour is a digital audio workstation. Upstream provides a multichannel
+  recorder, a non-linear editor with unlimited undo, a flexible mixer with
+  automation, MIDI sequencing and editing, plugin hosting, a video timeline
+  and flexible export.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. For a DAW that has serious consequences:
+
+  - Audio goes through the desktop's PulseAudio/PipeWire sound server. The
+    snap is built with Ardour's PulseAudio and dummy backends only. The
+    PulseAudio backend is a two-channel playback backend: it cannot record
+    and does not provide multichannel I/O. Sessions can be edited, mixed and
+    played back, but audio cannot be captured from a microphone or audio
+    interface, and the sound server may resample and add latency, so
+    bit-perfect output is not possible. The ALSA and JACK backends are not
+    built at all: a strict snap cannot open /dev/snd, and the host's JACK or
+    PipeWire JACK socket is not exposed by snapd. JACK transport, JACK ports,
+    direct monitoring, ALSA device selection and low-latency operation are
+    therefore unavailable.
+  - Hardware MIDI is unavailable for the same reason. /dev/snd/seq and raw
+    USB devices are outside the sandbox, so external MIDI keyboards and
+    control surfaces cannot be connected. MIDI files can still be imported,
+    edited and played through the bundled software instruments.
+  - Only plugins inside the snap are visible: the bundled LV2 plugins (a-eq,
+    a-comp, a-delay, a-reverb, a-exp, a-fluidsynth and Reasonable Synth).
+    Host LV2, LADSPA, VST2 and VST3 plugins, including those in hidden
+    directories such as ~/.lv2, ~/.vst and ~/.vst3, are not reachable. VST2
+    and VST3 hosting is disabled at build time; LADSPA hosting is compiled in
+    but there are no bundled LADSPA plugins.
+  - Sessions and media can be opened and saved in non-hidden directories of
+    the real home directory, and on removable drives after
+    "snap connect ardour:removable-media". Hidden top-level directories such
+    as ~/.config and ~/.local are not visible. Ardour's configuration,
+    caches, presets and plugin scans live in the snap's private per-user area
+    (~/snap/ardour/...), not in ~/.config/ardour9, and are not shared with a
+    distribution-packaged Ardour. Session files themselves are ordinary files
+    in your home directory.
+  - Video import/export and the video timeline need the host's ffmpeg,
+    ffprobe, harvid and xjadeo programs, which a strict snap cannot execute;
+    none of them is bundled. Audio import through libsndfile (WAV, AIFF,
+    FLAC, Ogg, ...) works, but formats that only the external ffmpeg can
+    decode are unavailable.
+  - No network interface is declared. The Freesound search, OSC control,
+    WebSocket surfaces, update checks and any other online feature are
+    unavailable.
+  - Ardour draws its own YTK (GTK2-derived) interface and does not use GTK3
+    themes or GSettings. On a Wayland desktop it runs through XWayland
+    because YTK has no native Wayland backend. Screensaver inhibition uses
+    XResetScreenSaver through XWayland, so a Wayland compositor may still
+    blank the screen during long playback.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Ardour 9.10 is built from the pinned upstream
+# git tag with its waf build system; no prebuilt Ardour binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://ardour.org/
+source-code: https://github.com/Ardour/ardour
+issues: https://github.com/Ardour/ardour/issues
+
+icon: snap/local/ardour.png
+
+platforms:
+  amd64:
+  arm64:
+
+# Ardour compiles LOCALEDIR as /usr/share/ardour9/locale. The launcher sets
+# ARDOUR_DATA_PATH and ARDOUR_CONFIG_PATH explicitly, but gettext has no such
+# override and would look in the base's /usr/share. Bind the snap's data tree
+# over that path so translations load as well.
+layout:
+  /usr/share/ardour9:
+    bind: $SNAP/usr/share/ardour9
+
+# The GNOME extension is used as the core26 desktop runtime platform, not for
+# GNOME integration. Ardour's UI is its own YTK toolkit (a GTK2 fork) and
+# needs GLib/GIO, cairo, Pango, fontconfig, fonts, the X11 libraries and the
+# Mesa drivers, but no GTK3 widgets, GSettings schemas or GNOME themes. The
+# extension is still the right choice on core26:
+#   * it mounts gnome-core26, which supplies that C/C++ desktop stack and the
+#     fonts, and its gpu-2604 adjunct supplies libX11/libXext/libGL from
+#     mesa-2604 (the base and gnome-core26 do not ship libX11 themselves);
+#   * it declares the desktop, desktop-legacy, opengl, wayland and x11 plugs
+#     that a GUI application needs, and adds the command chain that sets up
+#     XDG directories, fontconfig, the GPU wrapper and the platform library
+#     path;
+#   * without it we would have to stage a second copy of GLib, cairo, Pango,
+#     fontconfig, freetype, harfbuzz, pixman, X11 and Mesa. Two copies of
+#     GLib or cairo in one process are unsafe, and the staged stack would
+#     have to be version-matched to the base by hand.
+# The extension's theme and GSettings content is inert for Ardour, and no
+# gsettings plug is declared. The ytk/GTK2 code, cairo and Pango are built
+# against the versions in the SDK and are ABI-compatible with the runtime
+# content snap.
+#
+# Audio backends: only pulseaudio and dummy are built. Ardour's PulseAudio
+# backend opens a playback stream on the sound server exposed by the
+# audio-playback interface; it has no capture path. The ALSA backend would
+# need /dev/snd, and the JACK backend would need the host's JACK/PipeWire
+# socket; neither is reachable under strict confinement, so building them
+# would only add broken entries to the Engine dialog. libasound is still a
+# build dependency because libardouralsautil is always compiled, and the
+# runtime libasound comes from gnome-core26.
+#
+# Plugins: the LV2, LADSPA and internal plugin hosts are built. Host-side
+# plugin directories are not visible, so only the LV2 plugins installed by
+# this snap are usable. --no-lxvst and --no-vst3 also follow the request in
+# upstream's PACKAGER_README not to distribute VST support under the Ardour
+# name, and avoid building scanners that cannot reach any plugins.
+#
+# --no-lrdf drops LADSPA RDF metadata, which would otherwise pull liblrdf and
+# its libraptor2/OpenSSL/ICU dependency chain for plugins that cannot be
+# loaded from the host anyway. --no-phone-home stops Ardour from contacting
+# ardour.org at startup, which cannot work without a network interface.
+
+apps:
+  ardour:
+    extensions: [gnome]
+    command: bin/ardour-launcher
+    desktop: usr/share/applications/ardour.desktop
+    common-id: ardour.desktop
+    plugs:
+      - audio-playback  # PulseAudio/PipeWire sound server (playback only)
+      - home            # sessions and media in the user's home directory
+      - removable-media # sessions and media on USB drives and other media
+    environment:
+      # The gnome extension defines LD_LIBRARY_PATH for the platform. Add the
+      # snap's own directories: usr/lib holds the relocated libxml2 (see the
+      # runtime-deps part), usr/lib/<triplet> the other staged libraries and
+      # usr/lib/ardour9 Ardour's internal shared libraries and backends.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/ardour9
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      ardour-launcher: bin/ardour-launcher
+      ardour.desktop: usr/share/applications/ardour.desktop
+      # The upstream 512x512 icon. snapcraft also installs it as the snap
+      # icon (meta/gui/ardour.png) through the top-level icon: key; the copy
+      # in hicolor lets the desktop file's Icon=ardour resolve as well.
+      ardour.png: usr/share/icons/hicolor/512x512/apps/ardour.png
+
+  ardour:
+    # Ardour 9.10 is the latest stable upstream release (tagged 2026-11-09).
+    source: https://github.com/Ardour/ardour.git
+    source-type: git
+    source-tag: '9.10'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      # The core26 GNOME SDK supplies glib-2.0/gthread-2.0/giomm-2.4's C
+      # dependencies, cairo, pangocairo, libpng, libxml2, libcurl, libpulse,
+      # zlib, sigc++-2.0 and the X11/Xrandr/Xinerama/XInput development
+      # files. It has no glibmm-2.4, cairomm-1.0 or pangomm-1.4 (only the
+      # newer 2.68/1.16/2.48 ABIs), no C++ toolchain guarantee, and none of
+      # the audio/multimedia development packages below.
+      - build-essential
+      - pkg-config
+      - python3      # waf is a Python program
+      - gettext      # msgfmt for Ardour's translations
+      - libglibmm-2.4-dev
+      - libcairomm-1.0-dev
+      - libpangomm-1.4-dev
+      - libboost-dev     # header-only boost >= 1.68 is mandatory
+      - libasound2-dev   # libardouralsautil is always compiled, even without the ALSA backend
+      - libarchive-dev
+      - liblo-dev
+      - libtag-dev
+      - libsndfile1-dev
+      - libsamplerate0-dev
+      - libfftw3-dev     # libfftw3f for the analysis plugins, libfftw3 for rubberband
+      - libogg-dev
+      - libflac-dev
+      - libjpeg-dev      # ydk-pixbuf probes jpeglib.h directly
+      - libxinerama-dev  # ydk probes X11/extensions/Xinerama.h directly
+      - vamp-plugin-sdk  # vamp-sdk.pc and vamp-hostsdk.pc
+      - librubberband-dev
+      - libaubio-dev     # mandatory for tempo/beat/onset analysis
+      - lv2-dev
+      - liblilv-dev
+      - libserd-dev
+      - libsord-dev
+      - libsratom-dev
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+      # Ardour's --dist-target defaults to autodetection, whose regular
+      # expression does not recognise "aarch64"; pass the target explicitly so
+      # the ARM NEON code paths are enabled on arm64 and the build does not
+      # end up with an unknown target.
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64) ardour_target=x86_64 ;;
+        arm64) ardour_target=aarch64 ;;
+        *) echo "unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2; exit 1 ;;
+      esac
+      python3 ./waf configure \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --dist-target="$ardour_target" \
+        --with-backends=dummy,pulseaudio \
+        --no-lxvst \
+        --no-vst3 \
+        --no-lrdf \
+        --no-phone-home \
+        --noconfirm
+      python3 ./waf build -j"${CRAFT_PARALLEL_BUILD_COUNT:-1}"
+      python3 ./waf install --destdir="$CRAFT_PART_INSTALL"
+    prime:
+      # Waf may leave static archives from the bundled helper libraries and
+      # libtool files are never needed at run time.
+      - -usr/lib/ardour9/*.a
+      - -usr/lib/ardour9/*.la
+      - -usr/share/doc
+      # The session utilities are installed as symlinks whose targets are
+      # absolute /usr/lib/ardour9 paths, which do not exist inside the snap.
+      # They are command-line helpers, not snap apps; drop the broken links
+      # (the main usr/bin/ardour9 binary does not match this pattern).
+      - -usr/bin/ardour9-*
+      - -usr/lib/ardour9/utils
+
+  runtime-deps:
+    # gnome-core26 provides GTK3, GLib, cairo, Pango, fontconfig, freetype,
+    # harfbuzz, pixman, libpng, libsndfile, FLAC, Ogg, Vorbis, Opus, TagLib,
+    # fftw3f, libarchive, libcurl, libpulse, libasound, libsigc++-2.0,
+    # libxml2's dependencies (ICU, zlib, lzma) and, through the gpu-2604
+    # content snap, libX11/libXext/libGL. Ship only the libraries it lacks.
+    after: [ardour]
+    plugin: nil
+    stage-packages:
+      - libglibmm-2.4-1t64  # glibmm-2.4, giomm-2.4 (Ardour uses the old ABI)
+      - libcairomm-1.0-1v5  # cairomm-1.0
+      - libpangomm-1.4-1v5  # pangomm-1.4
+      - liblilv-0-0         # LV2 host (pulls serd, sord, sratom and zix)
+      - liblo7              # OSC library
+      - libvamp-hostsdk3t64
+      - libvamp-sdk2t64
+      - librubberband3      # time stretching (pulls libfftw3-double3 and libsamplerate0)
+      - libaubio5           # tempo/beat/onset analysis
+      - libxml2-16          # gnome-core26 ships libxslt but not libxml2
+    # The apt dependency closure of libaubio5 also brings the FFmpeg shared
+    # libraries and their codec dependencies. Keep only libraries; the
+    # package data trees (fonts, systemd units, locales, ...) are not needed
+    # and must not shadow the base or gnome-core26.
+    stage:
+      - usr/lib
+      - -usr/lib/systemd
+      - -usr/lib/udev
+      - -usr/lib/tmpfiles.d
+      - -usr/lib/sysusers.d
+    override-build: |
+      set -eux
+      craftctl default
+      # gnome-core26-sdk contains libxml2, so the gnome extension's cleanup
+      # part deletes a staged libxml2 from usr/lib/<triplet> (it assumes the
+      # content snap ships it, which the current gnome-core26 does not). Keep
+      # the copy in usr/lib, which is on the runtime LD_LIBRARY_PATH, outside
+      # the SDK's path layout so it survives the cleanup.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"

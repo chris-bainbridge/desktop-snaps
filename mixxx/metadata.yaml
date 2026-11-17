@@ -1,0 +1,6 @@
+snap: mixxx
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/mixxxdj/mixxx (2.5.6)
+imported: '2026-11-17'

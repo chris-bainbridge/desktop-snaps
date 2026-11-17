@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Ardour
+GenericName=Digital Audio Workstation
+Comment=Edit, mix and play back audio and MIDI
+Exec=ardour %F
+Icon=ardour
+Terminal=false
+Categories=AudioVideo;Audio;AudioVideoEditing;X-Recorders;X-Multitrack;
+MimeType=application/x-ardour;
+Keywords=audio;MIDI;DAW;recording;mixing;editing;
+StartupNotify=true
+StartupWMClass=Ardour

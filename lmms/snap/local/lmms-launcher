@@ -1,0 +1,45 @@
+#!/bin/sh
+# Launcher for the strictly confined LMMS snap.
+#
+# LMMS and Qt were built with the usual /usr prefix, but inside the snap /usr
+# is the core26 base. Point Qt's plugin lookup and the staged library and data
+# directories at $SNAP before exec'ing the binary.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+plugins="$SNAP/usr/lib/$triplet/qt5/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+
+# snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
+# LD_LIBRARY_PATH. Add the staged library directories, keeping the entries
+# that the gpu-2604 wrapper prepared for Mesa.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Qt 5's default platform plugin is xcb, i.e. XWayland on a Wayland session.
+# That is also the session type the FLTK based ZynAddSubFX editor needs for
+# its X11 window, so the default is left alone. Set QT_QPA_PLATFORM=wayland
+# in the environment to use the staged native Wayland plugins instead.
+# The gpu-2604 wrapper has already prepared the Mesa paths.
+
+# LMMS 1.2.2's LADSPA scan looks in <prefix>/lib/ladspa for its own bundled
+# collections, but they are installed in <prefix>/lib/lmms/ladspa, so point
+# LADSPA_PATH at the real directory. The private working directory's
+# plugins/ladspa is added by LMMS itself.
+export LADSPA_PATH="$SNAP/usr/lib/lmms/ladspa${LADSPA_PATH:+:$LADSPA_PATH}"
+
+# Qt looks up icons, desktop files and the staged MIME database through the
+# XDG data directories; the base does not include $SNAP/usr/share. Keep the
+# entries the gpu wrapper has already added (Mesa's drirc and Vulkan data).
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# snapd leaves HOME at the private per-user area (~/snap/lmms/current) so that
+# settings and the default project directory stay inside the sandbox. The real
+# home is reachable through the home interface and can be selected explicitly
+# in the file dialog.
+exec "$SNAP/usr/bin/lmms" "$@"

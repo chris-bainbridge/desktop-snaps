@@ -1,0 +1,323 @@
+name: lmms
+version: '1.2.2'
+summary: Digital audio workstation for composing, mixing and rendering music
+description: |
+  LMMS is a free digital audio workstation for composing, arranging, mixing
+  and rendering music. It combines a song editor with a beat/bassline editor,
+  a piano roll and a mixer, and ships a large instrument and effect
+  collection: TripleOscillator, Monstro, Watsyn, BitInvader, ZynAddSubFX,
+  SF2 and GIG sample players, a LADSPA host and dozens of built-in effects.
+  Songs can be rendered to WAV, FLAC, OGG and MP3.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Audio is played through the desktop's PulseAudio/PipeWire sound server
+    (audio-playback interface). A strict snap cannot open /dev/snd, so the
+    ALSA and JACK outputs are not built, and the legacy OSS backend that
+    LMMS also compiles cannot open /dev/dsp. Only the PulseAudio device
+    works; low-latency JACK routing and direct ALSA output are unavailable.
+  - Hardware MIDI input is unavailable: the ALSA sequencer and raw MIDI
+    devices live under /dev/snd. MIDI files can still be imported and edited,
+    and the software instruments play normally.
+  - Settings and the default project folder live in the snap's private area
+    (~/snap/lmms/...), not in ~/.config or ~/Documents, and are not shared
+    with a distribution-packaged LMMS. The real home directory is visible
+    through the home interface, so projects can be opened and saved under
+    /home/<user>; hidden paths such as ~/.config and ~/.ssh are not visible,
+    and the file dialog starts in the private home.
+  - Removable media such as USB sticks are only visible after
+    "snap connect lmms:removable-media".
+  - VST plugins are disabled in this build. Hosting a VST means dlopening an
+    arbitrary native library (and Wine for Windows plugins) from outside the
+    snap, with dependencies a strict sandbox cannot satisfy. Carla is
+    disabled for the same reason. LADSPA still works: the CAPS, CALF, CMT,
+    SWH and TAP collections that ship with LMMS are built and exposed, and
+    further LADSPA plugins can be placed in the plugins/ladspa directory of
+    the snap's private working directory.
+  - ZynAddSubFX's editor is a FLTK window in a helper process and needs an
+    X11 display. On a Wayland session it appears through XWayland; the main
+    window uses Qt's xcb backend by default, so the whole application runs
+    on XWayland unless QT_QPA_PLATFORM=wayland is set.
+  - External programs cannot be launched from inside the snap. Links in the
+    help menu are handed to the desktop through snapctl user-open.
+  - Qt 5 is staged from the Ubuntu 26.04 archive because snapcraft's KDE
+    extensions support only core22 and core24. Host Qt/KDE themes are not
+    visible; LMMS uses Qt's Fusion style. The Mesa drivers come from the
+    mesa-2604 content snap connected by the gpu extension.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. LMMS and everything it links are built from the
+# pinned upstream release tarball or staged from the 26.04 archive; no
+# prebuilt LMMS binaries are embedded.
+#
+# Qt approach: LMMS 1.2.2 is a Qt 5 application and the newest stable upstream
+# release (the 1.3.0 line is still an alpha). Snapcraft 9.2.1 ships the
+# kde-neon, kde-neon-6 and kde-neon-qt6 extensions for core22 and core24 only,
+# so none of them can be used on core26. KDE publishes kde-qt6-core26
+# (Qt 6.11.3) content and SDK snaps, but LMMS 1.2.2 cannot be built against
+# Qt 6 and no snapcraft extension wires that content snap up anyway. Qt
+# 5.15.18 is therefore staged from the 26.04 archive: it is built for the same
+# Ubuntu release as the core26 base and shares the base's libc, libstdc++,
+# GLib, fontconfig, freetype, libpng and X11 stack. The qtwayland5 platform
+# plugins are staged as well, but Qt 5 defaults to xcb (XWayland), which is
+# also the session type the FLTK-based ZynAddSubFX editor needs.
+#
+# Audio approach: strict confinement hides /dev/snd, so ALSA, OSS and JACK
+# cannot reach the hardware. LMMS 1.2.2 has a native PulseAudio backend, and
+# it is deliberately the only audio backend compiled in: with SDL and ALSA
+# out of the picture the first-run device probe goes straight to
+# PulseAudio/PipeWire. PortAudio, libsoundio, sndio and JACK are omitted
+# because their Linux backends end up in ALSA or JACK as well. MIDI file
+# import and the software instruments are unaffected; only hardware MIDI
+# input is lost.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://lmms.io/
+source-code: https://github.com/LMMS/lmms
+issues: https://github.com/LMMS/lmms/issues
+
+icon: snap/local/lmms.png
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig and X11 data have to appear at the absolute paths
+# their libraries were built with; /usr and /etc inside the snap are the
+# core26 base. The bind targets are created by snapd where the base lacks
+# them (as with /usr/share/stk).
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+  # LMMS's Mallets instrument reads the STK rawwaves from the hard-coded
+  # /usr/share/stk/rawwaves on Linux; the base has no such directory.
+  /usr/share/stk:
+    bind: $SNAP/usr/share/stk
+
+apps:
+  lmms:
+    extensions: [gpu]
+    command: bin/lmms-launcher
+    desktop: usr/share/applications/lmms.desktop
+    plugs:
+      - audio-playback  # PulseAudio/PipeWire output
+      - desktop         # snapctl user-open for links in the help menu
+      - desktop-legacy  # legacy desktop paths used by Qt's X11 backend
+      - home            # projects, samples and exports in the user's home
+      - opengl          # /dev/dri access for the mesa-2604 content snap
+      - removable-media # projects and samples on USB sticks (manual connect)
+      - wayland         # opt-in native Wayland session
+      - x11             # X11 sessions, and XWayland as the default backend
+
+parts:
+  local:
+    # The launcher points Qt and the loader at the staged tree; the icon is
+    # used by snapcraft for meta/gui and is not left in the payload.
+    plugin: dump
+    source: snap/local
+    organize:
+      lmms-launcher: bin/lmms-launcher
+    prime:
+      - -lmms.png
+
+  lmms:
+    # v1.2.2 is the newest stable upstream release (2020-07-04). The 1.3.0
+    # line has only alpha releases so far, so 1.2.2 is used. This is the
+    # official release tarball, which includes the rpmalloc, qt5-x11embed and
+    # Carla submodules that the GitHub archive lacks; the checksum pins it.
+    source: https://github.com/LMMS/lmms/releases/download/v1.2.2/lmms_1.2.2.tar.xz
+    source-checksum: sha256/b185507fb64ecfd8e31145135b58ab244b637f9efc09c4176caf70aa3cbaae1e
+    plugin: cmake
+    override-pull: |
+      craftctl default
+      # LMMS 1.2.2 predates CMake 4, which refuses the OLD behaviour of
+      # CMP0026 and CMP0050; the patch also replaces the bin2res LOCATION
+      # lookup with a $<TARGET_FILE:...> generator expression.
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-cmake4.patch"
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # LMMS declares cmake_minimum_required(VERSION 2.8.7); CMake 4 in the
+      # 26.04 build environment refuses anything below 3.5 unless told to.
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      # The tarball has no git metadata; use the version from CMakeLists.txt
+      # instead of whatever "git describe" would report.
+      - -DFORCE_VERSION=internal
+      - -DWANT_QT5=ON
+      # The Qt 5 translation catalogs are copied into share/lmms/locale,
+      # where LMMS looks for "qt_<lang>.qm" after the compiled-in path.
+      - -DBUNDLE_QT_TRANSLATIONS=ON
+      # Backends that strict confinement cannot use (see the header comment).
+      - -DWANT_ALSA=OFF
+      - -DWANT_JACK=OFF
+      - -DWANT_SDL=OFF
+      - -DWANT_PORTAUDIO=OFF
+      - -DWANT_SNDIO=OFF
+      - -DWANT_SOUNDIO=OFF
+      - -DWANT_PULSEAUDIO=ON
+      # Third-party plugin hosts that need libraries from outside the sandbox.
+      - -DWANT_VST=OFF
+      - -DWANT_CARLA=OFF
+      # Everything that only needs libraries from the archive.
+      - -DWANT_MP3LAME=ON    # MP3 export
+      - -DWANT_OGGVORBIS=ON  # OGG export
+      - -DWANT_SF2=ON        # SoundFont2 player (FluidSynth)
+      - -DWANT_GIG=ON        # GIG player (libgig)
+      - -DWANT_STK=ON        # Mallets instrument (STK)
+    build-packages:
+      # The core26 build environment has a C++ compiler and make, but no
+      # CMake, pkg-config, Qt, audio, GUI or codec headers.
+      - build-essential
+      - cmake
+      - patch
+      - pkg-config
+      - qtbase5-dev        # Qt5 Core, Gui, Widgets, Xml, moc/uic/rcc
+      - qttools5-dev       # Qt5LinguistTools and lrelease/lupdate
+      - qttranslations5-l10n # Qt's own translations, bundled by upstream
+      - libsndfile1-dev    # WAV/FLAC/OGG sample I/O (required)
+      - libfftw3-dev       # fftw3f (required by the analyzers)
+      - libsamplerate0-dev # libsamplerate (required resampler)
+      - libpulse-dev       # the only audio output backend
+      - libfluidsynth-dev  # SF2 player
+      - libgig-dev         # GIG player
+      - libstk-dev         # Mallets instrument
+      - libfltk1.3-dev     # ZynAddSubFX editor
+      - fluid              # FLTK UI compiler for ZynAddSubFX
+      - libmp3lame-dev     # MP3 export
+      - libogg-dev
+      - libvorbis-dev      # OGG export
+      - libx11-dev         # ZynAddSubFX links X11 directly
+      # fltk-config --ldflags names these; libfltk1.3-dev only recommends or
+      # suggests them, and build-packages are installed without recommends.
+      - libxext-dev
+      - libxft-dev
+      - libxrender-dev
+      - libxfixes-dev
+      - libxcursor-dev
+      - libxinerama-dev
+      - libfontconfig1-dev
+      - zlib1g-dev        # ZynAddSubFX links -lz
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates Qt's plugin, data and
+      # translation paths to the staged tree. Prefix is relative to usr/bin,
+      # so Qt follows the snap mount rather than the base. LMMS bundles Qt's
+      # catalogs in its own locale directory (BUNDLE_QT_TRANSLATIONS).
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt5/plugins
+      Translations = share/lmms/locale
+      EOF
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out packages that are already in the base's chisel manifest, so
+    # libc, libstdc++, GLib and zlib are not duplicated here.
+    after: [lmms]
+    plugin: nil
+    stage-packages:
+      # Qt 5.15.18 from the 26.04 archive.
+      - libqt5core5t64
+      - libqt5gui5t64     # also ships the xcb and minimal platform plugins
+      - libqt5widgets5t64
+      - libqt5xml5t64
+      - qtwayland5        # Wayland platform plugins (opt-in)
+      # Tools and codecs linked by LMMS.
+      - libfltk1.3t64     # ZynAddSubFX editor
+      - libfluidsynth3
+      - libgig13
+      - libstk-5.0.0
+      - libmp3lame0
+      - libvorbis0a
+      - libvorbisenc2
+      - libvorbisfile3
+      - libogg0
+      - libsndfile1
+      - libfftw3-single3
+      - libsamplerate0
+      - libpulse0
+      # The base has no /etc/fonts/fonts.conf and no usable fonts beyond
+      # Plymouth.ttf; the layout binds expose the staged configuration and
+      # the DejaVu fonts.
+      - fontconfig
+      - fonts-dejavu-core
+      # Qt needs a MIME database for file type detection. The cache is built
+      # from the merged prime tree in the cleanup part below, so the
+      # application/x-lmms-project XML installed by LMMS is included.
+      - shared-mime-info
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+
+  x11-data:
+    # xkb-data and libx11-data are in core26's chisel manifest, but only their
+    # copyright/XErrorDB slices are installed there. craft-parts filters
+    # stage-packages by package name, so requesting them directly would yield
+    # an empty tree and break the /usr/share/X11 layout bind. Fetch the data
+    # packages instead; they contain no binaries or executables.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  stk-data:
+    # LMMS's Mallets instrument reads the STK rawwaves from the hard-coded
+    # /usr/share/stk/rawwaves on Linux (only AppImage builds use a relative
+    # path); the layout bind above exposes them at that location. The archive
+    # package stk would drag Tk in for its demo binary, so fetch it and keep
+    # only the small data tree.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download stk
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+      rm -rf "$CRAFT_PART_INSTALL/usr/bin" \
+             "$CRAFT_PART_INSTALL/usr/share/man" \
+             "$CRAFT_PART_INSTALL/usr/share/doc"
+
+  cleanup:
+    # The staged Qt/FLTK dependency trees contain copies of libraries that the
+    # core26 base already ships (GLib, libpng, freetype, zlib, ...). Loading
+    # two copies in one process is not safe, so drop every primed shared
+    # library whose path also exists in the base, exactly as the other core26
+    # recipes do. Then rebuild the MIME cache over the merged tree, so LMMS's
+    # own application/x-lmms-project definition is registered.
+    after: [lmms, runtime, x11-data, stk-data]
+    plugin: nil
+    build-snaps: [core26]
+    build-packages: [shared-mime-info]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f
+      update-mime-database "$root/usr/share/mime"
