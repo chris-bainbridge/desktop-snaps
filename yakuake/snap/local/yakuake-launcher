@@ -1,0 +1,34 @@
+#!/bin/sh
+# Yakuake is a Qt 6 / KDE Frameworks 6 application. Qt and KF6 are staged
+# inside this snap from the 26.04 archive; the core26 base ships neither.
+#
+# Debian installs Qt's plugins below the multiarch library directory, which
+# does not exist in the base. Point Qt and KF6 at the staged plugin tree
+# without hardcoding the architecture.
+for plugins in "$SNAP"/usr/lib/*/qt6/plugins; do
+    if [ -d "$plugins" ]; then
+        QT_PLUGIN_PATH="$plugins"
+        export QT_PLUGIN_PATH
+        break
+    fi
+done
+
+# KF6 finds icons, notification configuration and service metadata through
+# the XDG directories. Keep the staged tree first and append the system-wide
+# defaults shipped in this snap (kdeglobals, yakuakerc).
+export XDG_DATA_DIRS="$SNAP/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+export XDG_CONFIG_DIRS="$SNAP/etc/xdg${XDG_CONFIG_DIRS:+:$XDG_CONFIG_DIRS}"
+
+# Konsole starts the user's login shell. Only the core26 base's shells exist
+# inside the snap, so a host shell such as zsh or fish would make the terminal
+# fail with "execvp: No such file or directory". Fall back to bash.
+case "${SHELL:-}" in
+    /bin/bash | /usr/bin/bash | /bin/dash | /usr/bin/dash | /bin/sh | /usr/bin/sh) ;;
+    *) SHELL=/bin/bash ;;
+esac
+export SHELL
+
+# Yakuake's D-Bus service file is not exported by snapd, so bind the
+# org.kde.yakuake slot declared in snapcraft.yaml instead. The application
+# owns that name for its single-instance behaviour.
+exec "$SNAP/usr/bin/yakuake" "$@"

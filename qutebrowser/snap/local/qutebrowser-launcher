@@ -1,0 +1,56 @@
+#!/bin/sh
+# Launcher for the strictly confined qutebrowser snap.
+#
+# qutebrowser is a Python 3 + Qt 6 application using PyQt6 and QtWebEngine.
+# The GNOME platform snap provides the interpreter, its standard library, the
+# GTK runtime, the fonts and the fontconfig configuration; PyQt6, Qt 6 and the
+# QtWebEngine runtime are staged inside this snap.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+# The platform interpreter only searches its own dist-packages; add the
+# staged Python packages (PyQt6, Jinja2, PyYAML, Pygments).
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+# snapd puts only $SNAP/lib on LD_LIBRARY_PATH. Add the multiarch directory
+# with the staged Qt and QtWebEngine libraries, keeping the entries the
+# gnome and gpu wrappers already prepared for the platform and Mesa.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Qt was built with /usr as its prefix, which is the core26 base inside the
+# snap. Point its plugin lookup at the staged tree; the gnome wrapper has
+# already set the XDG data directories, fonts and the XKB data path.
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+
+# Core Desktop is Wayland-first; fall back to xcb on an X11 session or when
+# no compositor is reachable (XWayland included).
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# QtWebEngine looks for its helper process, its resource packs and its
+# Chromium locale data under the compiled-in /usr paths, which are the base
+# inside the snap. Point it at the staged copies. QTWEBENGINEPROCESS_PATH is
+# the documented override in Qt's web_engine_library_info.cpp.
+export QTWEBENGINEPROCESS_PATH="$SNAP/usr/lib/qt6/libexec/QtWebEngineProcess"
+export QTWEBENGINE_RESOURCES_PATH="$SNAP/usr/share/qt6/resources"
+export QTWEBENGINE_LOCALES_PATH="$SNAP/usr/share/qt6/translations/qtwebengine_locales"
+
+# Chromium's namespace sandbox needs unprivileged user namespaces. AppArmor
+# denies those to a strictly confined snap unless its browser-support plug
+# declares allow-sandbox: true, and that attribute is denied by snapd's base
+# declaration to every snap without a store-granted declaration (only
+# chromium, firefox and thunderbird have one). QtWebEngine disables the
+# setuid sandbox at build time, so without user namespaces it cannot start a
+# renderer at all. Disable the sandbox instead; see the description for the
+# consequences.
+export QTWEBENGINE_DISABLE_SANDBOX=1
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/qutebrowser" "$@"

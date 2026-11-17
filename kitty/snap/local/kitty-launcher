@@ -1,0 +1,22 @@
+#!/bin/sh
+# kitty's C launcher embeds CPython (it links libpython3.14 and runs
+# lib/kitty/__main__.py) instead of executing a python3 binary. The interpreter
+# finds its standard library by walking up from its own executable, which only
+# works for a prefix that contains lib/python3.14. Inside the snap that prefix is
+# the gnome-core26 platform snap, not the core26 base, so point CPython at it
+# explicitly. Without this the embedded interpreter cannot find encodings and
+# aborts before kitty starts.
+export PYTHONHOME="$SNAP/gnome-platform/usr"
+
+# The desktop session exports $SHELL as a host path (for example /usr/bin/zsh
+# or /usr/bin/fish). Strict confinement only exposes the core26 base, where
+# those paths do not exist, so kitty would fail to start the shell and open a
+# window with an error instead of a prompt. Fall back to the base's bash. A
+# user who wants a different shell can still use kitty's shell setting with a
+# path that exists in the snap.
+if [ -z "$SHELL" ] || [ ! -x "$SHELL" ]; then
+    SHELL=/bin/bash
+    export SHELL
+fi
+
+exec "$SNAP/usr/bin/kitty" "$@"

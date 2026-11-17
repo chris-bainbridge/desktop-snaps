@@ -1,0 +1,393 @@
+name: yakuake
+version: '26.08.3'
+summary: Drop-down terminal emulator based on KDE Konsole
+description: |
+  Yakuake is a drop-down terminal emulator based on KDE Konsole technology.
+  Press a hotkey to slide a terminal down from the top of the screen and press
+  it again to hide it. It supports tabs, split views, profiles, custom skins
+  and Konsole's terminal features.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That changes how a terminal behaves:
+
+  - The shell runs inside the snap, not on the host. HOME is the snap's
+    private per-user directory (~/snap/yakuake/<revision>), so top-level
+    dotfiles and dot-directories of your real home (~/.bashrc, ~/.config,
+    ~/.ssh, ...) are neither read nor written. Only non-hidden paths of the
+    real home are reachable through the home interface. Programs installed on
+    the host (distribution packages, /usr/local/bin, ...) are not on PATH;
+    the base provides bash, dash and the usual core utilities only. Host
+    shells such as zsh or fish are not available and SHELL falls back to
+    bash.
+  - Sessions start in the snap's private HOME. To work in the real home, cd
+    to it explicitly (for example /home/<user>); its hidden directories stay
+    inaccessible.
+  - /tmp is a private tmpfs, /dev/shm is private, and host /run sockets
+    other than the desktop ones (session bus, Wayland, PulseAudio) are not
+    accessible.
+  - Login records are not written: libutempter is not shipped, so shells
+    started in Yakuake do not appear in the host's who(1) or w(1).
+  - Settings, skins and caches live under ~/snap/yakuake/<revision> and are
+    not shared with a distribution-packaged Yakuake.
+  - The global show/hide shortcut is implemented with KGlobalAccel, which
+    talks to org.kde.kglobalaccel on the session bus. Strict confinement
+    does not grant access to that service, so no global shortcut is
+    registered, on X11 or Wayland. Use the tray icon, or bind a desktop
+    custom shortcut to "snap run yakuake" (a second launch asks the running
+    instance to toggle) or to
+    dbus-send --session --dest=org.kde.yakuake /yakuake/window org.kde.yakuake.toggleWindowState
+  - The snap owns org.kde.yakuake for its single-instance behaviour. If a
+    distribution-packaged Yakuake is already running on the same session
+    bus, the snap cannot talk to that unconfined instance, so it cannot take
+    over the name and will exit; quit the host Yakuake before starting the
+    snap.
+  - "Open after start" defaults to true through a system-wide yakuakerc
+    shipped in the snap, because there is no global hotkey and the snap
+    cannot write an autostart entry into the host session. Change it in the
+    settings if you start Yakuake another way.
+  - The first-run dialog cannot check or register a global shortcut: its
+    validation calls cannot reach kglobalaccel, so it falls back to the
+    previously configured key (F12 by default) and the shortcut is not
+    activated. Complete or cancel the dialog and use the tray icon or a
+    desktop shortcut instead.
+  - The tray icon uses StatusNotifierItem. It is shown on KDE Plasma and on
+    GNOME only when an AppIndicator extension provides the watcher; GNOME
+    Shell does not show it by default.
+  - Get New Skins downloads use KNewStuff over KIO. KIO's kiod6/kioworker
+    worker daemons are D-Bus services that a strict snap cannot activate, so
+    downloads normally fail. Skins can still be copied into the snap's data
+    directory manually.
+  - Notifications work through the desktop interface.
+  - Qt 6 and KDE Frameworks 6 are staged from the 26.04 archive. The host's
+    Qt/KDE theme and global settings are not visible: the snap ships the
+    Breeze icon theme but uses Qt's Fusion widget style, so it follows
+    neither the GNOME theme nor its accent colours.
+  - On an X11 session the drop-down behaviour works as intended: the window
+    is anchored to the top edge, kept above other windows, hidden from the
+    taskbar and pager and shown on all desktops. The global hotkey is still
+    unavailable as described above.
+  - On Wayland Yakuake does not use wlr-layer-shell; upstream uses KDE's
+    plasma-shell protocol, which only KWin implements. On Plasma Wayland it
+    can position the window and skip the taskbar and switcher, but it cannot
+    query plasmashell for the work area (that D-Bus call is blocked by
+    confinement) and it does not request keep-above on Wayland. On GNOME
+    Wayland, including Core Desktop, there is no plasma-shell, so the window
+    is an ordinary toplevel placed by the compositor: it will not stay on
+    top, will not be pinned to the screen edge and may appear in the window
+    switcher. Show/hide toggling still works. Running the snap with
+    QT_QPA_PLATFORM=xcb selects the X11 path through XWayland and may restore
+    positioning and keep-above where the compositor honours X11 hints, but
+    that is compositor-dependent and the global hotkey remains unavailable.
+  - The Konsole terminal is provided by the konsole-kpart KPart from the
+    26.04 archive (25.12.3) while Yakuake itself is built from the 26.08.3
+    release. The KPart interface Yakuake uses is unchanged between those
+    releases.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. No prebuilt Yakuake binaries are embedded: the
+# application is built from the upstream release tarball and Qt, KF6 and
+# Konsole are staged from the 26.04 archive.
+#
+# Qt/KDE approach: stage Qt 6.10.2 and KF6 6.24.0 from the 26.04 archive.
+#   * snapcraft 9.2.1 ships kde-neon-6 and kde-neon-qt6 only for core22 and
+#     core24; their get_supported_bases() rejects every other base, and there
+#     is no extension for core26.
+#   * KDE publishes kde-qt6-core26 (Qt 6.11.3, 915 MB), kf6-core26 (KF 6.31,
+#     1.9 GB) and the matching SDK snaps, but all of them are amd64-only in
+#     the store (checked 2026-11-17) while this recipe also targets arm64.
+#     Hand-wiring their content interfaces is not supported by snapcraft and
+#     would require the SDK content snaps for the build. It would also mean
+#     either mixing Qt 6.11.3/KF 6.31 with the archive's konsole-kpart 25.12.3
+#     (built against Qt 6.10.2/KF 6.24.0) or relying on the Gear 26.08.2
+#     Konsole that kf6-core26 may carry, which is unverified and available for
+#     amd64 only.
+#   * The archive's Qt/KF6 packages are built for Ubuntu 26.04, the same
+#     release as the core26 base, so the staged libraries match its libc,
+#     libstdc++, GLib and OpenSSL. Yakuake 26.08.3 requires Qt 6.5 and
+#     KF6 6.3; the archive versions are newer.
+#   * konsole-kpart 25.12.3 provides the terminal KPart that Yakuake embeds;
+#     its kde_terminal_interface.h comes from libkf6parts-dev, and the
+#     interface calls Yakuake makes are identical in the 25.12 and 26.08
+#     sources.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+# Upstream is licensed GPL-2.0-only OR GPL-3.0-only OR
+# LicenseRef-KDE-Accepted-GPL; this snap is distributed under GPL-3.0-only.
+license: GPL-3.0-only
+website: https://apps.kde.org/yakuake/
+source-code: https://invent.kde.org/utilities/yakuake
+issues: https://bugs.kde.org/enter_bug.cgi?product=yakuake
+
+icon: snap/local/yakuake.svg
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged X11 keyboard/locale data and fontconfig configuration have to
+# appear at the absolute paths their libraries were built with; /usr and /etc
+# inside the snap are the core26 base. The bind targets already exist in the
+# base and are replaced by the staged copies.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+
+slots:
+  # Yakuake owns org.kde.yakuake on the session bus for its single-instance
+  # behaviour (KDBusService::Unique) and its org.kde.yakuake session API
+  # (/yakuake/window). The slot lets the strict snap bind the name; it also
+  # lets the host call toggleWindowState and lets a second launch ask the
+  # running instance to toggle.
+  session:
+    interface: dbus
+    bus: session
+    name: org.kde.yakuake
+
+apps:
+  yakuake:
+    extensions: [gpu]
+    command: bin/yakuake-launcher
+    desktop: usr/share/applications/org.kde.yakuake.desktop
+    common-id: org.kde.yakuake.desktop
+    environment:
+      # Prefer the native Wayland plugin on Wayland desktops and fall back to
+      # X11/XWayland when no compositor socket is available. Set
+      # QT_QPA_PLATFORM=xcb manually to use the X11 path under XWayland.
+      QT_QPA_PLATFORM: "wayland;xcb"
+    plugs:
+      - audio-playback # Konsole's terminal bell through Qt Multimedia
+      - desktop        # notifications, StatusNotifierItem and snapctl user-open
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home           # terminal sessions in the user's home directory
+      - network        # KNewStuff skin downloads and help links
+      - opengl         # GPU access for Qt and the mesa-2604 content snap
+      - removable-media # manually connected: USB sticks and other mounts
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+      # Yakuake is a Qt/KDE application and does not use GSettings, so no
+      # gsettings plug is needed.
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      yakuake-launcher: bin/yakuake-launcher
+      yakuakerc: etc/xdg/yakuakerc
+      kdeglobals: etc/xdg/kdeglobals
+    prime:
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -yakuake.svg
+
+  yakuake:
+    # 26.08.3 is the latest stable release from the KDE release service
+    # (2026-11-02); v26.11.80 is a pre-release of the next branch. The
+    # tarball is the official release artifact from download.kde.org, whose
+    # canonical source is invent.kde.org/utilities/yakuake; tag v26.08.3 is
+    # commit de4813536b101a3bc89c4d7f6b63af5ca9327a89.
+    source: https://download.kde.org/stable/release-service/26.08.3/src/yakuake-26.08.3.tar.xz
+    source-checksum: sha256/16e0ef03e8484b2841b6162509b3a0002c9bd2cdb86b9c4973e46b11c1aec44d
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      - -DWITH_X11=ON
+    build-packages:
+      # The core26 build environment has no C++ toolchain, CMake, Qt, KF6 or
+      # X11/Wayland development files.
+      - build-essential
+      - pkgconf
+      - extra-cmake-modules # ECM, required at 6.3 or newer
+      - gettext            # msgfmt, used by ki18n_install(po)
+      - qt6-base-dev       # Core, Gui, Widgets, Network, DBus, WaylandClient
+      - qt6-base-private-dev # Qt6GuiPrivate, required by Qt >= 6.10
+      - qt6-svg-dev        # Qt6Svg, used for the icon and skin handling
+      - libkf6archive-dev  # KF6::Archive, for the skin archives
+      - libkf6config-dev   # KF6::ConfigGui and KConfig compiler
+      - libkf6coreaddons-dev
+      - libkf6crash-dev
+      - libkf6dbusaddons-dev
+      - libkf6globalaccel-dev
+      - libkf6i18n-dev
+      - libkf6iconthemes-dev
+      - libkf6kio-dev
+      - libkf6newstuff-dev
+      - libkf6notifications-dev
+      - libkf6notifyconfig-dev
+      - libkf6parts-dev    # KParts, including kde_terminal_interface.h
+      - libkf6widgetsaddons-dev
+      - libkf6windowsystem-dev
+      - libkf6statusnotifieritem-dev
+      - libkf6colorscheme-dev
+      - kwayland-dev       # Plasma::KWaylandClient, for the plasma-shell surface
+      - plasma-wayland-protocols # kde-output-order-v1.xml
+      - libxcb-randr0-dev  # XCB::RANDR, for the X11 work area
+      - libxcb-util-dev    # XCB::UTIL
+      - libx11-dev
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in prefix is /usr, which inside the snap is the core26
+      # base. A qt.conf next to the executable relocates Qt's data, plugin and
+      # translation paths into the staged tree. Prefix is relative to usr/bin,
+      # so Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/qt6/translations
+      EOF
+
+      # ECM generates org.kde.yakuake.service with the build-time absolute
+      # path /usr/bin/yakuake. snapd does not export service files from the
+      # snap, and the dbus slot is what lets the application own the name.
+      rm -f "$CRAFT_PART_INSTALL/usr/share/dbus-1/services/org.kde.yakuake.service"
+
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/org.kde.yakuake.desktop"
+      # DBusActivatable asks the desktop to start org.kde.yakuake through the
+      # host bus, where no service file exists for the snap. Launch the
+      # executable directly instead.
+      sed -i -e '/^DBusActivatable=/d' "$desktop"
+      # Match the window to the launcher: Qt sets WM_CLASS from the
+      # executable name, and upstream's desktop file has no StartupWMClass.
+      grep -q '^StartupWMClass=' "$desktop" || echo 'StartupWMClass=yakuake' >>"$desktop"
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out packages already in the base's chisel manifest, so the
+    # base's libc, libstdc++, OpenSSL, zlib, GLib and X11 core libraries are
+    # not duplicated here. apt resolves the remaining KF6/KIO dependencies.
+    after: [yakuake]
+    plugin: nil
+    build-packages:
+      # update-mime-database, used below to build the MIME cache.
+      - shared-mime-info
+    stage-packages:
+      # The Konsole KPart that provides the embedded terminal, built against
+      # the same Qt/KF6 as the rest of the stack (25.12.3 from the archive).
+      - konsole-kpart
+      # KIO and its worker/service plugins. kio6 is a dependency of
+      # konsole-kpart; listing it documents why it is present.
+      - kio6
+      # KWayland client, for Plasma's plasma-shell surface on Wayland.
+      - libkwaylandclient6
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6gui6        # also ships the xcb platform plugin in 26.04
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6dbus6       # KDBusService and the session API
+      - libqt6svg6
+      - libqt6printsupport6 # konsole-kpart
+      - libqt6multimedia6   # konsole-kpart's terminal bell
+      - libqt6xml6          # konsole-kpart and KIO
+      - libqt6waylandclient6     # native Wayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell integration for that plugin
+      - qt6-svg-plugins   # libqsvgicon, for SVG icons
+      - qt6-translations-l10n # Qt's own dialog translations
+      # KDE Frameworks 6.24.0 from the 26.04 archive.
+      - libkf6archive6
+      - libkf6colorscheme6
+      - libkf6configcore6
+      - libkf6configgui6
+      - libkf6configwidgets6
+      - libkf6coreaddons6
+      - libkf6crash6
+      - libkf6dbusaddons6
+      - libkf6globalaccel6
+      - libkf6i18n6
+      - libkf6iconthemes6
+      - libkf6kiocore6
+      - libkf6newstuffcore6
+      - libkf6newstuffwidgets6
+      - libkf6notifications6
+      - libkf6notifyconfig6
+      - libkf6parts6
+      - libkf6widgetsaddons6
+      - libkf6windowsystem6
+      - libkf6statusnotifieritem6
+      - libkf6xmlgui6
+      # The rest of konsole-kpart's KF6 dependencies (bookmarks, iconwidgets,
+      # kiogui/kiowidgets, pty, service, textwidgets, ...) are pulled in by
+      # apt as dependencies of konsole-kpart and kio6.
+      #
+      # The Breeze icon theme gives the menus, toolbars and tray icon their
+      # icons; hicolor-icon-theme, its dependency, supplies the fallback.
+      - kf6-breeze-icon-theme
+      # The base has only the Plymouth font and no fontconfig configuration.
+      # The layout above exposes the staged fonts and configuration.
+      - fontconfig
+      - fonts-dejavu-core
+      - fonts-hack       # Konsole's default monospace font
+      - shared-mime-info # QMimeDatabase classifications for the file chooser
+    override-build: |
+      craftctl default
+
+      # shared-mime-info ships only the XML source in the archive package;
+      # the maintainer script that normally builds mime.cache does not run
+      # for a staged package. Generate it so QMimeDatabase works. The launcher
+      # puts $SNAP/usr/share on XDG_DATA_DIRS, so the staged database is found
+      # without a layout bind.
+      update-mime-database "$CRAFT_PART_INSTALL/usr/share/mime"
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # kio6 installs desktop entries for its daemons and tools; they are not
+      # part of Yakuake and must not be exported to the host menu.
+      - -usr/share/applications
+      # D-Bus service files in a snap contain build-time absolute paths and
+      # are not exported by snapd. The org.kde.yakuake slot is used instead;
+      # kiod6/kioworker cannot be activated under strict confinement anyway.
+      - -usr/share/dbus-1/services
+      - -usr/bin/ktelnetservice6
+      - -usr/bin/ktrash6
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty usr/share/X11 and break the layout bind. Fetch
+    # the data packages directly; they contain no binaries.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  cleanup:
+    # The staged Qt/KF6/Konsole dependency trees contain copies of libraries
+    # that the core26 base already ships (GLib, OpenSSL, libstdc++, libicu,
+    # ...). Loading two copies in one process is not safe, so drop every
+    # primed shared library whose path also exists in the base, exactly as the
+    # other core26 recipes do.
+    after: [yakuake, runtime, x11-data]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

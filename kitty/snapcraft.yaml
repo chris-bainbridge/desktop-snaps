@@ -1,0 +1,227 @@
+name: kitty
+version: '0.50.0'
+summary: Fast, feature-rich, GPU based terminal emulator
+description: |
+  kitty is a fast, feature-rich, GPU based terminal emulator. It renders
+  through OpenGL, and supports tabs and arbitrary split layouts, ligatures and
+  colour emoji through HarfBuzz, true colour, the kitty graphics protocol for
+  inline images, hyperlinks, Unicode input, sessions, remote control over a
+  socket, and companion commands ("kittens") for ssh, file transfer, diffs,
+  hints and clipboard handling.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. A terminal emulator feels this more than most applications,
+  because everything started from it inherits the sandbox:
+
+  - The shell runs inside the snap and sees the core26 base and the snap, not
+    the host's /usr, /usr/local, /opt or /snap/bin. The base provides bash,
+    dash, coreutils, grep/sed/awk/find, tar, less, man, nc and an OpenSSH
+    client, so ordinary shell work, "kitten ssh" and scp/sftp work.
+    Host-installed commands such as git, python3, vim, tmux, curl, docker or
+    rsync are not on PATH and cannot be started.
+  - $HOME in the terminal is the snap's private directory
+    (~/snap/kitty/<revision>), not the real home. The home interface exposes
+    only the non-hidden entries of the real home, so files under ~/Documents
+    and the like can be opened, but top-level dotfiles and dot-directories
+    (~/.bashrc, ~/.profile, ~/.gitconfig, ~/.ssh, ~/.config) are not visible.
+    Shells started by kitty therefore do not read the host's startup files,
+    and host tools cannot read the host's per-user configuration.
+  - kitty's configuration, themes and session files live in the private area
+    (~/snap/kitty/<revision>/.config/kitty): the GNOME extension points
+    XDG_CONFIG_HOME there, and ~/.config is not readable anyway. Shell history
+    of the snap's shell is private too. Nothing is shared with a
+    distribution-packaged kitty.
+  - $SHELL is exported by the desktop session as a host path (for example
+    /usr/bin/zsh or /usr/bin/fish) that does not exist in the snap. The
+    launcher falls back to the base's /bin/bash; zsh, fish and other host
+    shells cannot be used as the snap's shell.
+  - /tmp is a private tmpfs, so files written there are not shared with host
+    applications, and removable media is only visible after connecting the
+    removable-media interface.
+  - Fonts installed on the host are visible through the desktop interface
+    (the host font cache is not mounted, so fontconfig builds its own cache in
+    the snap). The bundled Symbols Nerd Font Mono supplies fallback glyphs.
+  - The GPU drivers come from the mesa-2604 content snap connected by the
+    gnome extension, so the snap ships no Mesa of its own. Clipboard,
+    notifications, the URL handler (xdg-open and the portals), the bell
+    (audio-playback) and GPU access (opengl) go through interfaces.
+  - Remote control works through a Unix socket in the snap's private runtime
+    directory, so it drives this snap's kitty instances but cannot attach to a
+    kitty running outside the snap.
+
+  These limitations are accepted because Core Desktop has no classic snaps.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-only
+website: https://sw.kovidgoyal.net/kitty/
+source-code: https://github.com/kovidgoyal/kitty
+issues: https://github.com/kovidgoyal/kitty/issues
+
+icon: snap/local/kitty.png
+
+platforms:
+  amd64:
+  arm64:
+
+# kitty is not a GTK application: it draws with OpenGL itself, through its own
+# GLFW fork with separate X11 and Wayland backends, and draws its UI with
+# cairo. The [gnome] extension is still the right integration point on Core
+# Desktop: it mounts the gnome-core26 platform snap (the core26 C/Python
+# runtime, cairo, harfbuzz, fontconfig, dbus and libcanberra that the base
+# lacks), runs the mesa-2604 provider wrapper for the GPU stack, exports the
+# desktop integration variables, and adds the desktop, desktop-legacy, opengl,
+# wayland and x11 plugs together with the desktop-launch command chain.
+apps:
+  kitty:
+    extensions: [gnome]
+    command: bin/kitty-launcher
+    desktop: usr/share/applications/kitty.desktop
+    common-id: kitty.desktop
+    plugs:
+      - home            # the shell must be able to reach the user's non-hidden files
+      - network         # ssh, scp and anything else the shell starts
+      - audio-playback  # libcanberra plays the bell
+    # gsettings is deliberately not declared: kitty does not use GLib or
+    # GSettings, it reads its own ~/.config/kitty/kitty.conf (which is the
+    # snap's private XDG_CONFIG_HOME). The extension already supplies desktop,
+    # desktop-legacy, opengl, wayland and x11, so they are not repeated here.
+    # process-control and system-observe are not needed either: the default
+    # AppArmor policy lets apps of the same snap signal each other (kitty only
+    # signals its own terminals), and kitty reads /proc/self, nothing else.
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      kitty-launcher: bin/
+    # kitty.png is only the snap/store icon, not a runtime file of the snap.
+    prime:
+      - bin/kitty-launcher
+
+  # kitty's setup.py refuses to build without the Symbols Nerd Font Mono: it
+  # copies it into lib/kitty/fonts so that the bundled kittens can render
+  # fallback glyphs. The font is neither part of the release tarball (its fonts/
+  # directory is empty) nor of the 26.04 archive, so take it from the pinned
+  # Nerd Fonts release, exactly as upstream's own Linux builds and the Debian
+  # package do. It is a build input only; the kitty part copies it into the
+  # package, so this part is not primed.
+  nerd-font:
+    plugin: dump
+    source: https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFontsSymbolsOnly.zip
+    source-checksum: sha256/fdca3682534f6f65e1ccb2345b0362ccf67d9b8eca7c8025330946e93e2473bc
+    source-type: zip
+    organize:
+      SymbolsNerdFontMono-Regular.ttf: fonts/
+    prime:
+      - -*
+
+  # kitty is C, Python and Go: setup.py compiles the C library and its Python
+  # extensions, a vendored GLFW fork twice (X11 and Wayland), generates the
+  # built-in shaders from .slang sources with slangc, and builds the Go
+  # "kitten" multiplexer. `setup.py linux-package` is upstream's documented
+  # packager entry point and produces the whole prefix (bin/, lib/kitty/,
+  # share/) that is copied into the snap.
+  kitty:
+    after: [nerd-font]
+    source: https://github.com/kovidgoyal/kitty/releases/download/v0.50.0/kitty-0.50.0.tar.xz
+    source-checksum: sha256/01f20d0b253af0a7e041394a501adc83483f2eee01faf607a933c028343ab71a
+    source-type: tar
+    plugin: nil
+    build-packages:
+      - golang-go            # kitten and the Go code generator (go.mod: go 1.26.0)
+      - libcairo2-dev        # cairo-fc, for rendering
+      - libdbus-1-dev        # GLFW uses D-Bus for the settings portal
+      - libegl-dev           # EGL headers for the Wayland backend
+      - libfontconfig-dev
+      - libfreetype-dev
+      - libgl-dev            # pkg-config gl (GLX for the X11 backend)
+      - libharfbuzz-dev
+      - liblcms2-dev
+      - libpng-dev
+      - libsimde-dev         # SIMD headers for the AVX2 code paths
+      - libssl-dev
+      - libwayland-bin       # wayland-scanner
+      - libwayland-dev
+      - libx11-dev
+      - libx11-xcb-dev
+      - libxcb-xkb-dev       # required by libxkbcommon-x11's pkg-config file
+      - libxcursor-dev
+      - libxi-dev
+      - libxinerama-dev
+      - libxkbcommon-dev
+      - libxkbcommon-x11-dev
+      - libxrandr-dev
+      - libxxhash-dev
+      - pkgconf
+      - python3              # the interpreter setup.py runs under, stdlib included
+      - python3-dev
+      - slang-compiler       # slangc compiles kitty/shaders/*.slang to GLSL
+      - wayland-protocols
+      - zlib1g-dev
+    build-environment:
+      # go.mod asks for the go1.26.10 toolchain. The archive's Go 1.26
+      # satisfies the `go 1.26.0` directive, and a build should not download a
+      # second Go toolchain, so pin the local one.
+      - GOTOOLCHAIN: local
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+
+      # The release tarball ships an empty fonts/ directory but setup.py insists
+      # on the Symbols Nerd Font Mono at build time. Take it from the
+      # nerd-font part instead of depending on the build host's fontconfig.
+      install -Dm644 "$CRAFT_STAGE/fonts/SymbolsNerdFontMono-Regular.ttf" \
+        fonts/SymbolsNerdFontMono-Regular.ttf
+
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # root's interpreter explicitly: setup.py reads sysconfig to find the
+      # Python headers and libpython of python3-dev. setup.py then runs the
+      # freshly built launcher to generate Go bindings and the shaders, so the
+      # build environment needs an importable Python 3.14 standard library.
+      /usr/bin/python3 setup.py linux-package --prefix "$CRAFT_PART_INSTALL/usr"
+
+      # The release tarball ships 26 MB of prebuilt HTML documentation. A
+      # strictly confined terminal snap has no browser to open it with, while
+      # the man pages can be read with the base's man, so drop only the HTML.
+      rm -rf "$CRAFT_PART_INSTALL/usr/share/doc/kitty/html"
+
+      # create_linux_bundle_gunk leaves a source-tree convenience symlink
+      # (lib/kitty/kitty/launcher/kitty -> ../../../bin/kitty) in the prefix.
+      rm -f "$CRAFT_PART_INSTALL/usr/lib/kitty/kitty/launcher/kitty"
+
+      # snapd only substitutes ${SNAP} in Icon= lines and does not resolve an
+      # icon name against the snap's own icon theme, so point the exported
+      # entries at the copy under meta/gui.
+      install -Dm644 "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/kitty.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/kitty.png"
+      for desktop in kitty.desktop kitty-open.desktop; do
+        sed -i \
+          -e '/^TryExec=/d' \
+          -e 's|^Icon=kitty$|Icon=${SNAP}/meta/gui/kitty.png|' \
+          "$CRAFT_PART_INSTALL/usr/share/applications/$desktop"
+      done
+
+  # The gnome-core26 platform snap already provides the C/Python runtime, the
+  # font, image and colour-management stack, OpenSSL, D-Bus, libcanberra and
+  # libpython, and mesa-2604 provides libX11, libxcb, libwayland-client and
+  # EGL/GL. Only the libraries below are in neither content snap.
+  runtime:
+    plugin: nil
+    stage-packages:
+      - libxxhash0               # fast_data_types.so, the launcher and rsync kitten
+      - libxkbcommon-x11-0       # linked by the X11 backend
+      - libxcb-xkb1              # dependency of libxkbcommon-x11
+      - libstartup-notification0 # dlopened on X11 when started from a desktop entry
+      - libxcb-util1             # dependency of libstartup-notification
+    stage:
+      # Keep only what the platform lacks; an explicit list also keeps the
+      # libxcb1 that libxcb-xkb1 and libstartup-notification depend on out of
+      # the snap, since mesa-2604 already provides it.
+      - usr/lib/*/libxxhash.so.*
+      - usr/lib/*/libxkbcommon-x11.so.*
+      - usr/lib/*/libxcb-xkb.so.*
+      - usr/lib/*/libstartup-notification-1.so.*
+      - usr/lib/*/libxcb-util.so.*

@@ -1,0 +1,6 @@
+snap: yakuake
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://invent.kde.org/utilities/yakuake (v26.08.3)
+imported: '2026-11-17'

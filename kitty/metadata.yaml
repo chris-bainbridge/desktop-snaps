@@ -1,0 +1,6 @@
+snap: kitty
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/kovidgoyal/kitty (v0.50.0)
+imported: '2026-11-17'

@@ -1,0 +1,297 @@
+name: qutebrowser
+version: '3.7.0'
+summary: Keyboard-driven, vim-like web browser
+description: |
+  qutebrowser is a keyboard-driven web browser with a minimal GUI, built on
+  Python 3, Qt 6 and QtWebEngine. Almost every action is bound to a key, a
+  command or a shortcut, configuration is written in Python, and a command
+  line and a hint mode make it possible to browse without a mouse.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Configuration, bookmarks, sessions, history, the download database and
+    caches live in the snap's private per-user directories
+    (~/snap/qutebrowser/current/.config/qutebrowser,
+    ~/snap/qutebrowser/current/.local/share/qutebrowser and
+    ~/snap/qutebrowser/common/.cache), not in ~/.config/qutebrowser.
+    Configuration from a distribution-packaged qutebrowser is not imported;
+    it can be copied into the snap's configuration directory by hand.
+  - Only non-hidden paths in your real home directory are visible. Top-level
+    dotfiles and dot-directories such as ~/.config, ~/.local and ~/.ssh are
+    not reachable, so the file chooser, uploads and the default download
+    directory cannot use them. The default download directory is the snap's
+    private ~/Downloads; set downloads.location.directory to
+    /home/<user>/Downloads to save into the real home directory.
+  - The root filesystem is the snap's core26 base and the GNOME runtime, not
+    the host's. :spawn, userscripts and external editors can only run
+    programs shipped in the snap or in the platform; host-installed tools
+    are not on PATH.
+  - The snap cannot make itself the default browser, because that writes to
+    the host's ~/.config/mimeapps.list outside the sandbox. Select
+    qutebrowser in the desktop's own default-applications settings; that
+    uses the exported desktop entry instead.
+  - Downloads and uploads on removable drives need the removable-media
+    interface:
+      sudo snap connect qutebrowser:removable-media
+  - Printing (:print) needs the cups-control interface to reach the host's
+    CUPS socket:
+      sudo snap connect qutebrowser:cups-control
+  - Camera and microphone access for WebRTC video calls is not granted. The
+    snap does not declare the camera, audio-record or pulseaudio interfaces,
+    so pages can play audio and video but cannot capture from the user.
+  - QtWebEngine's Chromium sandbox is disabled. AppArmor does not grant
+    unprivileged user namespaces to a strictly confined snap, and the
+    allow-sandbox attribute of browser-support is denied by snapd's base
+    declaration to snaps without a store-granted declaration. The launcher
+    therefore sets QTWEBENGINE_DISABLE_SANDBOX=1: renderer processes are not
+    sandboxed by Chromium, and only the snap's own confinement contains
+    them. Keep the snap up to date.
+  - DRM-protected media does not work out of the box. The proprietary
+    Widevine CDM is not shipped, and the host locations where a
+    distribution-installed CDM would live are not visible inside the snap.
+    H.264, AAC and MP3 work because Ubuntu's QtWebEngine is built with
+    webengine_proprietary_codecs=ON; HEVC and surround formats such as AC-3
+    and E-AC-3 are not supported by the bundled decoders.
+    Hardware-accelerated video decoding is not enabled by default.
+  - PDF.js is not bundled. With content.pdfjs enabled, qutebrowser looks for
+    a system PDF.js under paths such as /usr/share/pdf.js that are not
+    visible in the snap. PDFs are downloaded and opened with the host's PDF
+    viewer through the desktop interface; alternatively, unpack PDF.js into
+    ~/snap/qutebrowser/current/.local/share/qutebrowser/pdfjs.
+  - Qt 6.10, PyQt6 and the QtWebEngine runtime are staged from the 26.04
+    archive. QtWebEngine accounts for most of the snap: libQt6WebEngineCore
+    is about 200 MB installed, its resource packs and Chromium locale data
+    another 52 MB, and the helper process, PyQt6 and the Qt libraries add
+    roughly 75 MB more, for about 400 MB installed in total. Host Qt styles,
+    themes and proxy configuration are not visible; QtWebEngine uses its own
+    network stack and qutebrowser's proxy settings.
+  - The snap cannot read the host keyring: the password-manager-service
+    interface is not declared, so userscripts that talk to KeePassXC or the
+    Secret Service need an external helper process.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. qutebrowser is built from the pinned upstream
+# release tag; PyQt6, Qt and the QtWebEngine runtime are staged from the 26.04
+# archive. No vendor binaries are embedded.
+#
+# Qt approach: Qt 6.10.2 and its plugins are staged from the 26.04 archive.
+#   * snapcraft 9.2.1 has kde-neon-6 for core22/core24 only; there is no KDE
+#     extension for core26. qutebrowser is not a KDE application and needs no
+#     KDE Frameworks, so staging the Qt modules it links keeps the snap much
+#     smaller than the kde-qt6-core26 content snap.
+#   * QtWebEngine is the reason this snap is large. It embeds Chromium and
+#     ships its own PDFium, FFmpeg and support libraries, so libQt6WebEngineCore
+#     alone is ~198 MiB, the resource and locale package is ~52 MiB (of which
+#     ~40 MiB are Chromium locale packs), and libqt6webenginecore6-bin is
+#     ~18 MiB, almost all of it webenginedriver, the WebDriver server for Qt's
+#     test suite, which is excluded below.
+#   * The GNOME platform snap supplies Python 3.14 and its standard library,
+#     fontconfig plus fonts, the GTK runtime and the base libraries. PyQt6,
+#     Jinja2, PyYAML and Pygments are not part of it and are staged here; the
+#     interpreter and the standard library that apt installs as their
+#     dependency are removed from the prime tree.
+#   * PyQt6 6.10.2 and PyQt6-WebEngine 6.10.0 are built for the archive's
+#     Python 3.14 and Qt 6.10.2, the same versions as the base and platform.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://qutebrowser.org/
+source-code: https://github.com/qutebrowser/qutebrowser
+issues: https://github.com/qutebrowser/qutebrowser/issues
+
+icon: snap/local/qutebrowser.svg
+
+platforms:
+  amd64:
+  arm64:
+
+# qutebrowser finds its system-wide userscripts and helper scripts through
+# /usr/share/qutebrowser (qutebrowser/utils/standarddir.py hardcodes /usr).
+# Inside the snap /usr is the base, so bind the primed tree onto that path.
+layout:
+  /usr/share/qutebrowser:
+    bind: $SNAP/usr/share/qutebrowser
+
+apps:
+  qutebrowser:
+    extensions: [gnome]
+    command: bin/qutebrowser-launcher
+    desktop: usr/share/applications/org.qutebrowser.qutebrowser.desktop
+    common-id: org.qutebrowser.qutebrowser
+    # The gnome extension supplies desktop, desktop-legacy, opengl, wayland
+    # and x11. These are the plugs it does not add for core26.
+    plugs:
+      - audio-playback # HTML5 audio and video through PipeWire/PulseAudio
+      - browser-support # shared memory, oom_score_adj and udev data for Chromium
+      - cups-control    # :print (manual connection, see the description)
+      - gsettings       # desktop settings for the GTK/Qt integration
+      - home            # downloads, uploads and the file chooser
+      - network         # pages, extensions, updates and the adblock lists
+      - removable-media # downloads and uploads on removable drives
+
+parts:
+  local:
+    plugin: dump
+    source: snap/local
+    organize:
+      qutebrowser-launcher: bin/qutebrowser-launcher
+    prime:
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -qutebrowser.svg
+
+  qutebrowser:
+    # 3.7.0 is the latest stable upstream release (2026-04-03); the tag v3.7.0
+    # points at commit b0a7967f11c1c616d3914f3227113e121efb0fe8. The archive
+    # contains the HTML, JavaScript, icon and configuration data setuptools
+    # installs as package data; the checksum pins exactly the tag.
+    source: https://github.com/qutebrowser/qutebrowser/archive/refs/tags/v3.7.0.tar.gz
+    source-checksum: sha256/88a929b6c4677aa2a6135e046e434265e146c9de37036f7565c09bc73d36336c
+    plugin: nil
+    build-packages:
+      # setup.py is still setuptools based and needs no compilation.
+      - python3
+      - python3-setuptools
+    override-build: |
+      set -eux
+
+      # The gnome extension puts the SDK snap first in PATH, so call the
+      # build environment's interpreter explicitly.
+      /usr/bin/python3 setup.py build
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr/share \
+        --single-version-externally-managed \
+        --record=install-files.txt
+
+      install="$CRAFT_PART_INSTALL"
+
+      # setup.py installs an easy_install wrapper whose shebang is the build
+      # interpreter (/usr/bin/python3, which core26 does not have). Write the
+      # direct entry point instead; the launcher runs it with the platform
+      # interpreter, and sys.exit() preserves qutebrowser's exit status.
+      cat >"$install/usr/bin/qutebrowser" <<'EOF'
+      #!/usr/bin/env python3
+      import sys
+
+      from qutebrowser.qutebrowser import main
+
+      sys.exit(main())
+      EOF
+      chmod 755 "$install/usr/bin/qutebrowser"
+
+      # Upstream's Makefile install target: the desktop entry, AppStream
+      # data, the theme icons and the bundled userscripts and helper scripts.
+      install -d "$install/usr/share/applications" "$install/usr/share/metainfo"
+      install -m644 misc/org.qutebrowser.qutebrowser.desktop \
+        "$install/usr/share/applications/"
+      install -m644 misc/org.qutebrowser.qutebrowser.appdata.xml \
+        "$install/usr/share/metainfo/"
+
+      for size in 16 24 32 48 64 128 256 512; do
+        install -Dm644 "qutebrowser/icons/qutebrowser-${size}x${size}.png" \
+          "$install/usr/share/icons/hicolor/${size}x${size}/apps/qutebrowser.png"
+      done
+      install -Dm644 qutebrowser/icons/qutebrowser.svg \
+        "$install/usr/share/icons/hicolor/scalable/apps/qutebrowser.svg"
+
+      # The system data directory is exposed through the layout above, so
+      # qutebrowser finds the userscripts in its :spawn --userscript lookup.
+      install -d "$install/usr/share/qutebrowser/userscripts" \
+        "$install/usr/share/qutebrowser/scripts"
+      for script in misc/userscripts/*; do
+        [ -f "$script" ] || continue
+        install -m755 "$script" "$install/usr/share/qutebrowser/userscripts/"
+      done
+      for script in scripts/*; do
+        [ -f "$script" ] || continue
+        case "$script" in
+          scripts/__init__.py|scripts/asciidoc2html.py|scripts/link_pyqt.py|scripts/setupcommon.py)
+            continue
+            ;;
+        esac
+        install -m755 "$script" "$install/usr/share/qutebrowser/scripts/"
+      done
+
+  runtime:
+    # Stage the runtime libraries and data that the core26 base and the
+    # gnome-core26 platform lack. craft-parts filters out every package that
+    # is already in the base's chisel manifest, so the base's libc,
+    # libstdc++, OpenSSL, glib, freetype, libpng, libxkbcommon and zlib are
+    # not duplicated here.
+    after: [qutebrowser]
+    plugin: nil
+    stage-packages:
+      # The Python packages the platform does not ship. PyQt6 6.10.2 is
+      # built for Python 3.14, the version in gnome-core26.
+      - python3-pyqt6
+      - python3-pyqt6.qtqml       # QJSEngine, used for proxy auto-config
+      - python3-pyqt6.qtquick     # the QtQuick bindings exposed by WebEngine
+      - python3-pyqt6.qtwebchannel
+      - python3-pyqt6.qtwebengine # QtWebEngineCore/Widgets/Quick bindings
+      - python3-jinja2            # qutebrowser.utils.jinja
+      - python3-markupsafe        # a Jinja2 dependency
+      - python3-yaml              # config, sessions and bookmarks
+      - python3-pygments          # syntax highlighting in :view-source
+      # The QtWebEngine runtime. The C++ libraries are pulled in by the
+      # PyQt6 bindings above, but are listed explicitly because they are the
+      # largest part of the snap and need the QtWebEngineProcess helper.
+      - libqt6webenginecore6
+      - libqt6webenginecore6-bin  # QtWebEngineProcess
+      - libqt6webengine6-data     # resource packs and Chromium locale data
+      - libqt6webenginequick6
+      - libqt6webenginewidgets6
+      # Qt modules qutebrowser links through PyQt6 which are not dependencies
+      # of the binding packages.
+      - libqt6sql6-sqlite         # QSQLITE driver for the history database
+      - libqt6waylandclient6      # the libqwayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell and friends
+      - qt6-svg-plugins           # SVG icon and image plugins
+    prime:
+      # Runtime packages do not need development files or documentation.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # python3 is a dependency of every PyQt6 package. The platform snap
+      # provides the interpreter and its standard library; keep neither the
+      # staged interpreter nor a second stdlib in the snap.
+      - -usr/bin/python3*
+      - -usr/lib/python3.14
+      - -usr/lib/*/libpython3.14.so*
+      # Qt's WebDriver server is only used by Qt's own test suite (17 MB).
+      - -usr/lib/qt6/libexec/webenginedriver
+      # Fonts and the fontconfig configuration come from the GNOME platform
+      # (the gnome wrapper sets FONTCONFIG_FILE); the font packages are only
+      # pulled in as dependencies of libfontconfig1.
+      - -etc/fonts
+      - -usr/share/fontconfig
+      - -usr/share/fonts
+
+  cleanup:
+    # The staged Python/Qt/QtWebEngine dependency trees can contain copies of
+    # libraries that the core26 base already ships (libstdc++, GLib, OpenSSL,
+    # libsqlite3, ...). Loading two copies in one process is not safe, so drop
+    # every primed shared library whose path also exists in the base, exactly
+    # as the other core26 recipes do. The gnome extension's gpu/cleanup part
+    # then removes the Mesa copies that the Qt stage-packages leave behind.
+    after: [qutebrowser, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

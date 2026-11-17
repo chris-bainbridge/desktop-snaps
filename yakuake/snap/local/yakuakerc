@@ -1,0 +1,11 @@
+# System-wide defaults for the Yakuake snap. The user's own settings in
+# ~/snap/yakuake/<revision>/.config/yakuakerc override these values.
+#
+# The global show/hide shortcut cannot be registered under strict confinement
+# (KGlobalAccel needs org.kde.kglobalaccel on the session bus, which the snap
+# cannot reach), and a strict snap cannot write an autostart entry into the
+# host session. Opening the window on start therefore makes a launch from the
+# desktop or a custom shortcut show the terminal; a second launch while
+# Yakuake runs toggles the window through the D-Bus single-instance service.
+[Behavior]
+OpenAfterStart=true

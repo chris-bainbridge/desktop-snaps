@@ -1,0 +1,221 @@
+name: wezterm
+adopt-info: wezterm
+summary: GPU-accelerated terminal emulator and multiplexer
+description: |
+  WezTerm is a GPU-accelerated terminal emulator and terminal multiplexer
+  written in Rust. It renders through OpenGL, supports fonts with ligatures
+  and colour emoji, multiple windows, tabs and split panes, and is
+  configured with Lua. Its integrated SSH client and multiplexer server
+  make tabs and panes span several machines without tmux.
+
+  The snap is strictly confined, as required by Core Desktop, which has no
+  classic snaps. A terminal emulator under strict confinement does not see
+  the host, and that is accepted here, but it changes what the terminal is
+  useful for:
+
+  * $HOME is the snap's private per-user directory
+    (~/snap/wezterm/current), not the real home directory. The host user's
+    dotfiles (~/.bashrc, ~/.profile, ~/.ssh, ~/.config, ~/.local) are not
+    read, so the shell starts without the user's aliases, prompt, SSH keys
+    or per-user configuration. Files created in the snap's own home (for
+    example ~/snap/wezterm/current/.bashrc) are read normally.
+  * /usr, /bin and /etc are the core26 base's, not the host's. The shell is
+    the base's /bin/bash (or /bin/sh, whatever $SHELL or the passwd entry
+    points at) and only the base's utilities plus the GNOME platform's are
+    on PATH. Host-installed shells (zsh, fish), tmux, git, editors, language
+    toolchains and other host tools are not visible. Use the base's shell,
+    or "wezterm ssh" (the built-in SSH client) to reach a machine where
+    those tools are installed.
+  * The home interface keeps the non-hidden part of the real home readable
+    and writable at its real path (for example /home/<user>/src), so
+    projects and other files stay reachable; hidden entries are excluded.
+  * Configuration is read from
+    ~/snap/wezterm/current/.config/wezterm/wezterm.lua, because the GNOME
+    extension points XDG_CONFIG_HOME at the snap's private directory. The
+    host's ~/.config/wezterm/wezterm.lua is not used; copy it into the snap
+    directory to reuse it.
+  * Settings, caches, the multiplexer socket and the shell history live in
+    the snap's private directories. The multiplexer socket is under the
+    snap's private XDG_RUNTIME_DIR, so the snap cannot share a wezterm
+    mux server or its panes with a host-installed WezTerm.
+  * Hyperlinks are opened by running xdg-open/gio inside the sandbox. There
+    is no browser in the snap, so a URL may not reach the host browser; it
+    can always be copied from the terminal instead.
+  * WezTerm has no GTK/GLib dependency, so the gsettings plug is not
+    declared. The GNOME extension's keyfile GSettings fallback is
+    consequently active and harmless.
+
+  Rendering uses the OpenGL front end through the gpu-2604 content snap
+  (mesa-2604), which also supplies libwayland-client, libX11, libxcb, EGL
+  and the DRI drivers at run time. JetBrains Mono, Roboto, Noto Color Emoji
+  and Symbols Nerd Font are compiled into the binary (upstream's default
+  vendored-fonts feature): the gnome-core26 platform only ships DejaVu and
+  Noto Color Emoji, while upstream's default configuration requires
+  JetBrains Mono and Roboto in order to start correctly. Fonts installed in
+  the platform or the snap's private home are still used for fallback and
+  for families named in the configuration.
+
+  The snap is built from the pinned upstream release tarball with the 26.04
+  archive's cargo (Rust 1.93); no prebuilt WezTerm binary is embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: MIT
+website: https://wezfurlong.org/wezterm/
+source-code: https://github.com/wezterm/wezterm
+issues: https://github.com/wezterm/wezterm/issues
+contact: https://github.com/wezterm/wezterm/discussions
+
+icon: snap/local/wezterm.svg
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  wezterm:
+    extensions: [gnome]
+    command: usr/bin/wezterm
+    desktop: usr/share/applications/org.wezfurlong.wezterm.desktop
+    common-id: org.wezfurlong.wezterm
+    completer: usr/share/bash-completion/completions/wezterm
+    plugs:
+      # non-hidden files of the real home, for the shell and file transfers
+      - home
+      # "wezterm ssh", TLS multiplexer clients and image downloads
+      - network
+      # the extension also adds desktop, desktop-legacy, opengl, wayland and
+      # x11; they are repeated here because the terminal needs all of them
+      - opengl  # OpenGL rendering through the gpu-2604 (mesa-2604) provider
+      - wayland # native Wayland windowing
+      - x11     # X11/XWayland windowing and X11 selections
+
+# WezTerm 20240203-110809-5046fc22 is a Rust workspace built with cargo. The
+# release tarball is used instead of the GitHub archive because upstream's
+# README-DISTRO-MAINTAINER recommends it: it is smaller and carries the .tag
+# file the version is derived from. The tarball already contains the
+# freetype, libpng, zlib and harfbuzz submodule trees that the font stack
+# compiles; cargo fetches everything else from crates.io and the one git
+# dependency (xcb-imdkit-rs) from GitHub during the build.
+#
+# Upstream's lockfile is from February 2024 and is built with the 26.04
+# archive's rustc 1.93. One crate in the resolved graph no longer compiles
+# on Rust >= 1.80: time 0.3.31 fails with "type annotations needed for
+# Box<_>" (reached through rcgen in wezterm-mux-server-impl and serde_with in
+# frecency). time 0.3.36 is the first release with the fix and keeps the
+# Rust 1.67 MSRV, so the lock is advanced by exactly that crate in
+# override-pull and the build runs with --locked.
+#
+# cargo and rustc are not part of gnome-core26-sdk; the 26.04 archive has
+# 1.93.1. Everything else comes from the SDK/archive: freetype, harfbuzz,
+# pixman and cairo are compiled from the crates' vendored C sources,
+# libssh2/libssh/libgit2 are compiled from the crates' vendored C sources,
+# and the binary links the system fontconfig, OpenSSL, zlib and
+# xkbcommon-x11.
+parts:
+  wezterm:
+    source: https://github.com/wezterm/wezterm/releases/download/20240203-110809-5046fc22/wezterm-20240203-110809-5046fc22-src.tar.gz
+    source-checksum: sha256/df60b1081d402b5a9239cc4cef16fc699eab68bbbeac9c669cb5d991a6010b2c
+    source-type: tar
+    plugin: nil
+    build-packages:
+      # cargo/rustc from the 26.04 archive (there is no rust toolchain in
+      # gnome-core26-sdk); git is needed for the xcb-imdkit-rs git
+      # dependency and ca-certificates for the crates.io index.
+      - cargo
+      - rustc
+      - git
+      - ca-certificates
+      # pkg-config probes: fontconfig (wezterm-font), xcb (xcb-imdkit),
+      # openssl (openssl-sys), zlib (libz-sys, libssh2-sys, libgit2-sys)
+      - pkg-config
+      - libfontconfig-dev
+      - libxcb1-dev
+      - libxcb-util-dev  # xcb-imdkit links -lxcb-util
+      # rust-xcb's xlib_xcb feature, which the window crate enables, emits
+      # #[link(name = "X11-xcb")]; the .so symlink comes from this package.
+      - libx11-xcb-dev
+      - libssl-dev
+      - zlib1g-dev
+      # xkbcommon-rs emits #[link(name = "xkbcommon"/"xkbcommon-x11")], not
+      # a dlopen, so both dev packages are required.
+      - libxkbcommon-dev
+      - libxkbcommon-x11-dev
+      # the compiler and libc headers used by the cc-based crates
+      - build-essential
+    override-pull: |
+      craftctl default
+      craftctl set version="$(cat "${CRAFT_PART_SRC}/.tag")"
+      # See the comment above the parts: time is the one crate in this graph
+      # known not to build with Rust 1.93. --precise keeps it reproducible.
+      cargo update --manifest-path "${CRAFT_PART_SRC}/Cargo.toml" \
+        -p time --precise 0.3.36
+    override-build: |
+      set -eux
+
+      cd "${CRAFT_PART_SRC}"
+
+      # The default wezterm-gui features are vendored-fonts and wayland;
+      # distro-defaults only turns the update check off, as recommended by
+      # upstream for distributors. Building this package first means the
+      # shared dependencies are compiled once for both cargo invocations.
+      cargo build --release --locked -p wezterm-gui --features distro-defaults
+      cargo build --release --locked \
+        -p wezterm -p wezterm-mux-server -p strip-ansi-escapes
+
+      install -Dm755 target/release/wezterm \
+        "${CRAFT_PART_INSTALL}/usr/bin/wezterm"
+      install -Dm755 target/release/wezterm-gui \
+        "${CRAFT_PART_INSTALL}/usr/bin/wezterm-gui"
+      install -Dm755 target/release/wezterm-mux-server \
+        "${CRAFT_PART_INSTALL}/usr/bin/wezterm-mux-server"
+      install -Dm755 target/release/strip-ansi-escapes \
+        "${CRAFT_PART_INSTALL}/usr/bin/strip-ansi-escapes"
+
+      # Desktop integration. The icon is installed in the hicolor theme so
+      # snapcraft resolves the desktop file's Icon= key from the prime tree.
+      install -Dm644 assets/wezterm.desktop \
+        "${CRAFT_PART_INSTALL}/usr/share/applications/org.wezfurlong.wezterm.desktop"
+      install -Dm644 assets/wezterm.appdata.xml \
+        "${CRAFT_PART_INSTALL}/usr/share/metainfo/org.wezfurlong.wezterm.appdata.xml"
+      install -Dm644 assets/icon/wezterm-icon.svg \
+        "${CRAFT_PART_INSTALL}/usr/share/icons/hicolor/scalable/apps/org.wezfurlong.wezterm.svg"
+      # TryExec is resolved against the host's PATH, where "wezterm" does not
+      # exist; leaving it in makes launchers hide the entry.
+      sed -i -e '/^TryExec=/d' \
+        "${CRAFT_PART_INSTALL}/usr/share/applications/org.wezfurlong.wezterm.desktop"
+
+      # Shell completion and upstream's shell-integration helper, which
+      # upstream asks distributors to deploy next to the wezterm executable.
+      install -Dm644 assets/shell-completion/bash \
+        "${CRAFT_PART_INSTALL}/usr/share/bash-completion/completions/wezterm"
+      install -Dm644 assets/shell-completion/zsh \
+        "${CRAFT_PART_INSTALL}/usr/share/zsh/site-functions/_wezterm"
+      install -Dm644 assets/shell-completion/fish \
+        "${CRAFT_PART_INSTALL}/usr/share/fish/vendor_completions.d/wezterm.fish"
+      install -Dm644 assets/shell-integration/wezterm.sh \
+        "${CRAFT_PART_INSTALL}/usr/share/wezterm/shell-integration/wezterm.sh"
+
+      install -Dm644 LICENSE.md \
+        "${CRAFT_PART_INSTALL}/usr/share/doc/wezterm/LICENSE.md"
+
+  runtime:
+    # The gnome extension supplies the gnome-core26 platform, and the base
+    # supplies libssl3, libz, libexpat and the Wayland half of libxkbcommon.
+    # The gpu-2604 provider (mesa-2604) supplies libEGL/libGL, libwayland-*,
+    # libX11, libX11-xcb, libxcb and the DRI drivers through the extension's
+    # gpu wrapper, so none of those are staged. Only the following are in no
+    # content snap and must come from the 26.04 archive:
+    after: [wezterm]
+    plugin: nil
+    stage-packages:
+      # xcb-imdkit (XIM input) links -lxcb-util; mesa-2604 has libxcb but
+      # not libxcb-util.
+      - libxcb-util1
+      # the X11 half of libxkbcommon, which the base lacks (it only has the
+      # Wayland-capable libxkbcommon.so.0); the xkbcommon crate links it.
+      - libxkbcommon-x11-0
+    prime:
+      - -usr/include
+      - -usr/share/doc
+      - -usr/share/lintian

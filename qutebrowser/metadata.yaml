@@ -1,0 +1,6 @@
+snap: qutebrowser
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/qutebrowser/qutebrowser (v3.7.0)
+imported: '2026-11-17'
