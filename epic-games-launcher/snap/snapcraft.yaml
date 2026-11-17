@@ -1,0 +1,101 @@
+name: epic-games-launcher
+title: Epic Games Launcher
+base: core26
+adopt-info: launcher
+summary: Epic Games Launcher for Linux
+description: |
+  The Epic Games Launcher lets you browse, buy, install and play games from
+  the Epic Games Store.
+
+  This is an unofficial snap that repackages the official Linux deb package
+  published at https://launcher.epicgames.com/. Epic, Epic Games and the
+  Epic Games Launcher are trademarks of Epic Games, Inc.
+
+icon: snap/gui/epic-games-launcher.png
+grade: stable
+confinement: strict
+license: Proprietary
+platforms:
+  amd64:
+
+plugs:
+  shmem:
+    interface: shared-memory
+    private: true
+
+apps:
+  epic-games-launcher:
+    command-chain: [bin/force-snap-common-folder]
+    command: bin/launcher.sh
+    extensions: [gnome]
+    desktop: epic-games-launcher/usr/share/applications/epic-games-launcher.desktop
+    common-id: com.epicgames.launcher
+    autostart: epic-games-launcher.desktop
+    plugs:
+      - audio-playback
+      - hardware-observe
+      - home
+      - joystick
+      - network
+      - network-bind
+      - network-status
+      - process-control
+      - mount-observe
+      - removable-media
+      - shmem
+      - system-observe
+      - screen-inhibit-control
+    environment:
+      HOME: $SNAP_USER_COMMON
+      TMPDIR: $XDG_RUNTIME_DIR
+      EGL_DISABLE_SELF_UPDATE: 1
+      PROTON_USE_WOW64: "1"
+
+parts:
+  launcher-script:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher.sh: bin/launcher.sh
+      force-snap-common-folder: bin/force-snap-common-folder
+
+  launcher:
+    plugin: nil
+    build-packages:
+      - curl
+      - ca-certificates
+    stage-packages:
+      - libayatana-appindicator3-1
+      - wl-clipboard
+      - xclip
+      - xdg-utils
+      - zenity
+    override-pull: |
+      craftctl default
+      curl -fL -o EpicGamesLauncher.deb \
+        "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncher-x86_64.deb"
+      craftctl set version="$(dpkg-deb -f EpicGamesLauncher.deb Version)"
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/epic-games-launcher"
+      dpkg-deb -x "$CRAFT_PART_SRC/EpicGamesLauncher.deb" "$CRAFT_PART_INSTALL/epic-games-launcher"
+      chmod -R u+rwX,go+rX,go-w "$CRAFT_PART_INSTALL/epic-games-launcher"
+      # Point the desktop entry at the snap command and icon
+      sed -i -e 's|^Exec=.*|Exec=epic-games-launcher %u|' \
+             -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/icon.png|' \
+        "$CRAFT_PART_INSTALL/epic-games-launcher/usr/share/applications/epic-games-launcher.desktop"
+
+  dependencies:
+    after: [launcher-script, launcher]
+    plugin: nil
+    stage-packages:
+      - libsdl2-2.0-0
+      - libsamplerate0
+      - libsdl2-classic
+      - libxss1
+    prime:
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libSDL2*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdecor-0*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libsamplerate*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/sdl2-classic
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libXss.so*

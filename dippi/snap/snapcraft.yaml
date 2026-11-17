@@ -1,0 +1,27 @@
+name: dippi
+base: core22
+adopt-info: dippi
+grade: stable
+confinement: strict
+issues: https://github.com/kenvandine/dippi-snap/issues
+contact: https://cassidyjames.com/dippi
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+parts:
+  dippi:
+    plugin: meson
+    source: https://github.com/cassidyjames/dippi.git
+    source-tag: 5.0.3
+    meson-parameters:
+      - --prefix=/usr
+    parse-info: [usr/share/metainfo/com.github.cassidyjames.dippi.metainfo.xml]
+
+apps:
+  dippi:
+    command: usr/bin/com.github.cassidyjames.dippi
+    extensions: [ gnome ]
+    common-id: com.github.cassidyjames.dippi.desktop
+    desktop: usr/share/applications/com.github.cassidyjames.dippi.desktop

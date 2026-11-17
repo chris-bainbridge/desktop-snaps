@@ -1,0 +1,10 @@
+# Build metadata for squirrelsql (imported 2026-11-17).
+snap: squirrelsql
+base: core26
+mode: vendored
+upstream: https://github.com/jibel/squirrelsql-snap (master)
+recipe-commit: b8b0113010ab87a7d2d6c7457db372a88928295e
+imported: '2026-11-17'
+store:
+  publisher: Jean-Baptiste Lallement (jibel)
+  verified: false

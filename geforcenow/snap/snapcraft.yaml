@@ -1,0 +1,206 @@
+name: geforcenow
+adopt-info: geforcenow
+summary: GeForce NOW
+description: Stream games using the nvidia GeForce NOW service
+grade: stable
+confinement: strict
+base: core24
+
+platforms:
+  amd64:
+compression: lzo
+
+parts:
+  # NVIDIA's bundled libSDL2 (cef/libSDL2-2.0.so.0.3200.10) was compiled
+  # without libdecor support, so under native Wayland (forced in
+  # geforcenow-launch to fix HiDPI/multi-monitor scaling -- see there) it
+  # can never draw a titlebar: there's no code path in the binary that
+  # would even try, regardless of what's installed or what env vars are
+  # set. GeForceNOW itself was built from this exact upstream tag --
+  # confirmed via the embedded build path string in NVIDIA's binary,
+  # /tmp/SDL-release-2.32.10/ -- so build the same release ourselves with
+  # -DSDL_LIBDECOR=ON and swap it in as a drop-in replacement.
+  sdl2:
+    plugin: cmake
+    source: https://github.com/libsdl-org/SDL.git
+    # PINNED to the SDL2 2.x line: do NOT bump to release-3.x (SDL3). SDL3
+    # builds libSDL3.so, not libSDL2-2.0.so.0, and NVIDIA's binary links
+    # SDL2, so the swap in geforcenow's override-build would break. Only
+    # bump within release-2.*; 2.32.10 is the latest 2.x tag.
+    source-tag: release-2.32.10
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DSDL_SHARED=ON
+      - -DSDL_STATIC=OFF
+      - -DSDL_WAYLAND=ON
+      - -DSDL_LIBDECOR=ON
+      - -DSDL_X11=ON
+    build-packages:
+      - libwayland-dev
+      - wayland-protocols
+      - libxkbcommon-dev
+      - libdecor-0-dev
+      - libdrm-dev
+      - libgbm-dev
+      - libegl1-mesa-dev
+      - libgl1-mesa-dev
+      - libgles2-mesa-dev
+      - libvulkan-dev
+      - libdbus-1-dev
+      - libudev-dev
+      - libasound2-dev
+      - libpulse-dev
+      - libx11-dev
+      - libxext-dev
+      - libxrandr-dev
+      - libxcursor-dev
+      - libxi-dev
+      - libxfixes-dev
+      - libxss-dev
+      - libxxf86vm-dev
+
+  geforcenow:
+    after: [ sdl2 ]
+    plugin: nil
+    build-packages:
+      - ostree
+      - gcc
+    stage-packages:
+      # The client links libXrandr and falls back to `xrandr --query` to
+      # enumerate display modes/refresh rates; the gnome extension ships
+      # libXrandr but not the CLI tool itself.
+      - x11-xserver-utils
+      # Needed to give the SDL2 window decorations when forced onto the
+      # native Wayland driver below -- the gnome extension doesn't bundle
+      # libdecor itself. The cairo plugin is what actually draws the
+      # fallback (non-compositor-side) decorations; libdecor-0-0 alone is
+      # just the loader shell.
+      - libdecor-0-0
+      - libdecor-0-plugin-1-cairo
+    override-pull: |
+      craftctl default
+      set -eux
+
+      # CRAFT_PART_SRC (not CRAFT_PART_BUILD) is what reliably survives from
+      # the pull step into the build step's override-build invocation.
+      REPO="$CRAFT_PART_SRC/ostree-repo"
+      REF="app/com.nvidia.geforcenow/x86_64/master"
+      REMOTE_URL="https://international.download.nvidia.com/GFNLinux/flatpak/geforcenow_repo"
+
+      ostree --repo="$REPO" init --mode=archive-z2
+      # Key vendored from https://international.download.nvidia.com/GFNLinux/flatpak/pub.gpg
+      ostree --repo="$REPO" remote add --gpg-import="$SNAPCRAFT_PROJECT_DIR/snap/local/nvidia-gfn.pub.gpg" nvidia "$REMOTE_URL"
+      ostree --repo="$REPO" pull nvidia "$REF"
+
+      # NVIDIA stamps a human-readable version into the ostree commit
+      # message, e.g. "Version:2.0.87.130 Severity:recommended". There is
+      # no version string in the tree itself.
+      GFN_VERSION="$(ostree --repo="$REPO" log "$REF" | grep -oP 'Version:\K[0-9.]+' | head -n1 || true)"
+      COMMIT="$(ostree --repo="$REPO" rev-parse "$REF")"
+
+      if [ -n "$GFN_VERSION" ]; then
+        craftctl set version="$GFN_VERSION"
+      else
+        craftctl set version="0.0.$(date -u +%Y%m%d)-${COMMIT:0:8}"
+      fi
+    override-build: |
+      set -eux
+
+      REPO="$CRAFT_PART_SRC/ostree-repo"
+      REF="app/com.nvidia.geforcenow/x86_64/master"
+      CHECKOUT="$CRAFT_PART_BUILD/checkout"
+
+      rm -rf "$CHECKOUT"
+      ostree --repo="$REPO" checkout --user-mode "$REF" "$CHECKOUT"
+
+      # Stage the real app tree flat under $SNAP. Deliberately not staging
+      # checkout/files/bin/* — those are flatpak-only launcher/self-update
+      # scripts (flatpak-spawn, flatpak update) that don't apply in a snap.
+      cp -a "$CHECKOUT/files/cef" "$SNAPCRAFT_PART_INSTALL/cef"
+      cp -a "$CHECKOUT/files/mall" "$SNAPCRAFT_PART_INSTALL/mall"
+      cp -a "$CHECKOUT/files/nvc" "$SNAPCRAFT_PART_INSTALL/nvc"
+      cp -a "$CHECKOUT/files/nvtelemetry" "$SNAPCRAFT_PART_INSTALL/nvtelemetry"
+
+      # Swap in our own libdecor-enabled SDL2 build (see the sdl2 part)
+      # in place of NVIDIA's, preserving the SONAME symlink chain so
+      # dynamic resolution keeps working regardless of exact patch version.
+      rm -f "$SNAPCRAFT_PART_INSTALL"/cef/libSDL2*
+      SDL2_LIB="$(find "$SNAPCRAFT_STAGE" -maxdepth 6 -name 'libSDL2-2.0.so.0.*' ! -type l | head -n1)"
+      install -Dm755 "$SDL2_LIB" "$SNAPCRAFT_PART_INSTALL/cef/$(basename "$SDL2_LIB")"
+      ln -sf "$(basename "$SDL2_LIB")" "$SNAPCRAFT_PART_INSTALL/cef/libSDL2-2.0.so.0"
+      ln -sf "libSDL2-2.0.so.0" "$SNAPCRAFT_PART_INSTALL/cef/libSDL2.so"
+
+      mkdir -p "$SNAPCRAFT_PART_INSTALL/bin"
+      install -Dm755 "$SNAPCRAFT_PROJECT_DIR/snap/local/geforcenow-launch" "$SNAPCRAFT_PART_INSTALL/bin/geforcenow-launch"
+
+      # The client probes for the running compositor by shelling out to
+      # gnome-shell/plasmashell/xfwm4/sway --version to decide how to set up
+      # window decorations/WM integration. None of those host binaries are
+      # reachable under strict confinement, which left windows undecorated
+      # and unable to be closed via the WM. Stub them out on $PATH so the
+      # probe succeeds instead of failing outright.
+      for de in gnome-shell plasmashell xfwm4 sway; do
+        install -Dm755 "$SNAPCRAFT_PROJECT_DIR/snap/local/de-stubs/$de" "$SNAPCRAFT_PART_INSTALL/bin/$de"
+      done
+
+      # GeForceNOW hardcodes /app-relative paths (a flatpak-only convention:
+      # flatpak always mounts the app's install tree at /app). snapd can't
+      # create a new top-level /app via `layout` on core24, so instead
+      # LD_PRELOAD a shim that rewrites "/app/..." opens to "$SNAP/...".
+      mkdir -p "$SNAPCRAFT_PART_INSTALL/lib"
+      gcc -shared -fPIC -O2 -o "$SNAPCRAFT_PART_INSTALL/lib/app-path-redirect.so" \
+        "$SNAPCRAFT_PROJECT_DIR/snap/local/app-path-redirect.c" -ldl
+
+      cp "$SNAPCRAFT_PROJECT_DIR/com.github.kenvandine.geforcenow.desktop" "$SNAPCRAFT_PART_INSTALL/"
+      cp "$SNAPCRAFT_PROJECT_DIR/icon.png" "$SNAPCRAFT_PART_INSTALL/"
+    prime:
+      - com.github.kenvandine.geforcenow.desktop
+      - icon.png
+      - bin/*
+      - lib/*
+      - cef/*
+      - mall/*
+      - nvc/*
+      - nvtelemetry/*
+      - usr/bin/xrandr
+      # libdecor-cairo.so (the fallback decoration renderer) pulls in
+      # libcairo/libpango/etc. as transitive deps of the
+      # libdecor-0-plugin-1-cairo stage-package; prime the whole staged lib
+      # tree rather than hand-picking each one, since apt already resolved
+      # the full dependency chain.
+      - usr/lib/x86_64-linux-gnu/**
+
+  cleanup:
+    after: [ geforcenow ]
+    plugin: nil
+    build-snaps: [ gnome-46-2404 ]
+    override-prime: |
+        set -eux
+        cd /snap/gnome-46-2404/current
+        find . -type f,l -exec rm -f $SNAPCRAFT_PRIME/{} \;
+
+plugs:
+  shmem:
+    interface: shared-memory
+    private: true
+
+apps:
+  geforcenow:
+    extensions: [gnome]
+    desktop: com.github.kenvandine.geforcenow.desktop
+    command: bin/geforcenow-launch
+    plugs:
+      - shmem
+      - network
+      - audio-playback
+      - audio-record
+      - joystick
+      - password-manager-service
+      - hardware-observe
+      - network-observe
+      - screen-inhibit-control
+      - upower-observe
+    environment:
+      GTK_USE_PORTAL: "1"
+      TMPDIR: $XDG_RUNTIME_DIR

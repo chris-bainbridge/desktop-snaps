@@ -1,0 +1,77 @@
+name: lunar-client
+base: core24
+adopt-info: lunar-client
+title: Lunar Client
+summary: A modpack for all modern versions of Minecraft!
+description: |
+   Boosted frames, all the popular mods, multi OS support, and did we mention
+   it's completely free? So what are you waiting for - Download today!
+
+grade: stable
+confinement: strict
+compression: lzo
+platforms:
+  amd64:
+
+contact: https://github.com/kenvandine/lunar-client/issues
+issues: https://github.com/kenvandine/lunar-client/issues
+website: https://www.lunarclient.com/
+icon: icon.png
+
+parts:
+  launcher:
+    plugin: dump
+    source: launcher
+    override-build: |
+      cp launcher $CRAFT_PART_INSTALL/
+
+  getpwuid:
+    plugin: nil
+    source: src
+    override-build: |
+      gcc -shared -fPIC -o $CRAFT_PART_INSTALL/getpwuid_stub.so getpwuid_stub.c -ldl
+
+  x11-utils:
+    plugin: nil
+    stage-packages:
+      - x11-xserver-utils
+
+  lunar-client:
+    plugin: nil
+    build-packages:
+      - wget
+      - curl
+    override-build: |
+      craftctl default
+      url=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://api.lunarclientprod.com/site/download?os=linux")
+      wget -O lunar-client "$url"
+      chmod a+x lunar-client
+      ./lunar-client --appimage-extract
+      chmod -R a+rX squashfs-root
+      mv squashfs-root/* $CRAFT_PART_INSTALL/
+      chmod 755 $CRAFT_PART_INSTALL/
+      sed -i.bak -e 's|Icon=lunarclient$|Icon=${SNAP}/lunarclient.png|g' $CRAFT_PART_INSTALL/lunarclient.desktop
+      version=$(echo "$url" | grep -oP 'Lunar%20Client-\K[0-9.]+(?=-ow)')
+      craftctl set version="$version"
+    prime:
+      - -chrome-sandbox
+      - -usr/lib
+
+apps:
+  lunar-client:
+    extensions: [gnome]
+    command: launcher
+    desktop: lunarclient.desktop
+    plugs:
+      - home
+      - network
+      - audio-playback
+      - shmem
+    environment:
+      HOME: $SNAP_USER_COMMON
+      TMPDIR: $XDG_RUNTIME_DIR
+
+plugs:
+  shmem:
+    interface: shared-memory
+    private: true

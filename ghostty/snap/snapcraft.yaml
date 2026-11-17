@@ -1,0 +1,214 @@
+name: ghostty
+base: core26
+summary: A terminal emulator
+description: |
+  Ghostty is a fast, feature-rich, and cross-platform terminal emulator that
+  uses platform-native UI and GPU acceleration.
+grade: stable
+confinement: classic
+contact: https://github.com/ghostty-org/ghostty/discussions
+issues: https://github.com/ghostty-org/ghostty/issues
+website: https://ghostty.org
+license: MIT
+icon: images/icons/icon_512.png
+adopt-info: ghostty
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  ghostty:
+    command: bin/ghostty
+    command-chain: [app/launcher]
+    completer: share/bash-completion/completions/ghostty.bash
+    desktop: share/applications/com.mitchellh.ghostty.desktop
+    #refresh-mode: ignore-running # Store rejects this, needs fix in review-tools
+    environment:
+      LC_ALL: C.UTF-8
+      GHOSTTY_RESOURCES_DIR: /snap/ghostty/current/share/ghostty
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    source-type: local
+    organize:
+      launcher: app/
+
+  ncurses:
+    source: https://ftp.gnu.org/pub/gnu/ncurses/ncurses-6.5.tar.gz
+    plugin: autotools
+    build-attributes: [enable-patchelf]
+    autotools-configure-parameters:
+      - --enable-widec
+      - --with-shared
+      - --without-debug
+      - --without-ada
+      - --without-cxx-binding
+      - --enable-rpath
+      - --prefix=/usr
+    build-packages:
+      - libtinfo-dev
+    prime:
+      - -*
+
+  zig:
+    plugin: nil
+    build-packages:
+      - curl
+    override-pull: |
+      set -ex
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)  arch=x86_64    ;;
+        arm64)  arch=aarch64  ;;
+        *)      arch=""     ;;
+      esac
+
+      # Keep in sync with minimum_zig_version in build.zig.zon
+      zig_version=0.17.0
+
+      rm -rf $CRAFT_PART_SRC/*
+
+      if [[ -n $arch ]]; then
+        curl -LO --retry-connrefused --retry 10 https://ziglang.org/download/$zig_version/zig-$arch-linux-$zig_version.tar.xz
+      else
+        echo "Unsupported arch"
+        exit 1
+      fi
+
+      tar xf zig*lin*xz
+      rm -f *xz
+      mv zig*linux*/* .
+    prime:
+      - -*
+
+  ghostty:
+    source: https://github.com/ghostty-org/ghostty/releases/download/tip/ghostty-source.tar.gz
+    after: [zig, ncurses]
+    plugin: nil
+    build-attributes: [enable-patchelf]
+    build-packages:
+      - libgtk-4-dev
+      - libgtk4-layer-shell-dev
+      - libadwaita-1-dev
+      - libapparmor-dev
+      - libxml2-utils
+      - git
+      - patchelf
+      - gettext
+    build-environment:
+      - TERMINFO: $CRAFT_STAGE/usr/share/terminfo
+      - PATH: $CRAFT_STAGE/usr/bin:$PATH
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+
+    override-pull: |
+      craftctl default
+      for patch in "$SNAPCRAFT_PROJECT_DIR"/snap/local/patches/000*.patch; do
+        patch --verbose -p1 < "$patch"
+      done
+      craftctl set version=$(cat VERSION)
+
+      EXISTING_NS=$(grep -oE 'nameserver +[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/resolv.conf 2>/dev/null | grep -v '127\.0\.0\.' || true)
+      rm -f /etc/resolv.conf
+      if [ -n "$EXISTING_NS" ]; then
+        echo "$EXISTING_NS" > /etc/resolv.conf
+      else
+        printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf
+      fi
+
+      export ZIG_GLOBAL_CACHE_DIR=$CRAFT_PART_SRC/.zig-cache
+      $CRAFT_PART_SRC/../../zig/src/zig build --fetch
+    override-build: |
+      EXISTING_NS=$(grep -oE 'nameserver +[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' /etc/resolv.conf 2>/dev/null | grep -v '127\.0\.0\.' || true)
+      rm -f /etc/resolv.conf
+      if [ -n "$EXISTING_NS" ]; then
+        echo "$EXISTING_NS" > /etc/resolv.conf
+      else
+        printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf
+      fi
+
+      export ZIG_GLOBAL_CACHE_DIR=$CRAFT_PART_SRC/.zig-cache
+
+      # We link -lbzip2 but Ubuntu only ships libbz2.so. Same workaround as
+      # bzip2-redirect in flatpak/dependencies.yml.
+      mkdir -p bzip2-redirect/lib
+      echo 'INPUT(libbz2.so)' > bzip2-redirect/lib/libbzip2.so
+
+      $CRAFT_PART_SRC/../../zig/src/zig build \
+        --search-prefix $PWD/bzip2-redirect \
+        -Dsnap \
+        -Dpatch-rpath=\$ORIGIN/../usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:/snap/core26/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR \
+        -Doptimize=ReleaseFast \
+        -Dcpu=baseline \
+        -fsys=gtk4-layer-shell
+      cp -rp zig-out/* $CRAFT_PART_INSTALL/
+      sed -i 's|Icon=com.mitchellh.ghostty|Icon=${SNAP}/share/icons/hicolor/512x512/apps/com.mitchellh.ghostty.png|g' $CRAFT_PART_INSTALL/share/applications/com.mitchellh.ghostty.desktop
+
+  libs:
+    plugin: nil
+    build-attributes: [enable-patchelf]
+    stage-packages:
+      - libadwaita-1-0
+      - libglib2.0-0t64
+      - libgtk-4-1
+      - libgtk4-layer-shell0
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - ibus-gtk4
+      - libpciaccess0
+      - libtinfo6
+      - libedit2
+      - libelf1t64
+      - libsensors5
+      - libunistring5
+      - librsvg2-2
+      - librsvg2-common
+      - libgdk-pixbuf-2.0-0
+      - on amd64:
+          [
+            i965-va-driver,
+            libdrm-intel1,
+            libdrm-nouveau2,
+            libdrm-amdgpu1,
+            libdrm-radeon1,
+          ]
+    stage:
+      # The libraries in dri need no-patchelf, so they come from the mesa-unpatched part
+      - -usr/lib/*/dri
+      # patchelf leaves libLLVM with a stale PT_NOTE that crashes mesa's
+      # dl_iterate_phdr build-id lookup, so it comes from mesa-gl1-dri unpatched
+      - -usr/lib/*/libLLVM*
+
+  mesa:
+    plugin: nil
+    build-attributes: [enable-patchelf]
+    stage-packages:
+      - libglu1-mesa
+      - libgl1-mesa-dri
+      - libegl-mesa0
+      - libegl1
+      - libglx-mesa0
+      - mesa-libgallium
+    stage:
+      # The libraries in dri need no-patchelf, so they come from the mesa-unpatched part
+      - usr/lib/*/*.so*
+      - usr/lib/*/dri/libdril_dri.so
+      - -usr/lib/*/libxml2.so.*
+      - -usr/lib/*/libgallium*so
+      - -usr/lib/*/libLLVM*
+      - -usr/lib/*/dri
+
+  mesa-gl1-dri:
+    plugin: nil
+    stage-packages:
+      - libgl1-mesa-dri
+      - libllvm21
+    build-attributes: [no-patchelf]
+    stage:
+      - usr/lib/*/libLLVM*
+      # Only the libraries in dri need to not be patched, the rest come from the mesa part
+      # Otherwise snapcraft may strip the build ID and cause the driver to crash
+      - usr/lib/*/libgallium*so
+      - -usr/lib/*/dri/libdril_dri.so
+      - usr/lib/*/dri

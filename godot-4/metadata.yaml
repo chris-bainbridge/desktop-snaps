@@ -1,0 +1,10 @@
+# Build metadata for godot-4 (imported 2026-11-17; core26 migration pending).
+snap: godot-4
+base: core24
+mode: vendored
+upstream: https://github.com/kenvandine/godot-snap (godot-4)
+recipe-commit: 9cee27eb9e1bef1b1acf64f0b606ed88eaec264a
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

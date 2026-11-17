@@ -1,0 +1,10 @@
+# Build metadata for epic-games-launcher (imported 2026-11-17).
+snap: epic-games-launcher
+base: core26
+mode: vendored
+upstream: https://github.com/kenvandine/epic-games-launcher-snap (main)
+recipe-commit: e7f781e4611a76d8e6f93fb0922df434182dd04e
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

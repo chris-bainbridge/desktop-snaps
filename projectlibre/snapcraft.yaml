@@ -1,0 +1,165 @@
+base: core26
+name: projectlibre
+summary: Project Management software - alternative to Microsoft Project
+description: |
+
+  ProjectLibre is project management software, the leading alternative to
+  Microsoft Project. A compliment to OpenOffice and LibreOffice. We have a
+  community site with over 250,000 project management members as well at
+  http://www.projectlibre.org It has been downloaded over 7,800,000 times in
+  193 countries and won InfoWorld "Best of Open Source" award. ProjectLibre is
+  compatible with Microsoft Project 2003, 2007 and 2010 files. You can simply
+  open them on Linux, Mac OS or Windows. ProjectLibre has been rewritten and
+  added key features::
+
+  * Compatibility with Microsoft Project
+  * Gantt Chart
+  * Network Diagram
+  * WBS/RBS charts
+  * Earned Value Costing
+  * Resource Histograms
+
+  Homepage: https://sourceforge.net/projects/projectlibre/
+
+confinement: strict
+grade: stable
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
+title: ProjectLibre
+icon: snap/gui/projectlibre.png
+adopt-info: projectlibre
+website: https://sourceforge.net/projects/projectlibre/
+source-code: https://sourceforge.net/p/projectlibre/code/
+issues: https://sourceforge.net/p/projectlibre/tickets/
+contact: jean-baptiste@ubuntu.com
+license: CPAL-1.0
+
+apps:
+  projectlibre:
+    command: bin/desktop-launch $SNAP/projectlibre/launch.sh
+    plugs:
+      - cups
+      - desktop
+      - desktop-legacy
+      - home
+      - network
+      - x11
+    environment:
+      _JAVA_OPTIONS: -Duser.home=$SNAP_USER_DATA -Dawt.useSystemAAFontSettings=on -Dswing.aatext=true
+      JAVA_HOME: $SNAP/usr/lib/jvm/default-java
+      PATH: $SNAP/usr/lib/jvm/default-java/bin:$PATH
+      # These values are also set by launch.sh because desktop-launch replaces
+      # them with the base runtime's fontconfig paths before starting the app.
+      FONTCONFIG_FILE: $SNAP/projectlibre/etc/fonts/fonts.conf
+      FONTCONFIG_PATH: $SNAP/projectlibre/etc/fonts
+
+# The JDK's print pipeline execs the literal path /usr/bin/lpr (falling back
+# to /usr/bin/lp), which inside the snap resolves to the base's /usr/bin.
+# Bind the cups-bsd/cups-client binaries from $SNAP over those paths so job
+# submission works; they honor CUPS_SERVER=/var/cups/cups.sock from the cups
+# interface (see issue #1).
+layout:
+  /usr/bin/lpr:
+    bind-file: $SNAP/usr/bin/lpr
+  /usr/bin/lp:
+    bind-file: $SNAP/usr/bin/lp
+
+parts:
+  desktop-glib:
+    source: https://github.com/ubuntu/snapcraft-desktop-helpers.git
+    source-commit: 76be98fecb40165bc162a8a1be084c9b9da16cd8
+    source-subdir: glib-only
+    plugin: make
+    build-packages:
+      - libglib2.0-dev
+    stage-packages:
+      - libglib2.0-bin
+      - shared-mime-info
+      - fonts-ubuntu
+      - xdg-user-dirs
+
+  projectlibre:
+    after: [desktop-glib]
+    plugin: nil
+    source: .
+    override-build: |
+        set -eu
+        mkdir -p $SNAPCRAFT_PART_INSTALL/projectlibre
+
+        # The tarball is downloaded separately into download/: pick the latest
+        # projectlibre-*.tar.gz there and derive the snap version from its
+        # filename (see issue #2).
+        tarball=$(ls -1 download/projectlibre-*.tar.gz|sort -V|tail -1)
+        if [ -z "$tarball" ]; then
+            echo "ERROR: no download/projectlibre-*.tar.gz; fetch the latest tarball from https://sourceforge.net/projects/projectlibre/files/" >&2
+            exit 1
+        fi
+        tar xzf "$tarball" -C $SNAPCRAFT_PART_INSTALL/projectlibre --strip-components=1
+        chmod +x $SNAPCRAFT_PART_INSTALL/projectlibre/projectlibre.sh
+        cp snap/projectlibre-launch $SNAPCRAFT_PART_INSTALL/projectlibre/launch.sh
+        chmod +x $SNAPCRAFT_PART_INSTALL/projectlibre/launch.sh
+
+        # Register the application/x-projectlibre mime type (see snap/gui/
+        # projectlibre.xml) under usr/share/mime so the desktop-launch helper
+        # compiles it into the user mime db. Note: .pod detection cannot win
+        # against shared-mime-info's application/x-perl glob for *.pod, so
+        # host file managers still see Perl POD; a real fix needs an upstream
+        # extension/mime-type change (see issue #5).
+        mkdir -p $SNAPCRAFT_PART_INSTALL/usr/share/mime/packages
+        cp snap/gui/projectlibre.xml $SNAPCRAFT_PART_INSTALL/usr/share/mime/packages/
+
+        # JAVA_HOME must not hardcode the architecture: symlink default-java
+        # to the JVM staged for the build arch and point the app env at it, so
+        # enabling another architecture only requires a platforms entry
+        # (see issue #3).
+        ln -sfn java-21-openjdk-$(dpkg --print-architecture) \
+            $SNAPCRAFT_PART_INSTALL/usr/lib/jvm/default-java
+
+        # cacerts is created by a post-install script of ca-certificates-java
+        # but /etc/ is shadowed in the snap, so we need to copy it manually.
+        cd $SNAPCRAFT_PART_INSTALL/usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture)/lib/security/
+        rm -f cacerts
+        cp "$SNAPCRAFT_PART_INSTALL/etc/ssl/certs/java/cacerts" .
+        cd -
+
+        craftctl set version="$(basename "$tarball"|sed 's/.*-\([^-]\+\).tar.gz/\1/'|tr -s '_' '-')"
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+    # Build a self-contained fontconfig configuration under the app's own
+    # directory. desktop-launch replaces FONTCONFIG_FILE and FONTCONFIG_PATH
+    # with the base runtime's config, whose conf.d symlinks point at files
+    # missing from the base. launch.sh restores these paths after
+    # desktop-launch (see issue #6).
+    override-prime: |
+        set -eu
+        craftctl default
+        cfg=$SNAPCRAFT_PRIME/projectlibre/etc/fonts
+        mkdir -p $cfg/conf.d
+        cp $SNAPCRAFT_PRIME/etc/fonts/fonts.conf $cfg/fonts.conf
+        # Replace each conf.d entry (absolute symlink into
+        # /usr/share/fontconfig/conf.avail) with the real rule file, skipping
+        # dangling links that reference rules the base does not stage.
+        for entry in $SNAPCRAFT_PRIME/etc/fonts/conf.d/*; do
+            if [ -f "$entry" ]; then
+                cp -L "$entry" $cfg/conf.d/
+            fi
+        done
+    build-packages:
+      - ca-certificates-java
+      - openjdk-21-jre
+    stage-packages:
+      - ca-certificates-java
+      - openjdk-21-jre
+      # The JDK submits print jobs by exec'ing /usr/bin/lpr (cups-bsd) and
+      # piping the document to it; discovery/attributes go over IPP directly.
+      # lpr/lp use libcups, which honors the CUPS_SERVER=/var/cups/cups.sock
+      # socket that the cups interface exposes (see issue #1).
+      - cups-bsd
+      - cups-client
+      # Fontconfig configuration is sourced from fontconfig-config and rebuilt
+      # as a self-contained tree under projectlibre/etc/fonts by override-prime
+      # (see issue #6).
+      - fontconfig-config

@@ -1,0 +1,150 @@
+base: core26
+name: freeplane-mindmapping
+platforms:
+  amd64:
+    build-on: amd64
+    build-for: amd64
+title: Freeplane
+summary: Application for Mind Mapping, Knowledge and Project Management
+description: |
+  Application for Mind Mapping, Knowledge Management, Project Management.
+  Develop, organize and communicate your ideas and knowledge in the most
+  effective way.
+
+  Features
+  - Mind Mapping
+  - Knowledge Management
+  - Project Management
+  - Presentation
+  - Outline
+  - Writing
+
+  Homepage: https://www.freeplane.org
+
+confinement: strict
+grade: stable
+license: GPL-2.0-or-later
+contact: mailto:jean-baptiste@ubuntu.com
+website: https://www.freeplane.org
+source-code: https://github.com/jibel/freeplane-snap
+issues: https://github.com/jibel/freeplane-snap/issues
+icon: data/gui/freeplane.png
+adopt-info: freeplane-mindmapping
+
+apps:
+  freeplane-mindmapping:
+    command: bin/desktop-launch $SNAP/freeplane/freeplane.sh
+    plugs:
+      # The cups interface exposes the host CUPS socket as CUPS_SERVER=/var/cups/cups.sock
+      # for the staged lpr/lp spooler binaries (see layout below).
+      - cups
+      - desktop
+      - desktop-legacy
+      - home
+      - network
+      - opengl
+      - x11
+    environment:
+      _JAVA_OPTIONS: -Duser.home=$SNAP_USER_DATA 
+      JAVA_HOME: $SNAP/usr/lib/jvm/freeplane-jdk
+      FREEPLANE_JAVA_HOME: $SNAP/usr/lib/jvm/freeplane-jdk
+      PATH: $SNAP/usr/lib/jvm/freeplane-jdk/bin:$PATH
+
+# The JDK's print pipeline execs the literal path /usr/bin/lpr (falling back
+# to /usr/bin/lp), which inside the snap resolves to the base's /usr/bin.
+# Bind the cups-bsd/cups-client binaries from $SNAP over those paths so job
+# submission works; they honor CUPS_SERVER=/var/cups/cups.sock from the cups
+# interface (same fix as in snapcraft.yaml.projectlibre).
+layout:
+  /usr/bin/lpr:
+    bind-file: $SNAP/usr/bin/lpr
+  /usr/bin/lp:
+    bind-file: $SNAP/usr/bin/lp
+
+parts:
+  desktop-glib:
+    source: https://github.com/ubuntu/snapcraft-desktop-helpers.git
+    source-subdir: glib-only
+    plugin: make
+    build-packages:
+      - libglib2.0-dev
+    stage-packages:
+      - adwaita-icon-theme
+      - dmz-cursor-theme
+      - libgdk-pixbuf-2.0-0
+      - libglib2.0-bin
+      - libgtk-3-0t64
+      - libxkbcommon0
+      - locales-all
+      - shared-mime-info
+      - fonts-ubuntu
+      - xdg-user-dirs
+
+  jdk:
+    plugin: nil
+    stage-packages:
+      - openjdk-21-jre
+      # The JDK submits print jobs by exec'ing /usr/bin/lpr (cups-bsd) and
+      # piping the document to it; discovery/attributes go over IPP directly.
+      # lpr/lp use libcups, which honors the CUPS_SERVER socket exposed by
+      # the cups interface.
+      - cups-bsd
+      - cups-client
+    build-packages:
+      - ca-certificates-java
+    override-stage: |
+      craftctl default
+      set -- "$SNAPCRAFT_STAGE"/usr/lib/jvm/java-21-openjdk-*
+      if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+        echo "Expected exactly one staged OpenJDK 21 runtime" >&2
+        exit 1
+      fi
+      jdk_dir=${1##*/}
+      export PATH="$1/bin:$PATH"
+      update-ca-certificates -f
+      jdk_security_dir=$1/lib/security
+      rm -f "$jdk_security_dir/cacerts"
+      cp /etc/ssl/certs/java/cacerts "$jdk_security_dir/cacerts"
+    override-prime: |
+      craftctl default
+      set -- "$SNAPCRAFT_PRIME"/usr/lib/jvm/java-21-openjdk-*
+      if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+        echo "Expected exactly one primed OpenJDK 21 runtime" >&2
+        exit 1
+      fi
+      jdk_dir=${1##*/}
+      ln -sfn "$jdk_dir" "$SNAPCRAFT_PRIME/usr/lib/jvm/freeplane-jdk"
+
+  freeplane-mindmapping:
+    after: [desktop-glib, jdk]
+    plugin: nil
+    source: .
+    override-build: |
+      mkdir -p "$SNAPCRAFT_PART_INSTALL/meta/gui"
+      archive=$(find download -maxdepth 1 -type f -name 'freeplane_bin-*.zip' -printf '%f\n' | sort -V | tail -n 1)
+      test -n "$archive" || { echo "No Freeplane ZIP found in download/" >&2; exit 1; }
+      version=${archive#freeplane_bin-}
+      version=${version%.zip}
+      case "$version" in
+        ''|*[!0-9.]*|.*|*.|*..*)
+          echo "Invalid Freeplane archive version: $archive" >&2
+          exit 1
+          ;;
+      esac
+      archive_root="freeplane-$version"
+      unzip -tq "download/$archive"
+      unzip -q "download/$archive" -d "$SNAPCRAFT_PART_INSTALL"
+      test -f "$SNAPCRAFT_PART_INSTALL/$archive_root/freeplane.sh" || {
+        echo "Expected launcher not found in $archive" >&2
+        exit 1
+      }
+      test -f "$SNAPCRAFT_PART_INSTALL/$archive_root/framework.jar" || {
+        echo "Expected Freeplane runtime not found in $archive" >&2
+        exit 1
+      }
+      mv "$SNAPCRAFT_PART_INSTALL/$archive_root" "$SNAPCRAFT_PART_INSTALL/freeplane"
+      chmod +x "$SNAPCRAFT_PART_INSTALL/freeplane/freeplane.sh"
+      cp ./data/gui/* "$SNAPCRAFT_PART_INSTALL/meta/gui/"
+      craftctl set version="$version"
+    build-packages:
+      - unzip

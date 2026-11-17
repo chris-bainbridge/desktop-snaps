@@ -1,0 +1,10 @@
+# Build metadata for thrive (imported 2026-11-17; core26 migration pending).
+snap: thrive
+base: core24
+mode: vendored
+upstream: https://github.com/kenvandine/thrive-snap (main)
+recipe-commit: 0fc887e2667efc3e2a5a7498800357f3f628e454
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

@@ -1,0 +1,54 @@
+#!/bin/bash
+
+export XDG_CONFIG_HOME="$SNAP_USER_COMMON/.config"
+export XDG_DATA_HOME="$SNAP_USER_COMMON/.local/share"
+
+mkdir -p "$XDG_CONFIG_HOME"
+mkdir -p "$XDG_DATA_HOME"
+
+# Symlink an entry from SNAP_USER_DATA into SNAP_USER_COMMON.
+function link_into_common() {
+  local snap_user_data_path="$1"
+  local snap_user_common_path="$2"
+
+  [ -e "$snap_user_data_path" ] || [ -L "$snap_user_data_path" ] || return 0
+
+  mkdir -p "$(dirname "$snap_user_common_path")"
+  ln -sfn "$snap_user_data_path" "$snap_user_common_path"
+}
+
+# Entries desktop-launch creates under $SNAP_USER_DATA/.config
+for d in user-dirs.dirs user-dirs.dirs.md5sum user-dirs.locale user-dirs.locale.md5sum \
+         fontconfig dconf gtk-2.0 gtk-3.0 gtk-4.0 ibus; do
+  link_into_common "$SNAP_USER_DATA/.config/$d" "$SNAP_USER_COMMON/.config/$d"
+done
+
+# Entries desktop-launch creates under $SNAP_USER_DATA/.local/share
+for d in themes mime glib-2.0 icons; do
+  link_into_common "$SNAP_USER_DATA/.local/share/$d" "$SNAP_USER_COMMON/.local/share/$d"
+done
+
+# snapd looks for the autostart entry under SNAP_USER_DATA, but HOME/XDG_CONFIG_HOME
+# point at SNAP_USER_COMMON, so expose the autostart directory there.
+mkdir -p "$SNAP_USER_COMMON/.config/autostart"
+if [ ! -L "$SNAP_USER_DATA/.config/autostart" ]; then
+  mkdir -p "$SNAP_USER_DATA/.config"
+  if [ -d "$SNAP_USER_DATA/.config/autostart" ]; then
+    cp -an "$SNAP_USER_DATA/.config/autostart/." "$SNAP_USER_COMMON/.config/autostart/" 2>/dev/null
+    rm -rf "$SNAP_USER_DATA/.config/autostart"
+  fi
+  ln -sfn "$SNAP_USER_COMMON/.config/autostart" "$SNAP_USER_DATA/.config/autostart"
+fi
+
+# The launcher writes a revision-specific binary path into its autostart entry;
+# point it at the snap command so it survives refreshes and goes through launcher.sh.
+for f in "$SNAP_USER_COMMON/.config/autostart/"*.desktop; do
+  [ -f "$f" ] || continue
+  sed -i -E "s|^Exec=.*EpicGamesLauncher(.*)|Exec=${SNAP_INSTANCE_NAME}\\1|" "$f"
+done
+
+if [ -d "$SNAP_USER_DATA/.local/share/com.epicgames.eglv2" ]; then
+    mv -f "$SNAP_USER_DATA/.local/share/com.epicgames.eglv2" "$SNAP_USER_COMMON/.local/share/"
+fi
+
+exec "$@"

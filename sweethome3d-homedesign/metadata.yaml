@@ -1,0 +1,10 @@
+# Build metadata for sweethome3d-homedesign (imported 2026-11-17).
+snap: sweethome3d-homedesign
+base: core26
+mode: vendored
+upstream: https://github.com/jibel/sweethome3d-snap (master)
+recipe-commit: 3dc7c43eaea74334420537e2a388caf23954db6a
+imported: '2026-11-17'
+store:
+  publisher: Jean-Baptiste Lallement (jibel)
+  verified: false

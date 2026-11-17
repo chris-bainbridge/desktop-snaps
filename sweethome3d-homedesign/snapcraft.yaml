@@ -1,0 +1,124 @@
+name: sweethome3d-homedesign
+base: core26
+adopt-info: sweethome3d-homedesign
+summary: An interior design application to draw house plans & arrange furniture
+description: |
+    Sweet Home 3D is a free interior design application that helps you place
+    your furniture on a house 2D plan, with a 3D preview.
+
+    Available at http://www.sweethome3d.com/, this program is aimed at people
+    who want to design their interior quickly, whether they are moving or they
+    just want to redesign their existing home. Numerous visual guides help you
+    draw the plan of your home and layout furniture. You may draw the walls of
+    your rooms upon the image of an existing plan, and then, drag and drop
+    furniture onto the plan from a catalog organized by categories. Each change
+    in the 2D plan is simultaneously updated in the 3D view, to show you a
+    realistic rendering of your layout.
+
+confinement: strict
+grade: stable
+icon: data/gui/sweethome3d-homedesign.png
+title: Sweet Home 3D
+contact: https://github.com/jibel/sweethome3d-snap/issues
+issues:
+  - https://github.com/jibel/sweethome3d-snap/issues
+  # Application behavior issues (plan drawing, 3D view, features) go upstream
+  - http://www.sweethome3d.com/support.jsp
+source-code: https://github.com/jibel/sweethome3d-snap
+website: https://www.sweethome3d.com/
+license: GPL-2.0-with-classpath-exception
+
+# The JVM loads its own native libraries via System.loadLibrary / dlopen at
+# runtime; static analysis cannot see this usage, so silence the linter for
+# the JRE tree.
+lint:
+  ignore:
+    - unused-library: [jre/lib/**]
+
+apps:
+  sweethome3d-homedesign:
+    command: bin/sweethome3d
+    extensions: [gnome]
+    plugs:
+      - cups-control
+      - home
+      - network
+      - removable-media
+      - sweethome3d-furniture
+      - sweethome3d-textures
+    environment:
+      _JAVA_OPTIONS: "-Duser.home=$SNAP_USER_DATA"
+
+# Extra library content from an optional content snap. The launcher points
+# the application at the mounted content folders; when the content snap is
+# not installed the folders simply do not exist and the app runs as usual.
+plugs:
+  sweethome3d-furniture:
+    interface: content
+    content: sweethome3d-furniture
+    target: $SNAP/content/furniture
+    default-provider: sweethome3d-libraries
+  sweethome3d-textures:
+    interface: content
+    content: sweethome3d-textures
+    target: $SNAP/content/textures
+    default-provider: sweethome3d-libraries
+
+parts:
+  sweethome3d-homedesign:
+    plugin: nil
+    source: .
+    override-build: |
+      set -eu
+      # Pick the highest-versioned tarball, whether it sits next to
+      # snapcraft.yaml or in the download/ directory.
+      TARBALL="$(find . download -maxdepth 2 -name 'SweetHome3D-*.tgz' 2>/dev/null | sort -V | tail -n1)"
+      if [ -z "$TARBALL" ]; then
+        echo "ERROR: no SweetHome3D-*.tgz found (see README for how to download it)" >&2
+        exit 1
+      fi
+      echo "Building from tarball: $TARBALL"
+
+      VERSION="${TARBALL##*/SweetHome3D-}"
+      VERSION="${VERSION%%-linux-*}"
+      VERSION="$(echo "$VERSION" | tr '_' '-')"
+      craftctl set version="$VERSION"
+
+      mkdir -p "$SNAPCRAFT_PART_INSTALL/meta/gui" "$SNAPCRAFT_PART_INSTALL/bin"
+      tar xzf "$TARBALL" -C "$SNAPCRAFT_PART_INSTALL/"
+      mv "$SNAPCRAFT_PART_INSTALL"/SweetHome3D-* "$SNAPCRAFT_PART_INSTALL/sweethome3d"
+
+      # The tarball bundles a Java 8 runtime (~112 MB); we run the app on the
+      # system OpenJDK instead, so drop it.
+      rm -rf "$SNAPCRAFT_PART_INSTALL/sweethome3d/runtime"
+
+      install -m 755 snap/local/sweethome3d "$SNAPCRAFT_PART_INSTALL/bin/sweethome3d"
+      cp ./data/gui/* "$SNAPCRAFT_PART_INSTALL/meta/gui/"
+    stage-packages:
+      - fonts-ubuntu
+  jre:
+    plugin: nil
+    build-packages:
+      - openjdk-25-jdk-headless
+      - libgif7
+    override-build: |
+      set -eu
+      JDK="$(ls -d /usr/lib/jvm/java-25-openjdk*-amd64 2>/dev/null | sort -V | tail -n1)"
+      if [ -z "$JDK" ]; then
+        echo "ERROR: no OpenJDK 25 JDK found for jlink" >&2
+        exit 1
+      fi
+      # Minimal runtime for Sweet Home 3D: jdeps on the application jars gives
+      # java.base,java.desktop,java.logging,java.prefs; the rest cover
+      # reflection/service-loader uses in bundled libraries (JMF, iText,
+      # sunflow, Java3D/JOGL).
+      "$JDK/bin/jlink" \
+        --add-modules java.base,java.desktop,java.logging,java.prefs,java.xml,java.sql,java.naming,java.management,jdk.unsupported,jdk.crypto.ec \
+        --strip-debug --no-header-files --no-man-pages --compress zip-6 \
+        --output "$SNAPCRAFT_PART_INSTALL/jre"
+    stage-packages:
+      # Native dependencies of the JDK libraries included in the jlink image
+      # (libgif7 is needed by libsplashscreen.so, the rest by AWT/2D and JSound)
+      - libgif7
+      - libjpeg8
+      - liblcms2-2

@@ -1,0 +1,98 @@
+base: core26
+name: squirrelsql
+summary: A Java SQL client for any JDBC compliant database
+description: |
+  SQuirreL SQL Client is a graphical SQL client written in Java that will allow
+  you to view the structure of a JDBC compliant database, browse the data in
+  tables, issue SQL commands etc.
+
+  This package includes JDBC drivers for sqlite, mysql and postgresql.
+
+  Homepage: http://www.squirrelsql.org/
+
+confinement: strict
+grade: stable
+icon: data/gui/squirrelsql.png
+adopt-info: squirrelsql
+
+apps:
+  squirrelsql:
+    command: bin/desktop-launch sh $SNAP/squirrelsql/squirrel-sql.sh -userdir $HOME/squirrelsql.settings
+    plugs: 
+      - home
+      - network
+      - x11
+    environment:
+      _JAVA_OPTIONS: -Duser.home=$SNAP_USER_DATA 
+      JAVA_HOME: $SNAP/usr/lib/jvm/default-java
+      PATH: $SNAP/usr/lib/jvm/default-java/bin:$PATH
+      JAVA_TOOL_OPTIONS: -Djava.library.path=$SNAP/usr/lib/x86_64-linux-gnu/jni
+
+parts:
+  desktop-glib-only:
+    source: https://github.com/ubuntu/snapcraft-desktop-helpers.git
+    source-subdir: glib-only
+    plugin: make
+    build-packages:
+      - libglib2.0-dev
+    stage-packages:
+      - adwaita-icon-theme
+      - dmz-cursor-theme
+      - libgdk-pixbuf-2.0-0
+      - libglib2.0-bin
+      - libgtk2.0-0
+      - libxkbcommon0
+      - light-themes
+      - locales-all
+      - shared-mime-info
+      - fonts-ubuntu
+      - xdg-user-dirs
+
+  jdk:
+    plugin: nil
+    stage-packages:
+      - default-jre
+
+  jdbc-drivers:
+    plugin: nil
+    stage-packages:
+      - libmariadb-java
+      - libpostgresql-jdbc-java
+      - libxerial-sqlite-jdbc-java
+      - libxerial-sqlite-jdbc-jni
+
+  squirrelsql:
+    after: [desktop-glib-only, jdbc-drivers, jdk]
+    plugin: nil
+    source: squirrelsql-src
+    build-packages:
+      - default-jdk
+      - unzip
+    override-build: |
+      set -- "$SNAPCRAFT_PART_SRC"/squirrelsql-*-standard.zip
+      if [ ! -f "$1" ]; then
+        echo "Add versioned squirrelsql-<version>-standard.zip archives to squirrelsql-src/" >&2
+        exit 1
+      fi
+      ZIP=$(printf '%s\n' "$@" | sort -V | tail -n 1)
+      ZIP_NAME=${ZIP##*/}
+      VERSION=${ZIP_NAME#squirrelsql-}
+      VERSION=${VERSION%-standard.zip}
+      VERSION=$(printf '%s' "$VERSION" | tr '_' '-')
+      EXTRACT_DIR="$SNAPCRAFT_PART_BUILD/upstream"
+      mkdir -p "$EXTRACT_DIR"
+      unzip -q "$ZIP" -d "$EXTRACT_DIR"
+      set -- "$EXTRACT_DIR"/*/squirrel-sql.jar
+      if [ ! -f "$1" ] || [ "$#" -ne 1 ]; then
+        echo "Selected archive must contain one standard distribution with squirrel-sql.jar" >&2
+        exit 1
+      fi
+      SOURCE_DIR=${1%/squirrel-sql.jar}
+      mkdir -p $SNAPCRAFT_PART_INSTALL/squirrelsql
+      cp -a "$SOURCE_DIR"/. $SNAPCRAFT_PART_INSTALL/squirrelsql/
+      mkdir -p $SNAPCRAFT_PART_INSTALL/meta/gui/
+      cp $SNAPCRAFT_STAGE/usr/share/java/mariadb-java-client.jar $SNAPCRAFT_PART_INSTALL/squirrelsql/lib/
+      cp $SNAPCRAFT_STAGE/usr/share/java/postgresql.jar $SNAPCRAFT_PART_INSTALL/squirrelsql/lib/
+      cp $SNAPCRAFT_STAGE/usr/share/java/sqlite-jdbc.jar $SNAPCRAFT_PART_INSTALL/squirrelsql/lib/
+      cp $SNAPCRAFT_PROJECT_DIR/data/gui/* $SNAPCRAFT_PART_INSTALL/meta/gui/
+      craftctl set version="$VERSION"

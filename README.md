@@ -5,13 +5,14 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 41 repackage snaps: the 13
-migrated to `core26` in the 2026-11 migration, plus 28 packaging recipes
-imported from other `~desktop-snappers` repositories on 2026-11-17.
+one-repository-per-snap setup. It contains 55 repackage snaps: the 13
+migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
+from other `~desktop-snappers` repositories on 2026-11-17, and 14 from the
+personal packaging repositories of Canonical staff.
 
-All 41 are published by Canonical or by Canonical desktop-team members. The
-28 imports still use their original bases (25 `core24`, one `core22`, two
-`core20`) and have not been migrated.
+All 55 are published by Canonical or by Canonical desktop-team members.
+Bases: 19 `core26`, 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The
+non-`core26` packages have not been migrated.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
@@ -123,7 +124,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (39)
+## Snaps in scope (55)
 
 ### Migrated to core26 (13)
 
@@ -131,13 +132,15 @@ Recipe provenance, per package, also lives in
 `gnome-logs`, `evince`, `cheese`, `simple-scan`, `gnome-text-editor`,
 `gnome-calendar`, `gedit`, `gnome-clocks`, `thunderbird`.
 
-### Imported 2026-11-17, migration pending (28)
+### Imported 2026-11-17 (42)
 
-Published by Canonical:
+From `~desktop-snappers` packaging repositories.
+
+Published by Canonical (5):
 
 `gnome-boxes`, `shotwell`, `gnome-system-monitor`, `gnome-sudoku`, `loupe`.
 
-Published by Canonical desktop staff:
+Published by Canonical desktop staff (23):
 
 `epiphany`, `drawing`, `glade`, `gnome-2048`, `gnome-chess`,
 `gnome-font-viewer`, `gnome-hitori`, `gnome-klotski`, `gnome-weather`,
@@ -145,18 +148,27 @@ Published by Canonical desktop staff:
 `gnome-robots`, `gnome-taquin`, `gnome-tetravex`, `iagno`, `lightsoff`,
 `swell-foop`, `tali`, `five-or-more`, `fractal`, `gnome-terminal`.
 
-All of them repackage another upstream project: nearly all are GNOME
-applications whose source lives at gitlab.gnome.org; thunderbird is Mozilla
-source, fractal is the Matrix client. The `~desktop-snappers` and
-`ubuntu/thunderbird` repositories contain only packaging.
+From personal packaging repositories of Canonical staff (14):
 
-The imports are pinned to their stable refs (`main` for fractal, `master`
-for gnome-terminal). `fractal` and `gnome-terminal` are still `core20`;
-`drawing` is `core22`; the rest are `core24`.
+`dippi`, `epic-games-launcher`, `freemind`, `freeplane-mindmapping`,
+`geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
+`squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
 
-Store publishers are not all `Canonical`: Ken VanDine publishes 20 of the
-39, Jeremy Bicha (`jbicha`) four and Robert Ancell one. They are
-desktop-team snaps and are included.
+The last group repackages distinct upstream projects; only the recipes are
+checked in. snapcraft fetches upstream sources, and for the proprietary
+launchers the vendor artifacts, at build time - no vendor binaries are
+tracked in this repository. `element-desktop` is not included: it has no
+public recipe.
+
+All 55 repackage another upstream project. Nearly all are GNOME
+applications whose source lives at gitlab.gnome.org; the others include
+Mozilla (thunderbird), Matrix (fractal), Element (not imported), Epic,
+NVIDIA, Lunar Client, Godot, Ghostty, TigerVNC, Widelands, Thrive,
+Freeplane, ProjectLibre, SQuirreL SQL, Sweet Home 3D and FreeMind.
+
+Store publishers: Canonical 15, Ken VanDine 29, Jeremy Bicha (`jbicha`) 5,
+Jean-Baptiste Lallement (`jibel`) 5, Robert Ancell 1. They are desktop-team
+snaps and are included.
 
 ## Excluded upstream projects
 
@@ -180,7 +192,8 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 28 imported packages; they still build on their
-  original `core24`/`core22`/`core20` bases.
+- `core26` migration of the 36 imported packages still on older bases; 19 of
+  the 55 are on `core26` (13 migrated plus 6 imported), and `freemind` is
+  still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.
