@@ -1,0 +1,85 @@
+name: meld
+adopt-info: meld
+summary: Visual diff and merge tool
+description: |
+  Meld is a visual diff and merge tool targeted at developers. It helps you
+  compare files, directories and version controlled projects, and provides
+  two- and three-way comparison of both files and directories.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  meld:
+    interface: dbus
+    bus: session
+    name: org.gnome.Meld
+
+apps:
+  meld:
+    extensions: [gnome]
+    command: usr/bin/meld
+    common-id: org.gnome.Meld.desktop
+    desktop: usr/share/applications/org.gnome.Meld.desktop
+    plugs:
+      - gsettings
+      - home
+      - network
+      - removable-media
+    environment:
+      # Meld is a Python application. The gnome-core26 content snap provides
+      # the interpreter, PyGObject and pycairo, but not the meld module.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+
+parts:
+  meld:
+    source: https://gitlab.gnome.org/GNOME/meld.git
+    source-type: git
+    source-tag: '3.24.1'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Meld.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/meld/current/usr
+      - --buildtype=release
+      # Pin the Python module location so the PYTHONPATH above always matches
+      - -Dpython.purelibdir=/snap/meld/current/usr/lib/python3/dist-packages
+      - -Dpython.platlibdir=/snap/meld/current/usr/lib/python3/dist-packages
+    organize:
+      snap/meld/current/usr: usr
+    build-packages:
+      # GtkSourceView 4 is not part of the GNOME 49 gnome-core26 SDK
+      - libgtksourceview-4-dev
+    override-build: |
+      # Don't symlink help media; it leaves dangling symlinks in the snap
+      sed -i.bak -e 's|media: media_files,|media: media_files, symlink_media: false,|' $CRAFT_PART_SRC/help/meson.build
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Meld.svg $CRAFT_PART_INSTALL/meta/gui/
+      sed -i -e 's|Icon=org.gnome.Meld$|Icon=${SNAP}/meta/gui/org.gnome.Meld.svg|' $CRAFT_PART_INSTALL/snap/meld/current/usr/share/applications/org.gnome.Meld.desktop
+
+  libraries:
+    after: [meld]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships GTK 3 and GtkSourceView 5, but Meld 3.24 still
+      # needs GtkSourceView 4 (gir1.2-gtksource-4 in the 26.04 archive).
+      # python3-gi, pycairo and the Gtk-3.0 GIR come from gnome-core26.
+      - gir1.2-gtksource-4
+      - libgtksourceview-4-0
+      - libgtksourceview-4-common
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every *.so that also exists in the SDK, and the
+      # gnome-core26 content snap doesn't ship libxml2. Keep it outside the
+      # SDK's path layout; $SNAP/usr/lib is in the LD_LIBRARY_PATH that
+      # snapcraft generates for the snap.
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* $CRAFT_PART_INSTALL/usr/lib/

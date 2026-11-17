@@ -1,0 +1,66 @@
+name: dconf-editor
+adopt-info: dconf-editor
+summary: Graphical editor for the dconf configuration database
+description: |
+  Dconf Editor is a graphical tool that allows direct editing of the dconf
+  configuration database. It lets you browse the keys used by installed
+  applications, read their descriptions and change their values.
+
+  Editing your configuration directly is an advanced feature and may cause
+  applications to not work correctly.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  dconf-editor:
+    interface: dbus
+    bus: session
+    name: ca.desrt.dconf-editor
+
+apps:
+  dconf-editor:
+    extensions: [gnome]
+    command: usr/bin/dconf-editor
+    desktop: usr/share/applications/ca.desrt.dconf-editor.desktop
+    common-id: ca.desrt.dconf-editor.desktop
+    plugs:
+      - gsettings
+
+# dconf-editor 49.0 is still a GTK3 + libhandy application (upstream has not
+# ported it to GTK4/Adw). GTK3, libhandy, valac, libdconf.so.1, the dconf
+# gsettings backend and the shared glib schemas are all provided by the gnome
+# extension (gnome-core26 SDK/content snaps), so no stage-packages are needed.
+parts:
+  dconf-editor:
+    source: https://gitlab.gnome.org/GNOME/dconf-editor.git
+    source-type: git
+    source-tag: '49.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/ca.desrt.dconf-editor.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    build-packages:
+      # GTK3, libhandy and valac are provided by the gnome-core26-sdk build
+      # snap; dconf is not part of the SDK, so use the 26.04 archive's
+      # libdconf-dev (which ships dconf.pc and dconf.vapi). The runtime
+      # libdconf.so.1 and the gsettings dconf backend come from the
+      # gnome-core26 content snap.
+      - libdconf-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=ca.desrt.dconf-editor$|Icon=${SNAP}/meta/gui/ca.desrt.dconf-editor.svg|g' editor/ca.desrt.dconf-editor.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/ca.desrt.dconf-editor.svg $CRAFT_PART_INSTALL/meta/gui/

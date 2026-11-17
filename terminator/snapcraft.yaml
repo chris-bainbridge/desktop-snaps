@@ -1,0 +1,88 @@
+name: terminator
+version: '2.1.6'
+summary: Multiple terminals in one window
+description: |
+  Terminator is a terminal emulator for power users. It lets you arrange
+  multiple terminals in a grid, use tabs, save and restore layouts and
+  profiles, and type into groups of terminals at the same time.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-only
+website: https://gnome-terminator.org/
+source-code: https://github.com/gnome-terminator/terminator
+issues: https://github.com/gnome-terminator/terminator/issues
+
+icon: snap/local/terminator.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  terminator:
+    extensions: [gnome]
+    command: bin/terminator-launcher
+    desktop: usr/share/applications/terminator.desktop
+    plugs:
+      - gsettings
+      - home
+      - network
+      - process-control
+      - system-observe
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/terminator-launcher
+      terminator.png: usr/share/icons/hicolor/512x512/apps/terminator.png
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      - python3-configobj
+      - python3-psutil
+    # The gnome extension's platform snap already ships Python, PyGObject,
+    # pycairo, dbus-python and the GTK 3/VTE typelibs, so only these modules
+    # are staged. Keep the interpreter itself out of the snap: the extension's
+    # gnome/cleanup part deletes staged files that duplicate the SDK snap.
+    stage:
+      - usr/lib/python3/dist-packages/configobj
+      - usr/lib/python3/dist-packages/configobj-*.dist-info
+      - usr/lib/python3/dist-packages/psutil
+      - usr/lib/python3/dist-packages/psutil-*.dist-info
+      - usr/lib/python3/dist-packages/validate
+
+  terminator:
+    source: https://github.com/gnome-terminator/terminator.git
+    source-type: git
+    source-tag: 'v2.1.6'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - gettext
+      - intltool
+      - python3
+      - python3-setuptools
+    override-build: |
+      set -eux
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly.
+      /usr/bin/python3 setup.py build
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr \
+        --single-version-externally-managed \
+        --record=install-files.txt
+      # core26 has no /usr/bin/python3; the launcher provides the platform
+      # interpreter, so use env(1) rather than an absolute shebang.
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' \
+        "$CRAFT_PART_INSTALL/usr/bin/terminator" \
+        "$CRAFT_PART_INSTALL/usr/bin/remotinator"
+      rm -rf "$CRAFT_PART_INSTALL"/usr/lib/python3/dist-packages/terminator-*.egg-info

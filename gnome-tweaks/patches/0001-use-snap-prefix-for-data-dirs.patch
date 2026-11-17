@@ -1,0 +1,26 @@
+diff --git a/gtweak/defs.py.in b/gtweak/defs.py.in
+index cb7c047..ddb238f 100644
+--- a/gtweak/defs.py.in
++++ b/gtweak/defs.py.in
+@@ -1,10 +1,16 @@
+-DATA_DIR = "@DATADIR@"
++import os
++
++# In a snap the application data is installed under $SNAP/usr instead of the
++# base snap's /usr, so resolve the compile-time paths against $SNAP at run time.
++_SNAP_ROOT = os.environ.get("SNAP", "")
++
++DATA_DIR = _SNAP_ROOT + "@DATADIR@"
+ APP_ID = "@APPID@"
+-PKG_DATA_DIR = "@PKGDATADIR@"
+-GSETTINGS_SCHEMA_DIR = "@GSETTINGSSCHEMADIR@"
+-TWEAK_DIR = "@TWEAKDIR@"
++PKG_DATA_DIR = _SNAP_ROOT + "@PKGDATADIR@"
++GSETTINGS_SCHEMA_DIR = _SNAP_ROOT + "@GSETTINGSSCHEMADIR@"
++TWEAK_DIR = _SNAP_ROOT + "@TWEAKDIR@"
+ VERSION = "@VERSION@"
+-LOCALE_DIR = "@LOCALEDIR@"
++LOCALE_DIR = _SNAP_ROOT + "@LOCALEDIR@"
+ PROFILE = "@PROFILE@"
+ 
+ IS_DEVEL = PROFILE == "development"

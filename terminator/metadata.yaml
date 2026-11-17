@@ -1,0 +1,6 @@
+snap: terminator
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/gnome-terminator/terminator (v2.1.6)
+imported: '2026-11-17'

@@ -1,0 +1,91 @@
+name: gnome-tweaks
+adopt-info: gnome-tweaks
+summary: Tweak advanced GNOME settings
+description: |
+  GNOME Tweaks allows adjusting advanced GNOME options.
+
+  It can manage keyboard mapping customizations, add startup applications,
+  set custom window controls, change fonts, themes and titlebar buttons,
+  among other settings.
+
+  The application follows the GNOME desktop settings (GSettings), so the
+  changes it makes apply to the rest of the session.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  gnome-tweaks:
+    interface: dbus
+    bus: session
+    name: org.gnome.tweaks
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - org.gnome.tweaks
+
+apps:
+  gnome-tweaks:
+    extensions: [gnome]
+    command: usr/bin/gnome-tweaks
+    desktop: usr/share/applications/org.gnome.tweaks.desktop
+    common-id: org.gnome.tweaks.desktop
+    # the application is Python: its modules are installed into the snap's
+    # dist-packages, while the interpreter and PyGObject come from the
+    # gnome-core26 content snap mounted at $SNAP/gnome-platform
+    environment:
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages:$SNAP/gnome-platform/usr/lib/python3/dist-packages
+    plugs:
+      - gsettings
+      - home
+
+# gnome-tweaks 49.0 is a GTK4 + libadwaita application written in Python
+# (meson build). GTK4, libadwaita, PyGObject, GUdev, libnotify, the
+# gsettings-desktop-schemas data and the dconf GIO backend are all provided by
+# the gnome extension (gnome-core26 SDK/content snaps), so no libraries need to
+# be staged. Python 3.14 and PyGObject are also part of the content snap.
+parts:
+  # Tweaks edits settings owned by the host session: org.gnome.shell (GNOME
+  # Shell), org.gnome.mutter (window manager) and the optional user-theme
+  # Shell extension. The content snap does not ship those schemas and a snap
+  # cannot read the host's /usr/share, so stage the schema definitions only -
+  # data files, no libraries.
+  schemas:
+    plugin: nil
+    stage-packages:
+      - gnome-shell-common
+      - mutter-common
+      - gnome-shell-extension-user-theme
+    stage:
+      - usr/share/glib-2.0/schemas/org.gnome.shell.gschema.xml
+      - usr/share/glib-2.0/schemas/org.gnome.mutter.gschema.xml
+      - usr/share/glib-2.0/schemas/org.gnome.shell.extensions.user-theme.gschema.xml
+
+  gnome-tweaks:
+    source: https://gitlab.gnome.org/GNOME/gnome-tweaks.git
+    source-type: git
+    source-tag: '49.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.tweaks.appdata.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=0)
+      # resolve the compiled-in data directories against $SNAP at run time
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-use-snap-prefix-for-data-dirs.patch"
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@APPID@$|Icon=${SNAP}/meta/gui/org.gnome.tweaks.svg|g' data/org.gnome.tweaks.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.tweaks.svg $CRAFT_PART_INSTALL/meta/gui/
