@@ -1,0 +1,6 @@
+snap: quodlibet
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/quodlibet/quodlibet (release-4.7.1)
+imported: '2026-11-17'

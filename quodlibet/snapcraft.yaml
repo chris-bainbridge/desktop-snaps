@@ -1,0 +1,165 @@
+name: quodlibet
+version: '4.7.1'
+summary: Music library manager and player
+description: |
+  Quod Libet is a music library manager and player. It is built around the
+  idea that you know your music better than any automatic classifier: it
+  lets you browse and search a large collection by tags, queue and shuffle
+  playback, edit tags, fetch cover art, and listen to internet radio and
+  podcasts.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Quod Libet can only open and save files in non-hidden paths of your home
+    directory and, when the removable-media interface is connected, on
+    removable drives. Music stored elsewhere on the filesystem, or in hidden
+    directories such as ~/.local/share, is not visible.
+  - Settings, the library database and playlists are stored in the snap's
+    private per-user area (~/snap/quodlibet/...), not in ~/.config/quodlibet,
+    and are not shared with a distribution-packaged Quod Libet.
+  - The GNOME Shell search provider is not registered with the host shell:
+    a snap cannot install a search provider into the shell's data
+    directories.
+  - WMA/ASF playback is not available because the platform's GStreamer set
+    has no decoder for it. AAC/M4A works through the staged libgstfaad
+    plugin.
+  - Optional plugins that need soco, pypresence or paho-mqtt are unavailable
+    because those modules are not shipped in the snap.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Quod Libet needs beyond the GNOME
+# runtime is either staged from the 26.04 archive or installed from the
+# upstream source; no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://quodlibet.readthedocs.io/
+source-code: https://github.com/quodlibet/quodlibet
+issues: https://github.com/quodlibet/quodlibet/issues
+
+icon: snap/local/io.github.quodlibet.QuodLibet.png
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Quod Libet's DBusHandler (quodlibet/qltk/dbus_.py) owns this name to
+  # expose its external control interface. The slot lets the strict snap bind
+  # it on the session bus.
+  quodlibet:
+    interface: dbus
+    bus: session
+    name: net.sacredchao.QuodLibet
+
+  # The MPRIS plugin (quodlibet/ext/events/mpris) registers
+  # org.mpris.MediaPlayer2.quodlibet and is enabled on first start. The mpris
+  # interface permits binding org.mpris.MediaPlayer2.<snap name>, which is
+  # exactly the name the plugin hardcodes.
+  mpris:
+    interface: mpris
+
+apps:
+  quodlibet:
+    extensions: [gnome]
+    command: bin/quodlibet-launcher
+    desktop: usr/share/applications/io.github.quodlibet.QuodLibet.desktop
+    common-id: io.github.quodlibet.QuodLibet.desktop
+    plugs:
+      - gsettings       # GTK reads the theme, fonts and other desktop settings
+      - home            # the music library and playlists in the user's home
+      - removable-media # music on USB sticks and other removable media
+      - audio-playback  # GStreamer's PulseAudio/PipeWire sinks
+      - network         # internet radio, podcasts, cover art, MusicBrainz
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/quodlibet-launcher
+      # A 512x512 raster copy of the upstream scalable icon, used as the store
+      # icon and as a high-resolution fallback next to the icons that
+      # setup.py installs.
+      io.github.quodlibet.QuodLibet.png: usr/share/icons/hicolor/512x512/apps/io.github.quodlibet.QuodLibet.png
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, dbus-python, the GTK 3 and libsoup 3
+      # typelibs, and a broad GStreamer plugin set (base, good and the codec
+      # plugins from extra), so none of those are staged. Only the modules
+      # Quod Libet imports that the platform lacks are added here:
+      - python3-mutagen        # tag reading and writing (core import)
+      - python3-feedparser     # podcast browser and update check
+      - python3-sgmllib3k      # feedparser's HTML parser dependency
+      - python3-musicbrainzngs # MusicBrainz lookup and sync plugins
+      # The platform has no AAC decoder: gst-plugins-bad's faad plugin plus
+      # libfaad2 adds M4A/AAC playback without pulling in the full libav
+      # stack. The plugin's only non-platform dependency is libfaad.so.2.
+      - gstreamer1.0-plugins-bad
+      - libfaad2
+    # An explicit stage list keeps the interpreter, its standard library and
+    # the rest of gst-plugins-bad's dependencies out of the snap. These are
+    # pure Python modules plus the faad plugin and its shared library; the
+    # extension's gnome/cleanup part only prunes objects the SDK already
+    # ships.
+    stage:
+      - usr/lib/python3/dist-packages/feedparser
+      - usr/lib/python3/dist-packages/feedparser-*.dist-info
+      - usr/lib/python3/dist-packages/musicbrainzngs
+      - usr/lib/python3/dist-packages/musicbrainzngs-*.egg-info
+      - usr/lib/python3/dist-packages/mutagen
+      - usr/lib/python3/dist-packages/mutagen-*.egg-info
+      - usr/lib/python3/dist-packages/sgmllib.py
+      - usr/lib/python3/dist-packages/sgmllib3k-*.egg-info
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/libfaad*.so.2*
+
+  quodlibet:
+    source: https://github.com/quodlibet/quodlibet.git
+    source-type: git
+    source-tag: 'release-4.7.1'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      # The gnome-core26-sdk build snap provides the base toolchain; these are
+      # the only extra build dependencies Quod Libet needs:
+      - gettext # msgfmt and msgmerge for the 39 message catalogs
+      - python3
+      - python3-setuptools # its distutils shim, removed from the 3.14 stdlib
+    override-build: |
+      set -eux
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly. It is the 3.14 from the core26
+      # archive, the same ABI as the platform interpreter, and its setuptools
+      # provides the distutils that gdist imports.
+      /usr/bin/python3 setup.py build
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr \
+        --single-version-externally-managed \
+        --record=install-files.txt
+      # Drop build metadata from the snap's module tree.
+      rm -rf "$CRAFT_PART_INSTALL"/usr/lib/python3/dist-packages/quodlibet-*.egg-info
+      # core26 has no /usr/bin/python3. The launcher runs the platform
+      # interpreter explicitly, but keep direct invocation inside the snap
+      # working too.
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' \
+        "$CRAFT_PART_INSTALL"/usr/bin/quodlibet \
+        "$CRAFT_PART_INSTALL"/usr/bin/exfalso \
+        "$CRAFT_PART_INSTALL"/usr/bin/operon
+      # The service file points at /usr/bin/quodlibet, which only exists
+      # inside the snap, so the host session bus cannot activate the snap
+      # from it. The app owns both of its bus names through the slots above.
+      rm -f "$CRAFT_PART_INSTALL"/usr/share/dbus-1/services/net.sacredchao.QuodLibet.service
+      # The host GNOME Shell only reads search providers from its own XDG
+      # data directories, never from inside a snap, so the registration file
+      # would only be dead weight.
+      rm -rf "$CRAFT_PART_INSTALL"/usr/share/gnome-shell/search-providers

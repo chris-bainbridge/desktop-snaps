@@ -1,0 +1,21 @@
+#!/bin/bash
+# Pitivi is a Python 3 + GTK 3 + GStreamer application. The gnome-core26
+# platform snap provides the interpreter, PyGObject, pycairo, GTK 3 and
+# GStreamer; everything the platform lacks is staged inside this snap (see
+# snapcraft.yaml).
+#
+# Make the snap's Python modules (numpy, matplotlib, gst-python's overrides)
+# importable. The platform's gi package stays in charge: PyGObject's
+# extend_path() merges the snap's gi directory into it, so gi.overrides.Gst is
+# found alongside the platform's overrides.
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+# Debian's matplotlib only looks for matplotlibrc in $HOME/.config and /etc;
+# both belong to the base snap at runtime, so point it at the copy shipped in
+# mpl-data instead. Set MATPLOTLIBRC yourself to override this.
+export MATPLOTLIBRC="${MATPLOTLIBRC:-$SNAP/usr/lib/python3/dist-packages/matplotlib/mpl-data/matplotlibrc}"
+
+# core26 has no /usr/bin/python3, so run the platform interpreter explicitly.
+# bash's `exec -a` names the process "pitivi": GTK derives the window WM_CLASS
+# from the program name, and without it the window would be classed as
+# "python3" and not grouped with its launcher.
+exec -a pitivi "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/pitivi" "$@"

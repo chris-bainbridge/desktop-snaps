@@ -1,0 +1,6 @@
+snap: totem
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/totem (43.2)
+imported: '2026-11-17'

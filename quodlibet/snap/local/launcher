@@ -1,0 +1,16 @@
+#!/bin/sh
+# Quod Libet is a Python 3 + GTK 3 application. The GNOME platform snap that
+# the gnome extension mounts at $SNAP/gnome-platform provides the Python 3.14
+# interpreter, PyGObject, pycairo, dbus-python, GTK 3, libsoup 3 and the
+# GStreamer typelibs and plugins. mutagen, feedparser, sgmllib3k,
+# musicbrainzngs and the libgstfaad AAC decoder are staged inside this snap.
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+# snapd starts strict snaps with HOME=$SNAP_USER_DATA, a private directory.
+# Point HOME at the user's real home so file choosers and "~" expansion reach
+# the music files that the "home" interface exposes. Quod Libet's settings and
+# library database do not use HOME: they live under XDG_CONFIG_HOME, which the
+# platform's desktop-launch command-chain points at $SNAP_USER_DATA/.config.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/quodlibet" "$@"

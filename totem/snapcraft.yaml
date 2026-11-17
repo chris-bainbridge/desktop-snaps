@@ -1,0 +1,171 @@
+name: totem
+version: '43.2'
+summary: Video player for GNOME
+description: |
+  Videos is the GNOME video player. It plays video files, browses the video
+  library (including removable media), and supports subtitles, playlists,
+  screenshots and MPRIS controls.
+
+  The player is built on GStreamer, with the library view provided by Grilo
+  and plugins loaded through libpeas.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://gitlab.gnome.org/GNOME/totem
+source-code: https://gitlab.gnome.org/GNOME/totem
+issues: https://gitlab.gnome.org/GNOME/totem/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+# Strict confinement (Core Desktop has no classic snaps) limitations:
+# - $HOME is the snap's private writable directory. The home interface makes
+#   the real home available and the XDG user directories (Videos, Music, ...)
+#   are linked into $HOME; other locations are reachable only through the
+#   desktop document portal (the gnome extension sets GTK_USE_PORTAL=1).
+# - removable-media covers USB sticks and mounts below /media and /mnt, but
+#   not optical drives: playing DVDs/CDs from /dev/sr0 does not work.
+# - network is deliberately not declared, so HTTP(S) streams, Grilo's
+#   online channels and the OpenSubtitles plugin cannot connect.
+# - screen-inhibit-control is not declared, so the screensaver plugin cannot
+#   prevent the screen from blanking during playback.
+# - The thumbnailer in usr/share/thumbnailers names
+#   /usr/bin/totem-video-thumbnailer, which the host's thumbnail service
+#   cannot execute; the file manager will not show generated video
+#   thumbnails.
+# - The MPRIS plugin owns org.mpris.MediaPlayer2.totem on the session bus;
+#   whether the desktop shell and media keys can reach it depends on the
+#   snap D-Bus policy, and is not guaranteed.
+
+layout:
+  # Totem compiles its plugin directory into libtotem and libpeas compiles
+  # its loader directory into libpeas, both below the (multiarch) libdir.
+  # gnome-core26 ships neither library, so link the compiled-in paths to the
+  # copies staged inside the snap.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/totem:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/totem
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0
+  # Grilo loads its plugins from the libdir path compiled into libgrilo.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/grilo-0.3:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/grilo-0.3
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Totem.service.in)
+  totem:
+    interface: dbus
+    bus: session
+    name: org.gnome.Totem
+
+apps:
+  totem:
+    extensions: [gnome]
+    command: usr/bin/totem
+    desktop: usr/share/applications/org.gnome.Totem.desktop
+    common-id: org.gnome.Totem.desktop
+    plugs:
+      - gsettings
+      - home
+      - removable-media
+      - audio-playback
+      - network
+      - screen-inhibit-control
+
+parts:
+  totem:
+    source: https://gitlab.gnome.org/GNOME/totem.git
+    source-type: git
+    # Latest stable release (2025-05-21). Totem master still identifies
+    # itself as 43.0; the GTK4 port has never been released.
+    source-tag: '43.2'
+    source-depth: 1
+    # libgd is a git submodule, and it is empty in the release tarball.
+    source-submodules:
+      - subprojects/libgd
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      # The help pages need yelp-tools, which gnome-core26-sdk does not ship.
+      - -Dhelp=true
+      # The open-directory plugin uses the XDG desktop portal; the runtime
+      # library is in gnome-core26, only the pkg-config file is missing.
+      - -Dlibportal=enabled
+      # The UI tests need a display and are not part of the snap.
+      - -Dui-tests=false
+      - -Denable-gtk-doc=false
+    build-packages:
+      # gnome-core26-sdk provides GTK3, GLib, GStreamer base,
+      # gnome-desktop-3, libhandy, gobject-introspection headers and the
+      # Python/PyGObject build files. These Totem dependencies are not part
+      # of the SDK:
+      - libpeas-dev
+      - libgrilo-0.3-dev
+      - libtotem-plparser-dev
+      - libportal-gtk3-dev
+      # gobject-introspection-1.0.pc is not in the SDK (the g-ir-scanner
+      # binary is); Totem builds the Totem-1.0 GIR for its Python plugins.
+      - libgirepository1.0-dev
+      # gnome.yelp needs yelp-build/xsltproc.
+      - yelp-tools
+      # Totem's meson.build runs gst-inspect at configure time and asserts
+      # that playbin, videoscale, autoaudiosink, scaletempo, gtksink,
+      # gtkglsink and glsinkbin exist. gst-inspect and the GTK3 sink plugin
+      # are not in the SDK; the base/good plugins come from the archive.
+      - gstreamer1.0-tools
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+      - gstreamer1.0-gtk3
+    override-pull: |
+      craftctl default
+      # Do not install the help media as symlinks: they would point at the
+      # build location rather than at the files in the snap.
+      sed -i.bak -e 's|symlink_media: true|symlink_media: false|' $CRAFT_PART_SRC/help/meson.build
+    override-build: |
+      craftctl default
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i -e 's|^Icon=org.gnome.Totem$|Icon=${SNAP}/meta/gui/org.gnome.Totem.svg|' \
+          $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.Totem.desktop
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/scalable/org.gnome.Totem.svg $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    after: [totem]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 already ships the base/good/ugly plugins and the
+      # playback stack, but not:
+      # - the GTK3 video sink (gtksink/gtkglsink), which Totem 43 uses for
+      #   its OpenGL widget and as the fallback when GL is unavailable;
+      # - the codec parsers and streaming elements from gst-plugins-bad
+      #   (h264parse, h265parse, hls, dash, ...), without which most MP4
+      #   files cannot be played;
+      # - the libav decoders (H.264, HEVC, MPEG-2/4, AAC, ...).
+      - gstreamer1.0-gtk3
+      - gstreamer1.0-plugins-bad
+      - gstreamer1.0-libav
+      # gnome-core26 ships neither Grilo nor totem-pl-parser nor libpeas.
+      # grilo-plugins provides the filesystem/local-metadata plugins used by
+      # the Videos and Music views.
+      - libgrilo-0.3-0
+      - grilo-plugins-0.3
+      - libtotem-plparser18
+      - libpeas-1.0-1
+      # typelibs for the libpeas Python loader (GIR is not in libpeas-1.0-1)
+      - gir1.2-peas-1.0
+      # totem-pl-parser, Grilo and grilo-plugins need libxml2, which is in
+      # the SDK but not in the gnome-core26 content snap.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup deletes every staged *.so that also exists in the
+      # gnome-core26-sdk, but the gnome-core26 content snap does not ship
+      # libxml2 (the SDK does). Keep it outside the SDK's path layout;
+      # $SNAP/usr/lib is in the LD_LIBRARY_PATH that snapcraft generates.
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* \
+          $CRAFT_PART_INSTALL/usr/lib/

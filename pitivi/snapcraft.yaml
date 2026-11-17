@@ -1,0 +1,263 @@
+name: pitivi
+version: '2023.03.0'
+summary: Video editor based on GStreamer Editing Services
+description: |
+  Pitivi is a non-linear video editor built on the GStreamer Editing
+  Services. It provides a timeline with layers, trimming, splitting and
+  transitions, keyframe curves for effects, and rendering to a wide range of
+  formats through GStreamer.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Pitivi can only open and save projects and media from your home directory
+    (non-hidden paths) and, when the removable-media interface is connected,
+    from removable drives. Files in system directories or in another
+    application's private data are not visible; files picked through the
+    desktop portal's file chooser are granted access individually.
+  - Settings, recent projects and caches live in the snap's private per-user
+    area (~/snap/pitivi/...) instead of ~/.config/pitivi, and are not shared
+    with a distribution-packaged Pitivi.
+  - The GStreamer base and good plugins come from the platform snap; the bad,
+    ugly and libav plugin sets and the GStreamer Editing Services are bundled
+    with this snap. Codecs the snap does not ship cannot be installed at
+    runtime: the install-on-demand dialog used by distribution packages
+    relies on PackageKit, which a strictly confined snap cannot use.
+  - The offline user manual is not built, because the host's help viewer
+    cannot read documentation stored inside a snap. When no help handler is
+    available, Help > User Manual falls back to the online manual.
+  - The text/x-xges and text/x-xptv MIME types are registered inside the snap
+    only, so the host cannot associate .xges project files with Pitivi
+    automatically.
+  - libpeas-based plugins are supported, but plugins must be placed in the
+    snap's own plugin directory (~/snap/pitivi/...); plugins installed for a
+    distribution package are not visible.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Pitivi needs beyond the GNOME
+# runtime is either built from source or staged from the 26.04 archive; no
+# vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: LGPL-2.1-or-later
+website: https://www.pitivi.org/
+source-code: https://gitlab.gnome.org/GNOME/pitivi
+issues: https://gitlab.gnome.org/GNOME/pitivi/-/issues
+
+icon: snap/local/pitivi.png
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Pitivi is a Gtk.Application with the id org.pitivi.Pitivi (hardcoded in
+  # pitivi/application.py); the slot lets the strict snap own that name on the
+  # session bus so a second launch activates the running window.
+  pitivi:
+    interface: dbus
+    bus: session
+    name: org.pitivi.Pitivi
+
+apps:
+  pitivi:
+    extensions: [gnome]
+    command: bin/pitivi-launcher
+    desktop: usr/share/applications/org.pitivi.Pitivi.desktop
+    common-id: org.pitivi.Pitivi.desktop
+    plugs:
+      - audio-playback  # play the timeline through the host's audio server
+      - gsettings       # GTK reads the theme, fonts and desktop settings
+      - home            # open and save projects and media in the user's home
+      - network         # startup check for new releases (RELEASES_URL)
+      - removable-media # media on USB sticks and other removable drives
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/pitivi-launcher
+      # Raster copy of the upstream icon, used as the store icon and as the
+      # 512x512 fallback next to the scalable icon Meson installs.
+      pitivi.png: usr/share/icons/hicolor/512x512/apps/org.pitivi.Pitivi.png
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap provides Python 3.14,
+      # PyGObject, pycairo, dbus-python, GTK 3 and the GTK 3 typelibs, but not
+      # these modules, which Pitivi imports at startup or uses for the
+      # timeline UI:
+      - python3-numpy          # keyframe curves and audio waveform peaks
+      - python3-matplotlib     # the keyframe-curve widgets
+      - python-matplotlib-data # matplotlib's fonts and mpl-data
+      - python3-pil            # imported by matplotlib.colors
+      - python3-dateutil       # matplotlib dependency
+      - python3-contourpy      # matplotlib dependency
+      - python3-cycler         # matplotlib dependency
+      - python3-kiwisolver     # matplotlib dependency
+      - python3-pyparsing      # matplotlib dependency
+      - python3-packaging      # matplotlib dependency
+      # GStreamer's Python overrides (Gst.Fraction, Gst.Structure, ...). The
+      # platform ships PyGObject but not gst-python, and pitivi/check.py exits
+      # when Gst.Fraction cannot be constructed.
+      - python3-gst-1.0
+      # Pitivi's plugin engine (pitivi/pluginmanager.py uses Peas 1.0 and its
+      # python3 loader); gnome-core26 does not ship libpeas at all.
+      - gir1.2-peas-1.0
+      - libpeas-1.0-1         # includes libpeas-1.0/loaders/libpython3loader.so
+      # numpy links libblas.so.3 and numpy.linalg also loads liblapack.so.3.
+      # The reference BLAS/LAPACK packages keep their libraries in private
+      # subdirectories and only update-alternatives creates those names;
+      # liblapack needs libgfortran, which the platform does not ship either.
+      - libblas3
+      - liblapack3
+      - libgfortran5
+      # Not in gnome-core26 nor in the mesa-2604 GPU content snap that the
+      # gnome extension connects; both are needed by PIL's _imaging modules.
+      - libimagequant0
+      - libraqm0
+    # Stage only these runtime files. An explicit list keeps the interpreter
+    # and its standard library out of the snap (python3-pil, python3-gst-1.0
+    # and python3-numpy depend on python3, whose files would otherwise be
+    # staged too). The extension's gnome/cleanup part then removes any shared
+    # object that duplicates the SDK.
+    stage:
+      - usr/lib/python3/dist-packages/contourpy
+      - usr/lib/python3/dist-packages/contourpy-*.dist-info
+      - usr/lib/python3/dist-packages/cycler
+      - usr/lib/python3/dist-packages/cycler-*.dist-info
+      - usr/lib/python3/dist-packages/dateutil
+      - usr/lib/python3/dist-packages/python_dateutil-*.dist-info
+      - usr/lib/python3/dist-packages/gi/overrides/Gst*.py
+      - usr/lib/python3/dist-packages/gi/overrides/_gi_gst*.so
+      - usr/lib/python3/dist-packages/kiwisolver
+      - usr/lib/python3/dist-packages/kiwisolver-*.dist-info
+      - usr/lib/python3/dist-packages/matplotlib
+      - usr/lib/python3/dist-packages/matplotlib-*.dist-info
+      - usr/lib/python3/dist-packages/mpl_toolkits
+      - usr/lib/python3/dist-packages/numpy
+      - usr/lib/python3/dist-packages/numpy-*.dist-info
+      - usr/lib/python3/dist-packages/packaging
+      - usr/lib/python3/dist-packages/packaging-*.dist-info
+      - usr/lib/python3/dist-packages/PIL
+      - usr/lib/python3/dist-packages/pillow-*
+      - usr/lib/python3/dist-packages/pyparsing
+      - usr/lib/python3/dist-packages/pyparsing-*.dist-info
+      - usr/lib/*/blas/libblas.so.3*
+      - usr/lib/*/girepository-1.0/Peas-1.0.typelib
+      - usr/lib/*/lapack/liblapack.so.3*
+      - usr/lib/*/libblas.so.3
+      - usr/lib/*/libgfortran.so.5*
+      - usr/lib/*/libimagequant.so.0*
+      - usr/lib/*/liblapack.so.3
+      - usr/lib/*/libpeas-1.0.so.1*
+      - usr/lib/*/libpeas-1.0/loaders/libpython3loader.so
+      - usr/lib/*/libraqm.so.0*
+    override-build: |
+      set -eux
+      craftctl default
+      # Debian's matplotlib only searches $HOME/.config and /etc for
+      # matplotlibrc, and get_data_path() falls back to the hardcoded
+      # /usr/share/matplotlib/mpl-data unless the data sits next to the
+      # module. All those paths belong to the base snap at runtime, so move
+      # the data into the module and point MATPLOTLIBRC at it (see the
+      # launcher).
+      mpl="$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/matplotlib"
+      mv "$CRAFT_PART_INSTALL/usr/share/matplotlib/mpl-data" "$mpl/mpl-data"
+      rm -rf "$CRAFT_PART_INSTALL/usr/share/matplotlib"
+      # libblas3/liblapack3 install their libraries under blas/ and lapack/ and
+      # rely on update-alternatives for the libblas.so.3 and liblapack.so.3
+      # names numpy links against; stage-packages unpacks the debs without
+      # running maintainer scripts, so recreate the links.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      ln -sfn blas/libblas.so.3 "$libdir/libblas.so.3"
+      ln -sfn lapack/liblapack.so.3 "$libdir/liblapack.so.3"
+
+  gstreamer:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides GStreamer 1.28.2 with the base and good plugin
+      # sets only. Pitivi hard-requires GES, GstTranscoder and the GTK 3 sink
+      # plugin (pitivi/check.py checks for the "gtk" plugin and gtksink), and
+      # it uses the bad/ugly/libav sets for the parsers, muxers, encoders and
+      # decoders involved in editing and rendering.
+      - gir1.2-ges-1.0              # GES-1.0.typelib
+      - gir1.2-gst-plugins-bad-1.0  # GstTranscoder-1.0.typelib
+      - gstreamer1.0-gtk3           # libgstgtk.so: gtksink, gtkglsink
+      - gstreamer1.0-libav          # avdec_* and avenc_* codecs
+      - gstreamer1.0-plugins-bad    # videoparsersbad, mpegtsmux, transcodebin
+      - gstreamer1.0-plugins-ugly   # x264enc, mpeg2dec, dvdreadsrc
+      - libges-1.0-0                # libges-1.0.so.0, libgstges.so, libgstnle.so
+      # libges loads its projects with libxml2. gnome-core26 does not ship
+      # libxml2 at all (only libxmlb), so unlike the other staged libraries
+      # this one is not removed by gnome/cleanup.
+      - libxml2-16
+    stage:
+      - -usr/share/doc
+      - -usr/share/lintian
+
+  pitivi:
+    source: https://gitlab.gnome.org/GNOME/pitivi.git
+    source-type: git
+    source-tag: '2023.03.0'
+    source-depth: 1
+    plugin: meson
+    override-pull: |
+      craftctl default
+      # Let the waveform renderer stop dropping a borrowed reference; the
+      # resulting heap corruption crashes the app during garbage collection
+      # under Python 3.14 (see the patch header for the details).
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-renderer-do-not-decref-borrowed-list.patch"
+    meson-parameters:
+      # Install under the path the snap is mounted at, so the LIBDIR/DATADIR
+      # values baked into usr/bin/pitivi and pitivi/configure.py point inside
+      # the snap; the organize entry below then moves the tree to usr/.
+      - --prefix=/snap/pitivi/current/usr
+      - --buildtype=release
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly. It is the 3.14 from the core26
+      # archive, the same ABI as the platform interpreter the launcher runs.
+      - -Dpython=/usr/bin/python3
+      # The help pages are only reachable through the host's yelp, which
+      # cannot see the snap's documentation, so they are not built; Help >
+      # User Manual falls back to the online manual when no handler exists.
+      - -Ddisable-help=true
+    organize:
+      snap/pitivi/current/usr: usr
+    build-packages:
+      # The gnome-core26-sdk build snap provides GTK 3, GLib, cairo and the
+      # GObject introspection tooling; these are the dependencies it lacks.
+      - gettext # msgfmt/msgmerge for the message catalogs
+      - libcairo2-dev
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      - meson
+      - ninja-build
+      - patch             # applies patches/0001-... in override-pull
+      - python3-cairo-dev # py3cairo.h and py3cairo.pc for the renderer helper
+      - python3-dev       # Python.h and python-3.14-embed.pc
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension exports the SDK's PYTHONPATH, GI_TYPELIB_PATH,
+      # LD_LIBRARY_PATH and GST_PLUGIN_* variables while building, and Meson
+      # bakes their values into usr/bin/pitivi. The SDK is not mounted at
+      # runtime, and a non-empty GST_PLUGIN_SYSTEM_PATH would replace the
+      # platform plugin path that desktop-launch sets, so clear them all.
+      sed -i \
+        -e "s|^CONFIGURED_PYTHONPATH = .*|CONFIGURED_PYTHONPATH = ''|" \
+        -e "s|^CONFIGURED_GI_TYPELIB_PATH = .*|CONFIGURED_GI_TYPELIB_PATH = ''|" \
+        -e "s|^CONFIGURED_LD_LIBRARY_PATH = .*|CONFIGURED_LD_LIBRARY_PATH = ''|" \
+        -e "s|^CONFIGURED_GST_PLUGIN_PATH = .*|CONFIGURED_GST_PLUGIN_PATH = ''|" \
+        -e "s|^CONFIGURED_GST_PLUGIN_SYSTEM_PATH = .*|CONFIGURED_GST_PLUGIN_SYSTEM_PATH = ''|" \
+        "$CRAFT_PART_INSTALL/snap/pitivi/current/usr/bin/pitivi"
+      # TryExec is resolved on the host, where no pitivi binary exists and a
+      # failed check makes desktops hide the entry. The launcher runs the
+      # platform interpreter with argv[0] "pitivi", so GTK's WM_CLASS is
+      # Pitivi; match it so the window is grouped with its launcher.
+      desktop="$CRAFT_PART_INSTALL/snap/pitivi/current/usr/share/applications/org.pitivi.Pitivi.desktop"
+      sed -i -e '/^TryExec=/d' "$desktop"
+      printf 'StartupWMClass=Pitivi\n' >> "$desktop"

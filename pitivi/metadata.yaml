@@ -1,0 +1,6 @@
+snap: pitivi
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/pitivi (2023.03.0)
+imported: '2026-11-17'

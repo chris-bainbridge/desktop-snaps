@@ -1,0 +1,216 @@
+name: rhythmbox
+version: '3.5.1'
+summary: Music player and organizer for GNOME
+description: |
+  Rhythmbox is a music playing and management application for the GNOME
+  desktop. It plays music from the local library, internet radio streams and
+  podcasts, stores and edits track metadata, reads and writes playlists and
+  can sync with portable music players.
+
+  Rhythmbox plays MP3, FLAC, Ogg Vorbis, Ogg Opus, WAV and AAC audio. The
+  GStreamer base, good and extra plugins come from the GNOME content snap;
+  this recipe adds the ugly plugin set and the two bad plugins Rhythmbox
+  needs (AAC decoding and ID3 tag writing).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://wiki.gnome.org/Apps/Rhythmbox
+source-code: https://gitlab.gnome.org/GNOME/rhythmbox
+issues: https://gitlab.gnome.org/GNOME/rhythmbox/-/issues
+
+# Rhythmbox is pinned to the newest stable upstream release, 3.5.1
+# (2026-08-24), and built with Meson.
+#
+# Strict confinement is mandatory because these snaps target Core Desktop,
+# which has no classic snaps. The limitations that follow from that are
+# documented in README.md; the notable ones are that only the user's home
+# directory, removable media and the network are reachable, and that audio
+# CD and portable-player support is restricted.
+
+platforms:
+  amd64:
+  arm64:
+
+# Rhythmbox compiles the plugin and data directories into the binaries as
+# /usr/lib/<triplet>/rhythmbox and /usr/share/rhythmbox (LIBDIR and DATADIR
+# in shell/meson.build). Inside the snap those directories live under
+# $SNAP, so bind the compiled-in paths to the staged copies. libpeas looks
+# for its loaders at the libdir it was built with as well.
+layout:
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/rhythmbox:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/rhythmbox
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0
+  /usr/share/rhythmbox:
+    bind: $SNAP/usr/share/rhythmbox
+
+slots:
+  # for GtkApplication registration, matching
+  # data/org.gnome.Rhythmbox3.service.in
+  rhythmbox:
+    interface: dbus
+    bus: session
+    name: org.gnome.Rhythmbox3
+  # media player remote control (MPRIS plugin)
+  mpris:
+    interface: dbus
+    bus: session
+    name: org.mpris.MediaPlayer2.rhythmbox
+  # UPnP/DLNA media server (dbus-media-server plugin)
+  media-server:
+    interface: dbus
+    bus: session
+    name: org.gnome.UPnP.MediaServer2.Rhythmbox
+
+apps:
+  rhythmbox:
+    extensions: [gnome]
+    command: usr/bin/rhythmbox
+    desktop: usr/share/applications/org.gnome.Rhythmbox3.desktop
+    common-id: org.gnome.Rhythmbox3.desktop
+    plugs:
+      # library database and preferences live in dconf
+      - gsettings
+      # music library in the user's home directory
+      - home
+      # music on USB sticks, SD cards and other removable media
+      - removable-media
+      # internet radio, podcasts, Last.fm, Magnatune and UPnP servers
+      - network
+      # playback through the desktop's PulseAudio/PipeWire server
+      - audio-playback
+    environment:
+      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0:$SNAP/usr/lib/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0
+      # libgrilo and the Lua plugin factory have compiled-in paths that do
+      # not exist in the base; point them at the staged copies.
+      GRL_PLUGIN_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/grilo-0.3
+      GRL_LUA_SOURCES_PATH: $SNAP/usr/share/grilo-plugins/grl-lua-factory
+
+parts:
+  rhythmbox:
+    source: https://gitlab.gnome.org/GNOME/rhythmbox.git
+    source-type: git
+    source-tag: '3.5.1'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      # The user documentation needs yelp-tools and would not be reachable
+      # at runtime anyway (see README.md).
+      - -Dhelp=false
+      - -Dtests=disabled
+      # No Vala toolchain in the SDK; the Vala bindings are not needed.
+      - -Dplugins_vala=disabled
+      # Keep the Python plugin loader (lyrics, cover art search, replay gain,
+      # gpodder.net sync, ...). It uses the Python and PyGObject shipped by
+      # gnome-core26.
+      - -Dplugins_python=enabled
+      - -Dgrilo=enabled
+      # Everything below needs hardware the snap cannot reach (raw USB,
+      # optical drives, V4L2 radio, IR receivers) or a user-visible plug
+      # that is deliberately not declared (network-bind for DAAP sharing).
+      - -Dgudev=disabled
+      - -Dmtp=disabled
+      - -Dipod=disabled
+      - -Dfm_radio=disabled
+      - -Dbrasero=disabled
+      - -Ddaap=disabled
+      - -Dlirc=disabled
+      # libsecret is only used for DAAP passwords, and DAAP is disabled.
+      - -Dlibsecret=disabled
+    build-packages:
+      # GTK3, GLib/GIO, cairo, pango, gdk-pixbuf, gobject-introspection,
+      # gettext, meson/ninja and the gettext tooling come from the
+      # gnome-core26-sdk build snap. The libraries below are missing from it.
+      - gir1.2-freedesktop-dev
+      - libgirepository-2.0-dev
+      - libgrilo-0.3-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libgstreamer1.0-dev
+      - libjson-glib-dev
+      - libnotify-dev
+      - libpeas-dev
+      - libsoup-3.0-dev
+      - libtdb-dev
+      - libtotem-plparser-dev
+      - libxml2-dev
+      - python-gi-dev
+      - python3-dev
+    override-pull: |
+      craftctl default
+      # Use the icon shipped in the snap so it appears in the launcher.
+      sed -i -e 's|^Icon=org.gnome.Rhythmbox3$|Icon=${SNAP}/meta/gui/org.gnome.Rhythmbox3.svg|' \
+        data/org.gnome.Rhythmbox3.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp data/icons/hicolor/scalable/apps/org.gnome.Rhythmbox3.svg \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/gir-1.0
+
+  libraries:
+    after: [rhythmbox]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 does not ship libpeas (the GNOME 49 SDK moved to
+      # libpeas 2, Rhythmbox still uses the 1.x API). libpeas-1.0-1 also
+      # contains the Python 3 loader.
+      - gir1.2-peas-1.0
+      - libpeas-1.0-1
+      # Playlist parsing and the Grilo media browser are not in the content
+      # snap. grilo-plugins supplies the actual media sources (filesystem,
+      # podcasts, UPnP/DLNA, ...).
+      - grilo-plugins-0.3
+      - libgrilo-0.3-0
+      - libtotem-plparser18
+      # The content snap has the GStreamer base, good and extra plugin sets.
+      # The ugly set adds ASF/WMA demuxing, AC-3, MPEG audio, CDIO and SID.
+      - gstreamer1.0-plugins-ugly
+      # Runtime dependency of the faad plugin extracted below.
+      - libfaad2
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/gir-1.0
+
+  # gstreamer1.0-plugins-bad drags in the whole ONNX/TensorFlow/OpenCV
+  # decoder stack (hundreds of packages). Rhythmbox only needs two plugins
+  # from that source: id3tag (id3mux/id3v2mux, used to write MP3 metadata)
+  # and faad (AAC decoding). Fetch the plugin package without its
+  # dependencies and keep only those two plugins.
+  gst-bad-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad
+      dpkg-deb -x gstreamer1.0-plugins-bad_*.deb "$CRAFT_PART_INSTALL"
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/gstreamer-1.0/libgstid3tag.so
+
+  cleanup:
+    after: [libraries, gst-bad-extras]
+    plugin: nil
+    build-snaps: [gnome-core26]
+    override-prime: |
+      set -eux
+      # staging gstreamer1.0-plugins-ugly and the library dependencies pulls
+      # in copies of the GStreamer core, base/good/extra plugins and other
+      # desktop libraries that gnome-core26 already provides. Drop every
+      # primed file whose path also exists in the content snap.
+      cd /snap/gnome-core26/current
+      find usr/lib \( -type f -o -type l \) | while IFS= read -r file; do
+        rm -f "$CRAFT_PRIME/$file"
+      done
+      # Rebuild the schema cache for the schemas that remain in prime.
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .

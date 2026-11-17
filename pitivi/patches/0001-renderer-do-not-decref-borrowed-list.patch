@@ -1,0 +1,33 @@
+Fix a reference-counting bug in the waveform renderer
+
+PyArg_ParseTuple() with the "O!" format returns a borrowed reference, so the
+two Py_DECREF (samples) calls (the error path and the success path) drop a
+reference the function never owned. AudioPreviewer._render_waveform() passes a
+freshly sliced list, whose refcount then drops to zero while the caller still
+uses it: the list is freed twice, the heap is corrupted, and with Python 3.14
+the corruption surfaces as a segfault in the next garbage collection.
+
+This is a local patch, not an upstream change; the two Py_DECREF calls are
+simply removed because the argument is owned by the caller and lives until
+fill_surface() returns.
+
+--- a/pitivi/coptimizations/renderer.c
++++ b/pitivi/coptimizations/renderer.c
+@@ -53,7 +53,7 @@
+     /* If the object was not a float or convertible to float */
+     if (PyErr_Occurred ()) {
+       cairo_surface_finish (surface);
+-      Py_DECREF (samples);
++      /* borrowed reference; do not decref */
+       return NULL;
+     }
+ 
+@@ -70,7 +70,7 @@
+     x += pixelsPerSample;
+   }
+ 
+-  Py_DECREF (samples);
++  /* borrowed from PyArg_ParseTuple; do not decref */
+   cairo_line_to (ctx, width, height);
+   cairo_close_path (ctx);
+   cairo_fill_preserve (ctx);
