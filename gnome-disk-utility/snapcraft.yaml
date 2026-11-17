@@ -1,0 +1,102 @@
+name: gnome-disk-utility
+adopt-info: gnome-disk-utility
+summary: Disk management utility for GNOME
+description: |
+  Disks provides an easy way to inspect, format, partition, and configure
+  disks and block devices.
+
+  Using Disks, you can view SMART data, manage devices, benchmark physical
+  disks, and image USB sticks.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  gnome-disk-utility:
+    interface: dbus
+    bus: session
+    name: org.gnome.DiskUtility
+
+apps:
+  gnome-disk-utility:
+    extensions: [gnome]
+    command: usr/bin/gnome-disks
+    desktop: usr/share/applications/org.gnome.DiskUtility.desktop
+    common-id: org.gnome.DiskUtility.desktop
+    plugs:
+      # GNOME Disks is a pure UDisks2 D-Bus client: every privileged
+      # operation (partitioning, formatting, mounting, SMART, benchmarks,
+      # LUKS, fstab/crypttab edits) is performed by the host udisksd. The
+      # snap itself never opens block devices and needs no root helper, so
+      # do not add block-devices or classic confinement.
+      #
+      # The udisks2 interface is DENY-AUTO-CONNECTION. It is not connected at
+      # install time; connect it manually:
+      #   snap connect gnome-disk-utility:udisks2
+      # or have a store declaration grant it when the snap is published.
+      - udisks2
+      - gsettings
+      # read-only visibility of the host mount table and hardware details.
+      # These are also deny-auto-connection in snapd's base declaration, so
+      # connect them manually (or via a store declaration):
+      #   snap connect gnome-disk-utility:mount-observe
+      #   snap connect gnome-disk-utility:hardware-observe
+      - mount-observe
+      - hardware-observe
+      # disk images are read from and written to user-chosen files.  Files on
+      # removable media are reached through the desktop portal (the gnome
+      # extension sets GTK_USE_PORTAL=1); add removable-media as well if
+      # direct access is wanted (it is also deny-auto-connection).
+      - home
+
+# GNOME Disks 46.1 is the latest upstream stable release (the only newer tag
+# is 51.beta). It is a GTK3 + libhandy application; GTK3, libhandy,
+# libsecret, libnotify, libcanberra-gtk3, liblzma and libsystemd are provided
+# by the gnome extension (gnome-core26 SDK/content snaps). Only the libraries
+# missing from that platform are staged from the 26.04 archive.
+parts:
+  gnome-disk-utility:
+    source: https://gitlab.gnome.org/GNOME/gnome-disk-utility.git
+    source-type: git
+    source-tag: '46.1'
+    source-depth: 1
+    plugin: meson
+    # 46.1's appdata has no <releases> section, so adopt-info takes the
+    # version from `git describe` below instead of parse-info.
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      # The GNOME Settings Daemon notification plugin installs a libexec
+      # helper plus an XDG autostart file; neither can work from inside a
+      # confined snap, so leave it out.
+      - -Dgsd_plugin=false
+      # man pages need xsltproc and docbook-xsl from the archive; skip them
+      - -Dman=false
+    build-packages:
+      - libdvdread-dev
+      - libpwquality-dev
+      - libudisks2-dev
+    stage-packages:
+      - libdvdread8t64
+      - libpwquality1
+      - libudisks2-0
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=org.gnome.DiskUtility$|Icon=${SNAP}/meta/gui/org.gnome.DiskUtility.svg|g' data/org.gnome.DiskUtility.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.DiskUtility.svg $CRAFT_PART_INSTALL/meta/gui/
+      # D-Bus activation is provided by the dbus slot above (snapd writes a
+      # service file that runs "snap run"). Upstream's own service file has a
+      # host-absolute Exec (/usr/bin/gnome-disks) and would launch the host
+      # application instead of the confined snap, so do not ship it.
+      rm -f $CRAFT_PART_INSTALL/usr/share/dbus-1/services/org.gnome.DiskUtility.service

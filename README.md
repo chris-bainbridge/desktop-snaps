@@ -5,14 +5,14 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 59 repackage snaps: the 13
+one-repository-per-snap setup. It contains 63 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
 from other `~desktop-snappers` repositories on 2026-11-17, 14 from the
-personal packaging repositories of Canonical staff, and 4 new recipes
+personal packaging repositories of Canonical staff, and 8 new recipes
 written on 2026-11-17.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the four new recipes, which are not in the store yet. Bases: 23 `core26`,
+the eight new recipes, which are not in the store yet. Bases: 27 `core26`,
 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26` packages
 have not been migrated.
 
@@ -143,7 +143,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (59)
+## Snaps in scope (63)
 
 ### Migrated to core26 (13)
 
@@ -173,14 +173,19 @@ From personal packaging repositories of Canonical staff (14):
 `geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
 `squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
 
-### New core26 recipes (4)
+### New core26 recipes (8)
 
-`terminator`, `meld`, `gnome-tweaks`, `dconf-editor`.
+`terminator`, `meld`, `gnome-tweaks`, `dconf-editor`, `baobab`,
+`gnome-disk-utility`, `homebank`, `bleachbit`.
 
 Written from scratch on 2026-11-17; not published yet. All use strict
 confinement because these snaps must run on Core Desktop, which has no
-classic snaps. For `terminator` that means the shell sees the snap's
-filesystem and private HOME, not the host's dotfiles or tools.
+classic snaps. Strict limits are documented in each recipe; the notable
+ones: terminator sees the snap's filesystem and private HOME; baobab scans
+only the base root, home and removable media; gnome-disk-utility needs the
+udisks2, mount-observe and hardware-observe plugs connected manually;
+homebank does not reuse the host configuration; bleachbit can only clean
+user-visible paths, not system data or hidden directories.
 
 The last group repackages distinct upstream projects; only the recipes are
 checked in. snapcraft fetches upstream sources, and for the proprietary
@@ -220,8 +225,8 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 36 imported packages still on older bases; 23 of
-  the 59 are on `core26` (13 migrated, 6 imported and 4 new), and `freemind`
+- `core26` migration of the 36 imported packages still on older bases; 27 of
+  the 63 are on `core26` (13 migrated, 6 imported and 8 new), and `freemind`
   is still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

@@ -1,0 +1,128 @@
+name: bleachbit
+version: '6.0.6'
+summary: Free space and maintain privacy
+description: |
+  BleachBit frees disk space and maintains privacy by removing unnecessary
+  files such as caches, cookies, browser history, temporary files and logs.
+  It can also shred files and wipe free disk space to prevent data recovery.
+
+  The snap is strictly confined and can only clean files that the snap
+  interfaces expose. System-wide cleaning of directories such as /var/cache,
+  /var/log and the APT and journald data needs root and is not available.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Upstream BleachBit is usually started as root
+# (sudo bleachbit) to clean system-wide locations, and it ships a polkit
+# action for that. A strictly confined snap never gets root-equivalent access,
+# so system-wide cleaning is not available here and the polkit action is not
+# installed (see the override-build below).
+#
+# The "home" interface also excludes top-level hidden directories of $HOME
+# (~/.cache, ~/.config, ~/.local/share, ~/.mozilla, ...). User-level cleaning
+# therefore only covers paths the interface exposes: the GUI starts and can
+# preview, clean and shred files in visible directories, but cleaning browser
+# caches and application data in hidden directories would need "personal-files"
+# plugs, which require a store declaration and are not part of this recipe.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://www.bleachbit.org/
+source-code: https://github.com/bleachbit/bleachbit
+issues: https://github.com/bleachbit/bleachbit/issues
+
+icon: snap/local/bleachbit.png
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # BleachBit's window is a Gtk.Application whose id is hardcoded as
+  # org.gnome.Bleachbit in bleachbit/GuiApplication.py. The slot lets a strict
+  # snap own that name on the session bus.
+  gapplication:
+    interface: dbus
+    bus: session
+    name: org.gnome.Bleachbit
+
+apps:
+  bleachbit:
+    extensions: [gnome]
+    command: bin/bleachbit-launcher
+    desktop: usr/share/applications/org.bleachbit.BleachBit.desktop
+    common-id: org.bleachbit.BleachBit.desktop
+    plugs:
+      - gsettings # GTK 3 reads the desktop theme, fonts and settings
+      - home      # clean and shred the user's own files
+      - network   # update check and winapp2.ini download
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/bleachbit-launcher
+      bleachbit.png: usr/share/icons/hicolor/256x256/apps/bleachbit.png
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, dbus-python and the GTK 3 typelibs,
+      # so no interpreter or gobject binding is staged. These modules are not
+      # in the platform and are the ones BleachBit imports at runtime:
+      # psutil and charset-normalizer for FileUtilities, requests and urllib3
+      # for the network features (the update check also reports a startup
+      # warning when requests/urllib3 are missing).
+      - python3-certifi
+      - python3-charset-normalizer
+      - python3-idna
+      - python3-psutil
+      - python3-requests
+      - python3-urllib3
+    # Stage only the modules, not their dependencies' interpreter: an explicit
+    # list keeps /usr/bin/python3 and the stdlib out of the snap. The
+    # extension's gnome/cleanup part only prunes shared objects that duplicate
+    # the SDK, so the psutil and charset-normalizer extensions are kept.
+    stage:
+      - usr/lib/python3/dist-packages/certifi
+      - usr/lib/python3/dist-packages/certifi-*.dist-info
+      - usr/lib/python3/dist-packages/charset_normalizer
+      - usr/lib/python3/dist-packages/charset_normalizer-*.dist-info
+      - usr/lib/python3/dist-packages/idna
+      - usr/lib/python3/dist-packages/idna-*.dist-info
+      - usr/lib/python3/dist-packages/psutil
+      - usr/lib/python3/dist-packages/psutil-*.dist-info
+      - usr/lib/python3/dist-packages/requests
+      - usr/lib/python3/dist-packages/requests-*.dist-info
+      - usr/lib/python3/dist-packages/urllib3
+      - usr/lib/python3/dist-packages/urllib3-*.dist-info
+
+  bleachbit:
+    source: https://github.com/bleachbit/bleachbit.git
+    source-type: git
+    source-tag: 'v6.0.6'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - gettext # msgfmt for the translations
+      - make
+    override-build: |
+      set -eux
+      # setup.py only produces an sdist; upstream installs with the Makefile.
+      # It writes bin/bleachbit plus the code, cleaners and translations under
+      # /usr/share/bleachbit, which is the layout the application expects
+      # (it derives its data directory from the executable's location).
+      make install DESTDIR="$CRAFT_PART_INSTALL" prefix=/usr
+      # System-wide cleaning runs as root upstream and cannot work in a strict
+      # snap, so shipping the polkit action would only be misleading.
+      rm -rf "$CRAFT_PART_INSTALL/usr/share/polkit-1"
+      # TryExec is resolved on the host, where no bleachbit binary exists, and
+      # a failed TryExec makes desktop environments hide the entry. Also match
+      # the WM class to the Gtk.Application id (GLib.set_prgname) so the shell
+      # groups the window with its launcher.
+      sed -i \
+        -e '/^TryExec=/d' \
+        -e 's/^StartupWMClass=.*/StartupWMClass=org.bleachbit.BleachBit/' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/org.bleachbit.BleachBit.desktop"

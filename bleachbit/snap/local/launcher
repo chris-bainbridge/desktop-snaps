@@ -1,0 +1,23 @@
+#!/bin/sh
+# BleachBit is a Python 3 + GTK 3 application. The GNOME platform snap that
+# the gnome extension mounts at $SNAP/gnome-platform provides the Python 3.14
+# interpreter, PyGObject, pycairo, dbus-python and the GTK 3 typelibs. psutil,
+# requests, urllib3, charset-normalizer, idna and certifi are staged inside
+# this snap because the platform does not ship them.
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+# Strict snaps start with HOME=$SNAP_USER_DATA, i.e. a private directory. Point
+# HOME at the user's real home so the cleaners that expand "~" see the user's
+# files. This does not grant anything by itself: the "home" interface still
+# only exposes non-hidden entries of the home directory, and system paths such
+# as /var/cache or /var/log stay hidden by confinement.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+# BleachBit stores its settings in $HOME/.config/bleachbit, which the "home"
+# interface does not expose (top-level hidden directories are excluded). Keep
+# them in the snap's persistent per-user data directory instead.
+# BLEACHBIT_TEST_OPTIONS_DIR is the only settings-directory override upstream
+# exposes (it is the hook upstream's own test suite uses).
+export BLEACHBIT_TEST_OPTIONS_DIR="$SNAP_USER_COMMON/.config/bleachbit"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/bleachbit" "$@"

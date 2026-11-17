@@ -1,0 +1,77 @@
+name: homebank
+version: '5.10.4'
+summary: Free personal finance and accounting software
+description: |
+  HomeBank is a free, easy personal accounting application. It helps you
+  manage your accounts, track income and expenses, reconcile bank
+  statements, plan budgets and analyse your finances with reports and
+  charts.
+
+  It can import bank statements in OFX/QFX, QIF and CSV formats.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.gethomebank.org/
+source-code: https://code.launchpad.net/homebank
+issues: https://bugs.launchpad.net/homebank
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  homebank:
+    extensions: [gnome]
+    command: usr/bin/homebank
+    desktop: usr/share/applications/homebank.desktop
+    plugs:
+      - gsettings
+      - home
+      - network
+      # statements and backups can live on a USB stick
+      - removable-media
+      # reports and charts are printed through the GTK print dialog
+      - cups-control
+    environment:
+      # libofx looks for its OFX DTDs under a compiled-in /usr/share path.
+      # Point it at the copy staged inside the snap instead.
+      OFX_DTD_PATH: $SNAP/usr/share/libofx7/libofx/dtd
+
+parts:
+  homebank:
+    # Upstream publishes releases as source tarballs and keeps the matching
+    # commits on the 5.10.x branch of Launchpad git, but that repository
+    # carries no release tags. Pin the official 5.10.4 tarball (Launchpad
+    # commit c40a774f31c21c80a3f38129e83b3fc404bf6264) by checksum.
+    source: https://www.gethomebank.org/public/sources/homebank-5.10.4.tar.gz
+    source-checksum: sha256/f8072131328e7c1d6ca336f809e265e483c6d6d21f3654bc520700d27deae2d8
+    plugin: autotools
+    autotools-configure-parameters:
+      # HomeBank compiles its data directory into the binary (SHARE_DIR and
+      # DATA_DIR in src/Makefile.am), so install to the path where the snap is
+      # mounted at runtime, then move it back under usr/ below.
+      - --prefix=/snap/homebank/current/usr
+    organize:
+      snap/homebank/current/usr: usr
+    build-packages:
+      # GTK3, GLib and libsoup-3.0 development files come from the
+      # gnome-core26-sdk build snap.
+      - intltool
+      - libofx-dev
+
+  libraries:
+    after: [homebank]
+    plugin: nil
+    stage-packages:
+      # OFX/QFX import support. libofx and its OpenSP dependency are not part
+      # of gnome-core26, so stage the 26.04 archive versions. libofx links
+      # libosp.so.5 from /usr/lib (not the triplet directory); both paths are
+      # in the LD_LIBRARY_PATH set up by the gnome extension.
+      - libofx7t64
+      - libosp5
+    prime:
+      - usr/lib/*/libofx.so.*
+      - usr/lib/libosp.so.*
+      - usr/share/libofx7/libofx/dtd/*

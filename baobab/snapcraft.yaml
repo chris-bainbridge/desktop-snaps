@@ -1,0 +1,71 @@
+name: baobab
+adopt-info: baobab
+summary: Check folder sizes and available disk space
+description: |
+  Disk Usage Analyzer (Baobab) is a graphical tool that keeps your disk usage
+  under control. It scans a folder, a storage device or a remote location and
+  shows the size of each subfolder as a tree and as a ring or treemap chart,
+  making it easy to find where disk space is wasted.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  baobab:
+    interface: dbus
+    bus: session
+    name: org.gnome.baobab
+
+apps:
+  baobab:
+    extensions: [gnome]
+    command: usr/bin/baobab
+    desktop: usr/share/applications/org.gnome.baobab.desktop
+    common-id: org.gnome.baobab.desktop
+    plugs:
+      - gsettings
+      - home
+      - removable-media
+
+# Baobab 50.0 is a GTK4 + libadwaita application written in Vala (meson
+# build). GTK 4 (4.24), libadwaita (1.10), valac, the GObject introspection
+# data and the GSettings/dconf runtime are all provided by the gnome extension
+# (gnome-core26 SDK/content snaps), so no build- or stage-packages are needed.
+#
+# Strict confinement limitations: the application sees the core26 base root,
+# not the host's. "Scan Filesystem" therefore scans the snap's own mount
+# namespace (base plus mounted content), and the home interface hides
+# top-level dotfiles/directories in $HOME, so ~/.cache and ~/.local are not
+# counted. The "Home Folder" location resolves $HOME to the snap's private
+# data directory, where only the XDG user directories are symlinked into the
+# real home; use "Scan Folder" to analyse the rest of the real home.
+# removable-media is not auto-connected and only exposes /media, /mnt and
+# /run/media; other host paths (other users' homes, /var, /usr) are
+# unreachable. gvfs mounts under /run/user/*/gvfs are readable through the
+# home interface once the host has mounted them.
+parts:
+  baobab:
+    source: https://gitlab.gnome.org/GNOME/baobab.git
+    source-type: git
+    source-tag: '50.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.baobab.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=0)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=org.gnome.baobab$|Icon=${SNAP}/meta/gui/org.gnome.baobab.svg|g' data/org.gnome.baobab.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.baobab.svg $CRAFT_PART_INSTALL/meta/gui/
