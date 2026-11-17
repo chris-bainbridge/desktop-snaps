@@ -1,0 +1,355 @@
+name: prismlauncher
+title: Prism Launcher
+version: '11.1.1'
+summary: Custom launcher for Minecraft
+description: |
+  Prism Launcher is a custom launcher for Minecraft. It manages multiple
+  isolated instances, installs game versions and loaders (Fabric, Forge,
+  NeoForge, Quilt, LiteLoader), browses Modrinth and CurseForge for mods,
+  modpacks, resource packs and shaders, signs in to Microsoft and Mojang
+  accounts, and keeps every instance's mods, worlds and settings separate.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - No Java runtime is bundled. Inside the sandbox /usr is the core26 base,
+    so the host's /usr/bin/java and a distribution OpenJDK under /usr/lib/jvm
+    do not exist and Prism Launcher finds no Java. The launcher manages
+    instances but cannot start the game until a Java runtime is available in
+    the sandbox. A Java runtime provided by a content snap would be needed for
+    a fully integrated solution and is not implemented here. As a workaround,
+    a self-contained JDK unpacked into a visible (non-hidden) home directory,
+    such as ~/jdk-21, is readable and executable through the home interface;
+    add ~/jdk-21/bin/java in Settings -> Java. JDKs in hidden directories
+    such as ~/.jdks are not visible. Prism Launcher's Java downloader is
+    compiled out, so the snap never fetches a runtime itself.
+  - The Minecraft process runs under the same confinement. The X11 and
+    PulseAudio client libraries its bundled LWJGL/GLFW and OpenAL natives load
+    are staged because the base does not provide them.
+  - Prism Launcher detects the snap and keeps its data root in
+    ~/snap/prismlauncher/common (SNAP_USER_COMMON) instead of
+    ~/.local/share/PrismLauncher. Instances, mods, worlds, accounts, caches
+    and settings live there, survive snap refreshes, and are not shared with
+    a distribution package. Non-hidden files in the real home are reachable,
+    so modpacks and worlds can be imported from ~/Downloads; the dialog starts
+    in the snap's private home. Top-level hidden entries such as ~/.config,
+    ~/.ssh and ~/.jdks are not visible. Removable drives need a manual
+    connection:
+      sudo snap connect prismlauncher:removable-media
+  - Microsoft and Mojang sign-in work: the login page opens in the host's
+    browser and the OAuth redirect returns to a loopback listener inside the
+    snap, for which network-bind is connected automatically. Whether
+    prismlauncher:// links and .mrpack/.zip files reach the snap depends on
+    the host desktop; snapd does not merge upstream's MIME definitions into
+    the host database.
+  - Feral GameMode is unavailable: gamemoded lives on the host behind a D-Bus
+    name the sandbox cannot reach, so the option stays hidden. MangoHud is not
+    bundled and host LD_PRELOAD libraries cannot be used.
+  - Game controllers do not work: Minecraft's GLFW backend reads
+    /dev/input/event*, which no interface exposes. The joystick interface only
+    covers the legacy /dev/input/js* devices, which GLFW does not open.
+  - Sound plays through the desktop's PipeWire or PulseAudio server
+    (audio-playback interface); /dev/snd is not accessible, so direct ALSA
+    output is unavailable. Rendering uses the mesa-2604 content snap through
+    the gpu extension and the opengl interface. Hybrid GPU detection uses
+    switcheroo-control on the system bus, which snapd does not expose; on
+    dual-GPU laptops set DRI_PRIME in the instance's environment variables.
+  - Qt 6.10.2 is staged from the 26.04 archive, so the host's Qt, KDE and GTK
+    themes and fonts are not visible. Prism Launcher uses its own themes and
+    icon sets; only the staged DejaVu fonts are available.
+  - Other host programs cannot be run (MCEdit, screenshot tools, a host Java,
+    scripts outside visible home paths). Only the base's tools and files in
+    visible home directories can be executed.
+  - The in-application updater is not built; updates come from the snap store.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Prism Launcher is built from the pinned upstream
+# release tag; Qt and everything else are staged from the 26.04 archive. No
+# prebuilt Prism Launcher binaries are embedded.
+#
+# Qt approach: stage Qt 6 from the 26.04 archive.
+#   * snapcraft 9.2.1 ships the kde-neon, kde-neon-6 and kde-neon-qt6
+#     extensions for core22 and core24 only; the extension code rejects every
+#     other base. KDE publishes kde-qt6-core26 (Qt 6.11.3) and kf6-core26
+#     content snaps with matching SDK snaps, but no snapcraft extension wires
+#     them up: a recipe would have to declare the content plug, build against
+#     the KDE SDK and set the multiarch Qt library, plugin and QML paths by
+#     hand.
+#   * Prism Launcher is not a KDE application. It uses Qt Core, Gui, Widgets,
+#     Network, NetworkAuth, Concurrent, Xml, OpenGL and DBus, and loads the
+#     Svg image plugin for user-supplied SVG instance icons, but no KDE
+#     Frameworks. The Qt content snap is 915 MB and kf6-core26 is 1.9 GB;
+#     staging only the linked modules keeps the snap far smaller.
+#   * The 26.04 archive carries Qt 6.10.2, built for the same Ubuntu release as
+#     the core26 base, so the staged Qt shares the base's libc, libstdc++,
+#     GLib, OpenSSL, freetype, libpng and libxkbcommon. Prism Launcher 11.1.1
+#     requires Qt 6.4 or newer; 6.10.2 is supported.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libEGL/libGL/libGLX and the DRI drivers that Qt's
+# xcb and Wayland platform plugins and Minecraft's LWJGL natives link against,
+# and its cleanup part removes the Mesa copies that the Qt stage-packages
+# would otherwise leave in the snap.
+#
+# Java approach: no Java runtime is shipped.
+#   * The launcher's three helper jars (NewLaunch, NewLaunchLegacy, JavaCheck)
+#     are compiled from the upstream tag, so a JDK is needed at build time.
+#     They are bytecode, not a runtime. JDK 17 is used because the upstream
+#     CMake files pass -source 7 -target 7, which JDK 20 and newer reject.
+#   * Launcher_ENABLE_JAVA_DOWNLOADER=OFF keeps upstream's Linux default: the
+#     snap never downloads a JRE, which would otherwise turn into a bundled
+#     runtime inside the user's data directory.
+#   * The host's Java cannot be reached from a strict snap (only the base's
+#     /usr is visible, so PATH resolves to the base's java-less /usr/bin), so
+#     the recipe does not pretend to find it. See the description for the
+#     home-directory workaround and the missing Java content snap.
+#   * The game process inherits the launcher's LD_LIBRARY_PATH and runs inside
+#     the same sandbox. The X11 and PulseAudio client libraries its bundled
+#     LWJGL/GLFW and OpenAL natives load are staged in the runtime part for
+#     that reason; the launcher itself does not need them.
+#
+# GameMode: gamemode is a required upstream dependency on Linux and is linked,
+# but the daemon lives on the host and its D-Bus name is not reachable, so
+# gamemode_query_status() fails and the option stays hidden.
+#
+# MIME: upstream installs a definition for the prismlauncher:// scheme and its
+# modpack types. snapcraft ships it, and the cleanup part rebuilds the staged
+# MIME cache so QMimeDatabase sees it; snapd does not merge it into the host
+# database.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-only
+website: https://prismlauncher.org/
+source-code: https://github.com/PrismLauncher/PrismLauncher
+issues: https://github.com/PrismLauncher/PrismLauncher/issues
+
+icon: snap/local/prismlauncher.svg
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig and X11 keyboard/locale data have to appear at the
+# absolute paths their libraries were built with; /usr and /etc inside the
+# snap are the core26 base. The bind targets already exist in the base; the
+# binds replace their contents with the staged copies.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+
+apps:
+  prismlauncher:
+    extensions: [gpu]
+    command: bin/prismlauncher-launcher
+    desktop: usr/share/applications/org.prismlauncher.PrismLauncher.desktop
+    common-id: org.prismlauncher.PrismLauncher
+    # No gsettings plug: Prism Launcher is a Qt application and does not read
+    # GSettings. Qt's GTK platform theme, which would, is not staged.
+    plugs:
+      - audio-playback # the game's OpenAL output through PipeWire/PulseAudio
+      - desktop        # snapctl user-open for login, help and project pages
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home           # modpacks, worlds and screenshots in the user's home
+      - network        # Minecraft services, Modrinth, CurseForge, news
+      - network-bind   # OAuth loopback listener and LAN worlds
+      - opengl         # /dev/dri access for the mesa-2604 content snap
+      - removable-media # instances, modpacks and worlds on removable drives
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland for the game's GLFW
+
+parts:
+  local:
+    # The launcher fixes up the paths that Qt looks up outside the staged tree.
+    # The desktop entry installed by upstream is used as-is; snapcraft and
+    # snapd rewrite its Exec lines.
+    plugin: dump
+    source: snap/local
+    organize:
+      prismlauncher-launcher: bin/prismlauncher-launcher
+    prime:
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -prismlauncher.svg
+
+  prismlauncher:
+    # 11.1.1 is the latest stable upstream release (2026-09-28); the annotated
+    # tag 11.1.1 points at commit
+    # 7d2d3c1ec6fcf8255ebacd02d9f792688575dfb4. It is a security hotfix for
+    # 11.1.0 (a path traversal in CurseForge modpack overrides). This is the
+    # official release tarball, which includes the libnbtplusplus submodule
+    # that the GitHub archive lacks; its content matches the tag. The checksum
+    # pins it exactly.
+    source: https://github.com/PrismLauncher/PrismLauncher/releases/download/11.1.1/PrismLauncher-11.1.1.tar.gz
+    source-checksum: sha256/9ea53f93714cd2a59dc0f38153690a59a3f06f439934d1410ec364cc7f363eb5
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # The upstream test suite is not built or run in the snap build.
+      - -DBUILD_TESTING=OFF
+      # No self-updater: Launcher_BUILD_UPDATER only arms when both
+      # Launcher_BUILD_ARTIFACT and the GitHub repository are set, and
+      # Launcher_BUILD_ARTIFACT is empty. Updates come from the snap store.
+      - -DLauncher_BUILD_PLATFORM=Snap
+      # See the Java comment block above. This keeps upstream's Linux default
+      # and makes the intent explicit.
+      - -DLauncher_ENABLE_JAVA_DOWNLOADER=OFF
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, Qt, ECM, cmark, GameMode, qrencode, libarchive,
+      # toml++ or Java headers and tools.
+      - build-essential
+      - cmake
+      - pkg-config
+      - extra-cmake-modules      # ECMAddTests, ECMQtDeclareLoggingCategory,
+                                 # KDEInstallDirs and the ECM module path
+      - qt6-base-dev             # Core, Gui, Widgets, Network, Concurrent,
+                                 # Xml, OpenGL, DBus and Test
+      - qt6-networkauth-dev      # Qt6::NetworkAuth, the Microsoft OAuth flow
+      - libcmark-dev             # the About/changelog Markdown renderer
+      - gamemode-dev             # gamemode_client.h and gamemode.pc
+      - libqrencode-dev          # the MSA device-code QR code
+      - libarchive-dev           # modpack and instance import/export
+      - libtomlplusplus-dev      # launcher.cfg and instance config parsing
+      - zlib1g-dev
+      # Build-time only: javac and jar for NewLaunch, NewLaunchLegacy and
+      # JavaCheck. The launcher jars are bytecode; no runtime is shipped and
+      # openjdk-17 is not staged. JDK 17 is the newest archive JDK that
+      # accepts -source/-target 7, which upstream's CMake files request.
+      - openjdk-17-jdk-headless
+    override-build: |
+      # Pin the JDK that compiles the launcher's Java helper jars so the result
+      # does not depend on which java alternative the build environment has.
+      # CMake's FindJava checks JAVA_HOME before PATH.
+      JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
+      export JAVA_HOME
+
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates Qt's data, plugin and
+      # translation paths to the staged tree. Prefix is relative to usr/bin,
+      # so Qt follows the snap mount rather than the base. Prism Launcher
+      # installs its Java helper jars under share/PrismLauncher, which is also
+      # where Application::getJarPath() looks relative to the binary.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/qt6/translations
+      EOF
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out every package that is already in the base's chisel manifest,
+    # so the base's libc, libstdc++, OpenSSL, libz, libdrm and libxkbcommon
+    # are not duplicated here.
+    after: [prismlauncher]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6gui6        # also ships the xcb, minimal and offscreen platform
+                          # plugins and the GIF/ICO/JPEG image plugins
+      - libqt6widgets6
+      - libqt6network6    # also ships the OpenSSL TLS backend
+      - libqt6networkauth6 # Microsoft account OAuth
+      - libqt6concurrent6
+      - libqt6xml6
+      - libqt6opengl6     # skin preview, QOpenGLShaderProgram/Buffer/Texture
+      - libqt6dbus6       # switcheroo-control hybrid GPU detection (blocked)
+      - libqt6svg6
+      - qt6-svg-plugins   # libqsvg / libqsvgicon, for SVG instance icons
+      # Qt 6 has no Wayland platform plugin in qtbase; these two provide the
+      # plugin and the xdg-shell integration without the qt6-wayland extras.
+      - libqt6waylandclient6
+      - libqt6wlshellintegration6
+      - qt6-translations-l10n # Qt's own dialog translations
+      # libproxy is a dependency of Qt Network; listed so the staged tree
+      # always has it even if the archive's dependency metadata changes.
+      - libproxy1v5
+      # Prism Launcher's non-Qt runtime dependencies.
+      - libcmark0.30.2
+      - libgamemode0      # linked, but unusable under strict confinement
+      - libqrencode4
+      - libarchive13t64
+      - libtomlplusplus3t64
+      # Libraries the Minecraft process needs, not the launcher: Minecraft's
+      # bundled LWJGL/GLFW natives link libX11/libXrandr/libXcursor/libXi/
+      # libXinerama/libXxf86vm, and its bundled OpenAL loads libpulse. The
+      # game inherits the launcher's LD_LIBRARY_PATH, and the base ships none
+      # of these. libxext6 and libxrender1 come in as dependencies.
+      - libx11-6
+      - libxrandr2
+      - libxcursor1
+      - libxi6
+      - libxinerama1
+      - libxxf86vm1
+      - libpulse0
+      # The base has no fontconfig configuration and only the Plymouth font;
+      # the layout above exposes the staged fonts and configuration.
+      - fontconfig
+      - fonts-dejavu-core
+      # QMimeDatabase types the files Prism Launcher opens and imports; the
+      # base ships no MIME database. The cache is built in the cleanup part.
+      - shared-mime-info
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty usr/share/X11 and break the layout bind. Fetch
+    # the data packages directly; they contain no binaries.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  cleanup:
+    # The staged Qt/libarchive/fontconfig dependency trees contain copies of
+    # libraries that the core26 base already ships (libstdc++, OpenSSL, libz,
+    # libxkbcommon, ...). Loading two copies in one process is not safe, so
+    # drop every primed shared library whose path also exists in the base,
+    # exactly as the other core26 recipes do. Then rebuild the MIME cache over
+    # the merged tree, so Prism Launcher's own scheme and modpack definitions
+    # are registered.
+    after: [local, prismlauncher, runtime, x11-data]
+    plugin: nil
+    build-packages:
+      - shared-mime-info
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+
+      # shared-mime-info ships only the XML sources in the archive package; the
+      # maintainer script that normally builds mime.cache does not run for a
+      # staged package. Generate it here, after every part has been primed.
+      # $SNAP/usr/share is on XDG_DATA_DIRS, so Qt finds it.
+      update-mime-database "$CRAFT_PRIME/usr/share/mime"
+
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

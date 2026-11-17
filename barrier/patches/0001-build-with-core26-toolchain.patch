@@ -1,0 +1,50 @@
+Description: Fix the build with GCC 13+ and skip gtest when tests are disabled
+ The 2.4.0 tree predates GCC 13, which no longer provides <cstdint> and
+ <cstddef> transitively through the standard library headers, and it includes
+ cmake/gtest.cmake unconditionally, which builds the bundled (2017) Google
+ Test even when BARRIER_BUILD_TESTS is OFF.
+ .
+ Taken from the Debian barrier package (2.4.0+dfsg-4), patches
+ add-missing-includes-for-gcc13.patch, fix-includes.patch and
+ allow_gtest_exclusion.patch.
+
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -20,9 +20,9 @@
+ add_subdirectory(lib)
+ add_subdirectory(cmd)
+ 
+-include(../cmake/gtest.cmake)
+ 
+ if (BARRIER_BUILD_TESTS)
++    include(../cmake/gtest.cmake)
+     add_subdirectory(test/integtests)
+     add_subdirectory(test/unittests)
+ endif()
+--- a/src/lib/base/Event.h
++++ b/src/lib/base/Event.h
+@@ -19,5 +19,6 @@
+ #pragma once
+ 
++#include <cstddef>
+ #include "common/basic_types.h"
+ #include "common/stdmap.h"
+ 
+--- a/src/lib/base/String.h
++++ b/src/lib/base/String.h
+@@ -19,5 +19,6 @@
+ #pragma once
+ 
++#include <cstdint>
+ #include "common/common.h"
+ #include "common/stdstring.h"
+ 
+--- a/src/lib/net/FingerprintData.h
++++ b/src/lib/net/FingerprintData.h
+@@ -19,5 +19,6 @@
+ #define BARRIER_LIB_NET_FINGERPRINT_DATA_H
+ 
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 

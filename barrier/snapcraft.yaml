@@ -1,0 +1,329 @@
+name: barrier
+version: '2.4.0'
+summary: Share one keyboard, mouse and clipboard between computers
+description: |
+  Barrier lets one keyboard and mouse control several computers on a desk:
+  the machine whose screen edge the pointer leaves (the server) forwards the
+  input over the network to the other machines (the clients), and the
+  clipboards are merged. It is a community fork of Symless's Synergy 1
+  codebase and speaks the same protocol on TCP port 24800.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. Barrier's only Linux backend is X11, and strict confinement
+  cannot give that backend the access it needs:
+
+  - Barrier captures input with XGrabKeyboard()/XGrabPointer() and injects it
+    with the XTEST extension. A strict snap can only use the X server socket
+    the x11 interface lets it reach, and on Core Desktop that server is
+    XWayland. XWayland is a nested X server: the Wayland compositor owns the
+    real keyboard, pointer and focus, so the grabs only apply while an
+    XWayland window has focus and XTEST requests only reach XWayland's own
+    clients. Running "barriers" as a server is therefore not usable on Core
+    Desktop, and a client cannot type or move the pointer in native Wayland
+    applications either. On a legacy X11 session, where DISPLAY is the real
+    X server, the same XTEST injection and grabs do work with the x11
+    interface connected.
+  - Beyond that X11 socket the snap has no access to the host display server.
+    Wayland has no protocol for global input capture or injection; the
+    supported route is the compositor's libei/RemoteDesktop portal, which
+    Barrier 2.4.0 does not implement. That is why the 3.x line of Input Leap
+    and Deskflow can drive a Wayland session and this snap cannot.
+  - /dev/uinput is not available. snapd's uinput interface is privileged,
+    not connected automatically and not declared here; Barrier 2.4.0 has no
+    uinput backend in any case.
+  - Raw input devices (/dev/input/event*, /dev/input/js*) are not exposed.
+    The joystick interface only covers game controllers and is not declared.
+
+  What still works:
+
+  - The GUI starts through XWayland, and the server and client processes can
+    be configured and started from it, but they cannot control the session
+    as described above. Configurations, the generated SSL certificate and
+    the fingerprint database live in the snap's private area,
+    ~/snap/barrier/current/.local/share/barrier, and can be edited or copied
+    like any other file.
+  - The network side works: the server binds TCP 24800 (network-bind) and
+    clients connect to it (network). Two machines whose input Barrier can
+    actually reach, for example two legacy X11 sessions, can share a
+    keyboard, mouse and clipboard through this snap.
+  - Clipboard sharing uses X11 selections. Under XWayland the GNOME session
+    bridges the X11 and Wayland clipboards, so cut-and-paste may work even
+    though pointer and keyboard sharing do not.
+  - Service discovery (the "Auto config" screen) uses mDNS through the
+    host's avahi-daemon. The avahi interfaces are not connected
+    automatically:
+      sudo snap connect barrier:avahi-observe
+      sudo snap connect barrier:avahi-control
+    Without them, enter the peer's address manually.
+  - The home interface keeps non-hidden paths of the real home readable, so
+    a configuration file can be passed with "barriers -c /home/<you>/...".
+
+  Other strict-confinement limits:
+
+  - The system-wide configuration /etc/barrier/barrier.conf is not read:
+    /etc inside the snap is the core26 base's, and the host's /etc is not
+    visible. Pass -c with a path in the home directory instead.
+  - The GUI's "log to file" option writes to /var/log, which is read-only
+    inside the sandbox; use the log pane instead.
+  - There is no autostart service. Start the server from the GUI, or run
+    "snap run barrier.barriers" in a terminal.
+  - The tray icon is a Qt 5 XEmbed icon, which GNOME Shell does not display,
+    so "minimize to tray" hides the window with no icon to restore it. Use
+    the window itself.
+  - Qt 5.15 is staged from the 26.04 archive because snapcraft's KDE
+    extension supports only core22 and core24. Host Qt and KDE themes are
+    not visible; Barrier uses Qt's built-in Fusion style.
+  - Settings are not shared with a distribution package of Barrier.
+
+  Barrier 2.4.0 is the last upstream release (2021-11-01) and the project is
+  unmaintained. Input Leap, the fork Barrier's maintainers started, was
+  archived in July 2026; Deskflow (https://github.com/deskflow/deskflow), the
+  maintained continuation of the same code, is the natural base for a snap
+  that has to work on Wayland.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Barrier is built from the pinned upstream
+# release; Qt 5 and the runtime libraries the base lacks are staged from the
+# 26.04 archive. No prebuilt Barrier binaries are embedded.
+#
+# Qt approach: Barrier 2.4.0 is a Qt 5 (Core, Widgets, Network) application
+# built with CMake. snapcraft 9.x ships kde-neon (Qt 5) for core22/core24
+# only, and no KDE Frameworks are used here, so Qt 5.15.18 from the 26.04
+# archive is staged below.
+#
+# Runtime approach: the gnome extension supplies the gnome-core26 platform
+# (fonts, fontconfig, MIME data, dbus/glib and the X11 libraries it carries:
+# libXtst, libXi, libXinerama, libXrandr, libICE, libSM) and the gpu-2604
+# content snap, whose LD_LIBRARY_PATH also provides libX11, libXext,
+# libXfixes and libxcb as built for the Mesa stack. gnome-core26 does not
+# carry libX11 itself, and the extension's cleanup prunes libraries that its
+# SDK provides, so the runtime part lists only what is actually needed and
+# absent: Qt 5, libdns_sd from avahi, the xcb helpers used by Qt's xcb
+# platform plugin, and the X11 locale data.
+#
+# X11 approach: Barrier has no Wayland backend. Its GUI calls XOpenDisplay()
+# and refuses to start without a display, and the server/client use XTEST and
+# XGrab*. Qt's xcb platform plugin is therefore the only sensible backend;
+# on a Wayland session it runs on XWayland. See the description above for
+# what strict confinement prevents in that setup.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+# Barrier is GPL-2.0 with an exemption that allows linking against OpenSSL.
+license: GPL-2.0-only
+website: https://github.com/debauchee/barrier
+source-code: https://github.com/debauchee/barrier
+issues: https://github.com/debauchee/barrier/issues
+
+icon: snap/local/barrier.png
+
+platforms:
+  amd64:
+  arm64:
+
+# The X11 locale data staged by the x11-data part below has to appear at the
+# absolute path libX11 was built with; /usr inside the snap is the core26
+# base. The base ships only /usr/share/X11/XErrorDB, so replace that
+# directory with the staged tree. Qt reads the keyboard database through
+# XKB_CONFIG_ROOT, which the gnome extension points at the platform.
+layout:
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+
+apps:
+  barrier:
+    extensions: [gnome]
+    command: usr/bin/barrier
+    desktop: usr/share/applications/barrier.desktop
+    environment:
+      # Barrier is an X11 program; under a Wayland session Qt connects to
+      # XWayland through this plugin.
+      QT_QPA_PLATFORM: xcb
+    plugs:
+      - avahi-control  # register this machine's mDNS service; not automatic
+      - avahi-observe  # browse for peers; not automatic
+      - desktop        # desktop integration and snapctl user-open
+      - desktop-legacy # legacy paths used by Qt's X11 backend
+      - home           # configuration files and logs in the user's home
+      - network        # connect to the other machines
+      - network-bind   # the server it starts listens on TCP 24800
+      - opengl         # GPU access for Qt through the gpu-2604 content snap
+      - x11            # the display Barrier's X11 backend talks to
+
+  barriers:
+    extensions: [gnome]
+    command: usr/bin/barriers
+    plugs:
+      - home           # configuration and --log files in the user's home
+      - network        # connect to the GUI's IPC socket on 127.0.0.1:24801
+      - network-bind   # listen on TCP 24800
+      - x11            # XTEST injection and XGrab* capture
+
+  barrierc:
+    extensions: [gnome]
+    command: usr/bin/barrierc
+    plugs:
+      - home           # --log files in the user's home
+      - network        # the server, and the GUI's IPC socket on 127.0.0.1
+      - x11            # XTEST injection on the local display
+
+parts:
+  local:
+    # The PNG only feeds the top-level icon key, which snapcraft reads from
+    # the project directory; it is not left in the payload.
+    plugin: dump
+    source: snap/local
+    prime:
+      - -barrier.png
+
+  barrier:
+    # v2.4.0 is the newest stable upstream release (2021-11-01); there has
+    # been no release since. The GitHub archive contains the bundled
+    # gulrak-filesystem headers that the tree uses, and the checksum pins
+    # exactly the tag.
+    source: https://github.com/debauchee/barrier/archive/refs/tags/v2.4.0.tar.gz
+    source-checksum: sha256/20046cae7a831d9bb3740b6f04feb9bded4c794c11586a70089080e94ae2fe77
+    plugin: cmake
+    override-pull: |
+      craftctl default
+      # Missing <cstdint>/<cstddef> includes for GCC 13 and later, and the
+      # unconditional include of the bundled Google Test that Debian also
+      # patches out.
+      patch -p1 --silent \
+        < "${CRAFT_PROJECT_DIR}/patches/0001-build-with-core26-toolchain.patch"
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # The tree declares cmake_minimum_required(VERSION 3.4), which CMake 4
+      # in the core26 build environment refuses; it uses nothing newer than
+      # the 3.5 policies.
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      # The tests need GTest, Qt Test and an X server, and are not shipped.
+      - -DBARRIER_BUILD_TESTS=OFF
+      # On Linux this only enables the install rules for the desktop entry
+      # and the icon; the CMake condition that would pick res/barrier2.desktop
+      # is never true, so the v1-compatible entry is installed.
+      - -DBARRIER_BUILD_INSTALLER=ON
+    build-packages:
+      # The core26 build environment has a C++ compiler and make, but no
+      # CMake, pkg-config, Qt, OpenSSL, curl, Bonjour or X11 headers.
+      - build-essential
+      - cmake
+      - patch
+      - pkg-config
+      - qtbase5-dev                 # Core, Widgets, Network, moc/uic/rcc
+      - libssl-dev                  # TLS transport and certificate generation
+      - libcurl4-openssl-dev        # find_package(CURL) is mandatory
+      - libavahi-compat-libdnssd-dev # dns_sd.h for the Zeroconf GUI
+      - libx11-dev                  # Xlib, XKB headers
+      - libxtst-dev                 # X11/extensions/XTest.h and libXtst
+      - libxi-dev                   # XInput2, used to watch input
+      - libxinerama-dev
+      - libxrandr-dev
+      - libxext-dev                 # DPMS header
+      - libice-dev                  # session management, found by CMake
+      - libsm-dev
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which inside the snap is the core26
+      # base. A qt.conf next to the GUI binary relocates Qt's plugin lookup
+      # to the staged tree. Prefix is relative to usr/bin, so Qt follows the
+      # snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt5/plugins
+      EOF
+
+  runtime:
+    # Stage the Qt and X11 runtime the base does not have. The gnome
+    # extension's cleanup removes whatever gnome-core26 or its SDK already
+    # provides, and the gpu wrapper supplies libX11 and libxcb from the
+    # mesa-2604 content snap; the packages below therefore only need to make
+    # the pieces those snaps lack available to craft-parts and to the linker.
+    after: [barrier]
+    plugin: nil
+    stage-packages:
+      # Qt 5.15.18 from the 26.04 archive.
+      - libqt5core5t64
+      - libqt5gui5t64     # also ships the xcb and minimal platform plugins
+      - libqt5widgets5t64
+      - libqt5network5t64
+      - libqt5dbus5t64    # libQt5XcbQpa.so.5 links it directly
+      # dns_sd.h's runtime, used by the GUI for mDNS; neither the base nor
+      # gnome-core26 carries the Bonjour compatibility library.
+      - libavahi-compat-libdnssd1
+      # The X libraries Barrier links directly. The ones gnome-core26 has
+      # (libXtst, libXi, libXinerama, libXrandr, libICE, libSM) are pruned
+      # by the extension's cleanup; libX11, libXext and libXfixes come from
+      # the mesa-2604 content snap at run time.
+      - libx11-6
+      - libx11-xcb1
+      - libxext6
+      - libxtst6
+      - libxi6
+      - libxinerama1
+      - libxrandr2
+      - libice6
+      - libsm6
+      # Extensions of libxcb that Qt's xcb platform plugin loads. They are
+      # in neither the base, gnome-core26 nor mesa-2604.
+      - libxcb-icccm4
+      - libxcb-image0
+      - libxcb-keysyms1
+      - libxcb-render-util0
+      - libxcb-xinerama0
+      - libxcb-xkb1
+      # The X11-specific half of libxkbcommon; gnome-core26 only has the
+      # Wayland version of the library.
+      - libxkbcommon-x11-0
+      # Qt 5.15's rich text engine uses md4c for markdown, which is not in
+      # gnome-core26.
+      - libmd4c0
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+
+  x11-data:
+    # core26 installs libx11-data only as its XErrorDB slice, and no
+    # xkb-data at all. The mesa-2604 wrapper points XLOCALEDIR at its own
+    # copy, but the staged tree keeps libX11's compiled-in /usr/share/X11
+    # paths complete for anything that reads them directly. craft-parts
+    # filters stage-packages by package name, so fetch the data packages and
+    # unpack them here; they contain no binaries.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download libx11-data xkb-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+
+  cleanup:
+    # The staged Qt dependency tree contains copies of libraries that the
+    # core26 base already ships (libstdc++, glibc, OpenSSL, ...). Loading two
+    # copies in one process is not safe, so drop every primed shared library
+    # whose path also exists in the base, exactly as the other core26
+    # recipes do. Libraries provided by gnome-core26 are removed by the
+    # extension's own cleanup part, which runs after this one.
+    after: [barrier, runtime, x11-data]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

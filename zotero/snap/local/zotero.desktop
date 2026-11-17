@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Zotero
+GenericName=Reference Manager
+Comment=Collect, organize, cite, and share your research sources
+Exec=zotero -url %U
+Icon=zotero
+Terminal=false
+Categories=Office;Literature;
+Keywords=reference;bibliography;citation;research;PDF;
+MimeType=text/plain;x-scheme-handler/zotero;application/x-research-info-systems;text/x-research-info-systems;text/ris;application/x-endnote-refer;application/x-inst-for-Scientific-info;application/mods+xml;application/rdf+xml;application/x-bibtex;text/x-bibtex;application/marc;application/vnd.citationstyles.style+xml
+StartupNotify=true
+StartupWMClass=Zotero
+X-GNOME-SingleWindow=true

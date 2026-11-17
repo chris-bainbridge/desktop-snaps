@@ -1,0 +1,6 @@
+snap: prismlauncher
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/PrismLauncher/PrismLauncher (11.1.1)
+imported: '2026-11-17'

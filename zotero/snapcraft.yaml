@@ -1,0 +1,182 @@
+name: zotero
+title: Zotero
+version: '10.0.8'
+summary: Collect, organize, cite, and share research
+description: |
+  Zotero is a free, easy-to-use tool to help you collect, organize, annotate,
+  cite, and share research. It saves web pages and PDFs with a browser
+  connector, imports references from hundreds of sites, stores PDFs, images
+  and web snapshots, and generates citations and bibliographies in thousands
+  of styles.
+
+  This snap packages the official Zotero release for Linux. It is strictly
+  confined, as required on Core Desktop, which has no classic snaps. That has
+  visible consequences:
+
+  - Zotero's profile and library live in the snap's private directories,
+    ~/snap/zotero/current/.zotero and ~/snap/zotero/current/Zotero, not in
+    ~/.zotero and ~/Zotero. To use an existing library, select its directory
+    in Edit > Settings > Advanced > Files and Folders, or start Zotero with
+    "zotero -datadir /home/<user>/Zotero". The host's ~/.zotero profile is
+    hidden from the snap; copy it into ~/snap/zotero/current/.zotero before
+    the first start to reuse settings and plugins.
+  - Files in your real home directory can be opened and saved, except hidden
+    entries such as ~/.ssh, and files on USB drives and other removable media
+    after "snap connect zotero:removable-media". System directories and other
+    applications' private data are not visible. GTK's file chooser can also
+    use the desktop document portal where it is available.
+  - Browser connector integration is limited: the connector can talk to
+    Zotero's local server on 127.0.0.1:23119 while Zotero is running (the
+    network-bind interface is connected by default), but Zotero cannot
+    install the connector into the host browser or launch the host browser
+    directly. It asks the desktop portal to open the connector download page
+    and links; on a desktop without xdg-desktop-portal those actions do
+    nothing. A browser that cannot reach the host's loopback network cannot
+    use the connector. The snap cannot launch arbitrary host programs itself.
+  - Word processor integration is limited: Zotero cannot install or update
+    its LibreOffice or Word plugin inside the host application's profile,
+    because that profile is outside the sandbox. A plugin installed manually
+    on the host is not supported by the snap. Exporting citations and
+    bibliographies from Zotero itself works normally.
+  - "Show in Folder" cannot select a file in the host's file manager; it can
+    only ask the portal to open the containing directory. Opening an
+    attachment in an external application also goes through the portal, and
+    the host application must be able to read the file's path.
+  - Printing is not enabled: the cups interface is not declared, so the
+    sandbox cannot reach the host's CUPS socket and no printers are visible.
+    Export the PDF and print it from the host instead.
+  - Automatic update checks are disabled, and a manually downloaded Zotero
+    update cannot be installed because the snap is read-only. snapd updates
+    the snap from the store; use "snap refresh zotero".
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Zotero is a Firefox/XUL application, so the
+# official Linux release tarball is packaged rather than rebuilt: it bundles
+# libxul, NSS, NSPR, the JavaScript engine, the PDF reader and the Zotero
+# application itself. Rebuilding it from source would mean rebuilding Mozilla
+# ESR 140 plus Zotero's XUL tree. The tarball is downloaded at build time from
+# download.zotero.org and verified against the pinned SHA-256 below; no
+# upstream binaries are committed to the repository.
+#
+# 10.0.8 is the latest release with official Linux tarballs (10.0.9 exists
+# for macOS only at the time of writing).
+grade: stable
+confinement: strict
+base: core26
+license: AGPL-3.0-or-later
+website: https://www.zotero.org/
+source-code: https://github.com/zotero/zotero
+issues: https://github.com/zotero/zotero/issues
+
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
+  arm64:
+    build-on: [arm64]
+    build-for: [arm64]
+
+apps:
+  zotero:
+    extensions: [gnome]
+    command: bin/zotero
+    desktop: usr/share/applications/zotero.desktop
+    common-id: zotero.desktop
+    plugs:
+      - gsettings       # GTK theme, fonts, icons and accessibility settings
+      - home            # open and save files in the user's home directory
+      - network         # sync, reference lookup, PDF downloads, plugin installs
+      - network-bind    # the connector server listens on 127.0.0.1:23119
+      - removable-media # libraries and attachments on USB drives and SD cards
+
+parts:
+  zotero:
+    # Runtime dependency audit (26.04 platform): every shared object the
+    # tarball links against is already provided by the platform:
+    #   - core26 base: glibc, libstdc++, libgcc, libdl, libm, libpthread,
+    #     librt, libresolv, libfreetype, libdbus-1, ...
+    #   - gnome-core26: GTK3, GDK3, pango, cairo, gdk-pixbuf, GLib/GIO, atk,
+    #     fontconfig, libXcomposite, libXcursor, libXi, libXrandr, libXrender,
+    #     libasound, libpulse, libnotify, ...
+    #   - mesa-2604 (gpu-2604): libX11, libXext, libXdamage, libXfixes,
+    #     libxcb, libX11-xcb, libxcb-shm, libgbm, libEGL, libGL, libdrm,
+    #     libwayland-client and the Mesa drivers.
+    # NSS's built-in root module (libnssckbi.so) is not in the tarball; the
+    # gnome-core26 copy is loaded through the desktop runtime's library path.
+    # The tarball's own libraries (libxul, libmoz*, NSS, NSPR, libgkcodecs,
+    # ...) are loaded from $SNAP/opt/zotero. Nothing needs to be staged, so
+    # this part has no stage-packages.
+    plugin: nil
+    build-packages:
+      - curl      # download the pinned release tarball
+      - xz-utils  # unpack the .tar.xz; the core26 base has no xz binary
+    override-pull: |
+      set -eu
+
+      version="$SNAPCRAFT_PROJECT_VERSION"
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          release_arch=linux-x86_64
+          checksum=a704cfd49f5de65507910e0cada4acf72097572201b3576583f0a92a32c1032b
+          ;;
+        arm64)
+          release_arch=linux-arm64
+          checksum=395ae276330049dc9fa8bad3a40fe9625c52b85054d1b787db83f35314152da6
+          ;;
+        *)
+          echo "zotero: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      # Zotero does not publish checksum files next to the tarballs. The
+      # hashes above were computed from the official downloads and are pinned
+      # here; the download is rejected if the bytes change.
+      url="https://download.zotero.org/client/release/${version}/Zotero-${version}_${release_arch}.tar.xz"
+      tarball="$CRAFT_PART_SRC/Zotero.tar.xz"
+
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "$tarball" "$url"
+
+      # Verify from inside the source directory so that the checksum line does
+      # not have to quote a workspace path.
+      cd "$CRAFT_PART_SRC"
+      printf '%s  Zotero.tar.xz\n' "$checksum" | sha256sum --check --strict -
+
+      tar --extract --xz --file Zotero.tar.xz --strip-components=1
+      rm -f Zotero.tar.xz
+
+    override-build: |
+      set -eu
+
+      # Keep the Firefox/XUL tree out of $SNAP/usr: the gnome extension's
+      # cleanup part deletes staged shared objects whose paths also exist in
+      # the SDK, and keeping the tarball under opt/ also makes it obvious that
+      # these libraries belong to the application, not to the platform.
+      install -d "$CRAFT_PART_INSTALL/opt/zotero"
+      cp -a "$CRAFT_PART_SRC/." "$CRAFT_PART_INSTALL/opt/zotero/"
+
+      # The launcher forwards URLs, file arguments and -datadir to Zotero's
+      # own launcher, which sets MOZ_ENABLE_WAYLAND and the profile variables.
+      install -D -m 0755 "$CRAFT_PROJECT_DIR/snap/local/zotero" \
+        "$CRAFT_PART_INSTALL/bin/zotero"
+
+      # snapd exports this desktop file. Its Icon=zotero is resolved by
+      # snapcraft from the hicolor theme below and rewritten to a ${SNAP} path
+      # in the exported copy; snapd expands ${SNAP} at install time.
+      install -D -m 0644 "$CRAFT_PROJECT_DIR/snap/local/zotero.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/zotero.desktop"
+
+      # Zotero's updater would try to replace files in the read-only snap.
+      # On-disk app defaults are read after the defaults inside app/omni.ja,
+      # so this turns automatic update checks off (tested against 10.0.8).
+      install -D -m 0644 "$CRAFT_PROJECT_DIR/snap/local/zz-snap.js" \
+        "$CRAFT_PART_INSTALL/opt/zotero/app/defaults/preferences/zz-snap.js"
+
+      # Use the icon shipped in the tarball instead of committing a copy.
+      # Install it in the hicolor theme so snapcraft resolves Icon=zotero, and
+      # in meta/gui as the snap's conventional icon location.
+      install -D -m 0644 "$CRAFT_PART_INSTALL/opt/zotero/icons/icon128.png" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/zotero.png"
+      install -D -m 0644 "$CRAFT_PART_INSTALL/opt/zotero/icons/icon128.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/zotero.png"

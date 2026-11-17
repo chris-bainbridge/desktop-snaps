@@ -1,0 +1,10 @@
+#!/bin/sh
+#
+# Zotero's bundled launcher sets MOZ_ENABLE_WAYLAND=1 and
+# MOZ_LEGACY_PROFILES=1, raises the file-descriptor limit and starts
+# zotero-bin with the application.ini next to it, so delegate to it instead of
+# calling zotero-bin directly. Arguments (URLs, files, -datadir, ...) are
+# forwarded unchanged.
+set -eu
+
+exec "$SNAP/opt/zotero/zotero" "$@"

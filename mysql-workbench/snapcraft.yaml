@@ -1,0 +1,333 @@
+name: mysql-workbench
+version: '8.0.47'
+summary: MySQL database design, administration and development tool
+description: |
+  MySQL Workbench is a graphical tool for database design, SQL development
+  and MySQL server administration. It provides a visual EER modeler, an SQL
+  editor, schema and table editors, user and server administration panels,
+  data export and import, and a migration wizard for other database systems.
+
+  This snap packages MySQL Workbench 8.0.47, the last release of the 8.0
+  series. The new MySQL Workbench 26.x is a different application built on
+  MySQL Shell and is not part of this source tree.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Files in your home directory are available, except hidden files and
+    directories. USB drives, camera cards and other removable media are
+    available after "snap connect mysql-workbench:removable-media". A file
+    picked through the GTK file chooser is granted individually by the
+    desktop portal.
+  - MySQL servers are reached over TCP. The host's Unix socket
+    (/run/mysqld/mysqld.sock or /var/run/mysqld/mysqld.sock) is outside the
+    sandbox, so a server must listen on a TCP port (127.0.0.1:3306 for a
+    local server). Connections to 127.0.0.1 work because snaps share the
+    host network namespace.
+  - SSH tunnelling is implemented with libssh inside the snap. Private keys
+    in hidden directories such as ~/.ssh are not visible: store tunnel keys
+    in a non-hidden directory, or use password authentication. The host's
+    ~/.ssh/known_hosts and ~/.ssh/config are not readable either.
+  - Saved passwords use the login keyring through libsecret. Connect
+    "snap connect mysql-workbench:password-manager-service" to store them;
+    without that connection Workbench cannot persist passwords.
+  - Configuration, saved connections and models in the private snap area
+    live in ~/snap/mysql-workbench/..., not in ~/.config/mysql-workbench,
+    and are not shared with a distribution-packaged Workbench.
+  - Data export and import use the mysqldump, mysql, mysqladmin, mysqlcheck
+    and mysqlimport tools shipped in the snap. A path to a host binary
+    cannot be used.
+  - The migration wizard's ODBC sources cannot work: the host's ODBC
+    drivers and /etc/odbcinst.ini are outside the sandbox, and the snap
+    ships no ODBC drivers. MySQL-to-MySQL migration works; migration from
+    Microsoft Access, SQL Server and other ODBC sources does not.
+  - Printing asks CUPS for printers. Connect
+    "snap connect mysql-workbench:cups-control" to print; otherwise use
+    "Print to File" in the print dialog.
+  - Local server administration (starting and stopping a server, editing
+    /etc/mysql/my.cnf, reading server log files) is not possible. Remote
+    administration over SQL and SSH works.
+  - The EER diagram canvas uses OpenGL and runs through the GPU content
+    snap provided by the GNOME extension. The application is forced to the
+    X11 GDK backend and runs through XWayland on Wayland desktops; the
+    upstream launcher does the same.
+  - Spatial import and export are built against the archive's GDAL and PROJ;
+    the GDAL and PROJ data files are shipped in the snap.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. MySQL Workbench is built from the pinned
+# upstream source tarball and linked against the 26.04 archive's libraries;
+# no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-only
+website: https://www.mysql.com/products/workbench/
+source-code: https://github.com/mysql/mysql-workbench
+issues: https://github.com/mysql/mysql-workbench/issues
+
+icon: snap/local/mysql-workbench.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  mysql-workbench:
+    extensions: [gnome]
+    command: usr/bin/mysql-workbench
+    desktop: usr/share/applications/mysql-workbench.desktop
+    common-id: mysql-workbench.desktop
+    plugs:
+      - gsettings       # GTK theme, fonts and accessibility settings
+      - home            # open and save models, SQL scripts and exports
+      - network         # connect to MySQL servers and SSH hosts
+      - network-bind    # SSH tunnel listens on a local port
+      - removable-media # models and dumps on USB drives and camera cards
+      - password-manager-service # libsecret keyring, needs manual connect
+      - cups-control    # print diagrams, needs manual connect
+
+# MySQL Workbench 8.0.47 is the latest tag in the requested repository
+# (commit 2026-04-02, released 2026-04-23). Upstream's product page now
+# promotes the new MySQL Workbench 26.7.0 line, which is built on MySQL
+# Shell; that application has no tag in this GitHub repository and is not
+# the CMake + antlr + mforms code this recipe targets. The 8.0 series
+# reached end of life when the 26.x line shipped in September 2026, so this
+# snap packages the last open-source Workbench release.
+#
+# The tree is the community source tree; no vendor tarball or binary is
+# used. The official community source tarball from Oracle's CDN is used
+# because its checksum is published with the release; the GitHub tag archive
+# contains the same CMake/antlr/mforms sources. It is 58 MB and includes
+# Oracle's Debian packaging files, which are not built here.
+#
+# This recipe is a best effort. The 8.0 branch is a large C++/Python
+# application that upstream builds on older toolchains, and the 26.04
+# archive has moved on. The parts below deliberately use the archive's
+# libraries instead of the copies Workbench used to bundle. One patch
+# (snap/local/0001-modern-toolchain.patch) carries the compatibility fixes:
+# it removes -Werror, adds -fsigned-char for arm64, replaces the Python 2
+# C API calls in the SWIG typemaps, replaces the removed Python "pipes"
+# module, and silences the unsupported-OS warning. The recipe has NOT been
+# run end to end here (no snapcraft/LXD build was permitted). Arch Linux's
+# mysql-workbench 8.0.47-5 package shows that this release can still be
+# built with GCC 15, Python 3.14 and SWIG 4 when patched this way, but it
+# builds MySQL and Connector/C++ from source. This recipe instead uses the
+# archive's MySQL 8.4 client and Connector/C++ 1.1, so the remaining risk is
+# concentrated in:
+#   - the 8.4 MySQL client headers versus the 8.0 client code;
+#   - GTK3/gtkmm 3.24 API drift in the custom widgets;
+#   - GDAL 3.12 and libssh 0.11 API drift;
+#   - the parts of SWIG 4.4's Python 3.14 bindings not covered by the patch.
+# The ANTLR 4.13.2 runtime was built successfully with GCC 15 and CMake 4.2
+# while writing this recipe.
+#
+# ANTLR 4.13.2 is a build requirement, not a runtime one: the generated
+# MySQL parser sources are not in the repository, only the .g4 grammars.
+# The complete jar is downloaded from antlr.org and used only at build time;
+# the matching C++ runtime is built from source because 26.04 ships 4.10.
+# Neither is embedded in the snap.
+parts:
+  antlr4-tool:
+    plugin: nil
+    source: https://www.antlr.org/download/antlr-4.13.2-complete.jar
+    source-type: file
+    source-checksum: sha256/eae2dfa119a64327444672aff63e9ec35a20180dc5b8090b7a6ab85125df4d76
+    override-build: |
+      set -eux
+      install -Dm644 "$CRAFT_PART_SRC/antlr-4.13.2-complete.jar" \
+        "$CRAFT_PART_INSTALL/usr/share/antlr4/antlr-4.13.2-complete.jar"
+    # Build-only tool: keep it out of the snap.
+    prime:
+      - -usr/share/antlr4/antlr-4.13.2-complete.jar
+
+  antlr4-runtime:
+    plugin: nil
+    source: https://www.antlr.org/download/antlr4-cpp-runtime-4.13.2-source.zip
+    source-type: zip
+    source-checksum: sha256/0ed13668906e86dbc0dcddf30fdee68c10203dea4e83852b4edb810821bee3c4
+    build-packages:
+      - cmake
+      - g++
+      - make
+    override-build: |
+      set -eux
+      # The published source zip contains a stale in-tree build directory
+      # (CMakeCache.txt, Makefile, _deps, ...). Remove it so the build is done
+      # from the sources only.
+      rm -rf "$CRAFT_PART_SRC/runtime/CMakeCache.txt" \
+        "$CRAFT_PART_SRC/runtime/CMakeFiles" \
+        "$CRAFT_PART_SRC/runtime/Makefile" \
+        "$CRAFT_PART_SRC/runtime/cmake_install.cmake" \
+        "$CRAFT_PART_SRC/runtime/CTestTestfile.cmake" \
+        "$CRAFT_PART_SRC/runtime/cmake-build-debug" \
+        "$CRAFT_PART_SRC/runtime/_deps" \
+        "$CRAFT_PART_SRC"/runtime/antlr4_tests*
+      cmake -S "$CRAFT_PART_SRC" -B "$CRAFT_PART_BUILD" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_LIBDIR="lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR" \
+        -DANTLR_BUILD_CPP_TESTS=OFF \
+        -DANTLR_BUILD_STATIC=OFF \
+        -DANTLR4_INSTALL=ON
+      cmake --build "$CRAFT_PART_BUILD" -j"${CRAFT_PARALLEL_BUILD_COUNT:-$(nproc)}"
+      DESTDIR="$CRAFT_PART_INSTALL" cmake --install "$CRAFT_PART_BUILD"
+    # Only the shared library is needed at runtime.
+    prime:
+      - -usr/include
+      - -usr/lib/*/cmake
+      - -usr/share/doc
+
+  mysql-workbench:
+    after: [antlr4-runtime, antlr4-tool]
+    plugin: nil
+    source: https://cdn.mysql.com/Downloads/MySQLGUITools/mysql-workbench-community-8.0.47-src.tar.gz
+    source-checksum: sha256/c4e9629d6d29355eef75467e1afdc48bd7286cb432225f8af97833eb4b6bb896
+    build-packages:
+      - cmake
+      - g++
+      - make
+      - patch
+      - pkg-config
+      # Runs the ANTLR jar. The jar is Java bytecode but is a build tool only.
+      - openjdk-21-jdk-headless
+      # SWIG generates the mforms (Python GTK wrapper) and cairo bindings.
+      - swig
+      - python3-dev
+      # GTK3 and the C++ wrapper. gtkmm-3.0 is not in gnome-core26, which
+      # carries gtkmm-4.0; both are needed (GTK3 by Workbench, GTK4 by the
+      # platform).
+      - libgtk-3-dev
+      - libgtkmm-3.0-dev
+      - libglib2.0-dev
+      - libcairo2-dev
+      - libpango1.0-dev
+      - libx11-dev
+      - libgl-dev
+      - libzip-dev
+      - libsecret-1-dev
+      - uuid-dev
+      - zlib1g-dev
+      # MySQL client library and the legacy Connector/C++ API Workbench uses
+      # for its GRT database layer. 26.04 has MySQL 8.4 and Connector/C++ 1.1.
+      - libmysqlclient-dev
+      - libmysqlcppconn-dev
+      # Workbench's object editors use vsqlite++ on top of SQLite.
+      - libvsqlitepp-dev
+      - libsqlite3-dev
+      # Spatial import/export in the EER modeler (GDAL also pulls PROJ).
+      - libgdal-dev
+      - libproj-dev
+      # Header-only Boost (signals2, bind, lexical_cast, date_time types).
+      - libboost-dev
+      # SSH tunnelling.
+      - libssh-dev
+      # OpenSSL and RapidJSON.
+      - libssl-dev
+      - rapidjson-dev
+      # Workbench requires either iODBC or unixODBC; use the archive's
+      # unixODBC, which is what the Ubuntu packages link.
+      - unixodbc-dev
+      - libxml2-dev
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+      # -Werror, -fsigned-char, Python 2 C API in the SWIG typemaps, the
+      # removed "pipes" module and the unsupported-OS warning. See the patch
+      # header for the individual changes.
+      patch -p1 --batch < "$CRAFT_PROJECT_DIR/snap/local/0001-modern-toolchain.patch"
+      # WITH_ANTLR_JAR points at the jar staged by the antlr4-tool part.
+      # The GNOME extension puts $CRAFT_STAGE/usr on CMAKE_PREFIX_PATH, so
+      # FindANTLR4 finds the 4.13.2 runtime built by antlr4-runtime instead
+      # of the archive's 4.10 runtime.
+      # The unixODBC CMake module in this tree only works with an
+      # "odbc-config" helper, which 26.04's unixodbc-dev does not ship (it
+      # ships pkg-config files instead), so provide the library and include
+      # values directly and select unixODBC over iODBC.
+      cmake -S . -B "$CRAFT_PART_BUILD" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DWITH_ANTLR_JAR="$CRAFT_STAGE/usr/share/antlr4/antlr-4.13.2-complete.jar" \
+        -DUSE_UNIXODBC=ON \
+        -DUNIXODBC_INCLUDE_DIRS=/usr/include \
+        -DUNIXODBC_LIBRARIES="-lodbc;-lodbcinst"
+      cmake --build "$CRAFT_PART_BUILD" -j"${CRAFT_PARALLEL_BUILD_COUNT:-$(nproc)}"
+      DESTDIR="$CRAFT_PART_INSTALL" cmake --install "$CRAFT_PART_BUILD" --strip
+
+      # Upstream's launcher probes the build host with ldconfig/ldd and expects
+      # an absolute /usr tree. Replace it with a snap-aware launcher that sets
+      # the MWB_* paths and keeps X11 (the canvas is X11-only in practice).
+      install -Dm755 "$CRAFT_PROJECT_DIR/snap/local/mysql-workbench-launcher" \
+        "$CRAFT_PART_INSTALL/usr/bin/mysql-workbench"
+
+      # The snap exports its own icon; the host icon theme cannot see icons
+      # inside the snap.
+      install -d "$CRAFT_PART_INSTALL/meta/gui"
+      install -m644 "$CRAFT_PROJECT_DIR/snap/local/mysql-workbench.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/mysql-workbench.png"
+      sed -i \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/mysql-workbench.png|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/mysql-workbench.desktop"
+
+  runtime:
+    after: [mysql-workbench]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides GTK3, GLib/GIO, libsecret, OpenGL and the
+      # Python runtime, but not gtkmm-3.0 (it carries the GTK4 gtkmm-4.0
+      # stack) and not Workbench's database and spatial libraries. Those come
+      # from the 26.04 archive.
+      - libgtkmm-3.0-1t64
+      - libmysqlclient24
+      - libmysqlcppconn7t64
+      - libvsqlitepp3v5
+      # GDAL and its data, for the EER modeler's spatial support. libgdal38
+      # pulls the archive's PROJ, HDF5, netCDF, Poppler, SpatiaLite and
+      # related libraries; proj-data and gdal-data are looked up through
+      # GDAL_DATA and PROJ_DATA in the launcher.
+      - libgdal38
+      - gdal-data
+      - proj-data
+      - libzip5
+      - libxml2-16
+      - libodbc2
+      - libodbcinst2
+      - libssh-4
+      # mysqldump/mysql/mysqladmin/mysqlcheck/mysqlimport are used by the
+      # export, import and administration panels; host binaries are not
+      # executable inside the sandbox.
+      - mysql-client-core
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed shared object
+      # whose path also exists in gnome-core26-sdk. The SDK contains libxml2
+      # (the platform relies on the gpu-2604 content snap for it), so move it
+      # out of the multiarch directory to keep a copy that cleanup will not
+      # remove. snapd has $SNAP/usr/lib on LD_LIBRARY_PATH.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for file in "$libdir"/libxml2.so*; do
+        [ -e "$file" ] || continue
+        mv "$file" "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    prime:
+      - -usr/share/doc
+      - -usr/share/lintian
+      - -usr/share/man
+      - -usr/share/fonts # DejaVu fonts come from the GNOME platform snap
+
+  cleanup:
+    after: [mysql-workbench, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      # Remove shared objects that the core26 base already provides. The
+      # dynamic loader finds the base copies anyway; keeping duplicates only
+      # bloats the snap and can pick a different library version.
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

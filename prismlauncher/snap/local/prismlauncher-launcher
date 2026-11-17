@@ -1,0 +1,41 @@
+#!/bin/sh
+# Launcher for the strictly confined Prism Launcher snap.
+#
+# Prism Launcher and Qt were built with the usual /usr prefix, but inside the
+# snap /usr is the core26 base. Point Qt's plugin lookup and the staged
+# library and data directories at $SNAP before exec'ing the binary. The
+# environment is inherited by the Minecraft process that Prism Launcher starts
+# with the Java runtime the user selects.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+
+# snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
+# LD_LIBRARY_PATH. Add the staged directories, keeping the entries the
+# gpu-2604 command chain prepared for Mesa. The Minecraft process inherits
+# this, so its bundled LWJGL/GLFW and OpenAL natives find the staged X11 and
+# PulseAudio client libraries as well.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Core Desktop is Wayland-first. Prefer the staged Wayland plugin and fall
+# back to xcb on an X11 session or when no compositor is reachable.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# Qt looks up icons, desktop files, MIME data and its own translations through
+# the XDG data directories; the base does not include $SNAP/usr/share. Keep the
+# entries the gpu wrapper has already added (Mesa's drirc and Vulkan data).
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# Prism Launcher stores its data under SNAP_USER_COMMON when it detects the
+# snap, so no data directory override is needed here.
+exec "$SNAP/usr/bin/prismlauncher" "$@"

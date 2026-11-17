@@ -1,0 +1,310 @@
+# Compatibility fixes for MySQL Workbench 8.0.47 on core26 / Ubuntu 26.04.
+#
+# - CMakeLists.txt: do not turn GCC 15 warnings into errors, and build with
+#   -fsigned-char. MySQL's bundled parser assumes signed char; arm64 makes
+#   char unsigned by default and fails to compile ctype-utf8.cpp otherwise.
+# - library/forms/swig: replace the Python 2 C API calls (PyString_*,
+#   PyInt_*, SWIG_Python_AppendOutput) that SWIG 4 pastes into the generated
+#   mforms/cairo wrappers. This is required for Python 3 and SWIG 4.
+# - plugins/wb.admin/backend/wb_server_management.py: pipes was removed in
+#   Python 3.13; use shlex.quote. Without this the server management plugin
+#   fails to import at startup.
+# - res/scripts/python/grt_python_debugger.py: imp was removed in Python
+#   3.12; use importlib.reload for the debugger's module reload.
+# - library/grt/src/grt.h: drop the constructor template-id that is
+#   ill-formed (a warning in C++17, an error in C++20).
+# - backend/wbprivate/workbench/wb_context.cpp: suppress the unsupported-OS
+#   warning, which would otherwise appear on every start because the snap's
+#   /etc/os-release reports Ubuntu Core, not a name in Workbench's list.
+#
+# The Python/SWIG, C++20 and unsupported-OS hunks are adapted from Arch
+# Linux's mysql-workbench 8.0.47-5 package (patches 0002, 0004, 0006 and
+# 0008), the only distribution still building this release.
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3dd3e19..bfe2408 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -217,8 +217,11 @@ if(BUILD_FOR_GCOV)
+     set(WB_CXXFLAGS ${WB_CXXFLAGS} -fprofile-arcs -ftest-coverage )
+     set(WB_CFLAGS ${WB_CFLAGS} -fprofile-arcs -ftest-coverage)
+ else()
+-    set(WB_CXXFLAGS ${WB_CXXFLAGS} -Werror -Wno-nonnull)
+-    set(WB_CFLAGS ${WB_CFLAGS} -Werror)
++    # Keep the warnings, but do not turn them into build failures: GCC 15 and
++    # the 26.04 headers warn about constructs that were quiet when this 8.0
++    # branch was written.
++    set(WB_CXXFLAGS ${WB_CXXFLAGS} -Wno-nonnull -fsigned-char)
++    set(WB_CFLAGS ${WB_CFLAGS} -fsigned-char)
+ endif()
+ 
+ #-----------------------------------------------------------------------
+diff --git a/backend/wbprivate/workbench/wb_context.cpp b/backend/wbprivate/workbench/wb_context.cpp
+index 1f16500..756ce08 100644
+--- a/backend/wbprivate/workbench/wb_context.cpp
++++ b/backend/wbprivate/workbench/wb_context.cpp
+@@ -1006,9 +1006,11 @@ void WBContext::init_finish_(WBOptions *options) {
+ 
+   _frontendCallbacks->show_status_text(_("Ready."));
+ 
++#if 0
+   // Avoid our runtime tests to lock up when a modal warning dialog is displayed.
+   if (options->open_at_startup_type != "run-script")
+     warnIfRunningOnUnsupportedOS();
++#endif
+ 
+   try {
+     // execute action requested from command line
+diff --git a/library/forms/swig/cairo.i b/library/forms/swig/cairo.i
+index a02efdc..5fc35e9 100644
+--- a/library/forms/swig/cairo.i
++++ b/library/forms/swig/cairo.i
+@@ -125,20 +125,20 @@
+ 
+ %typemap(argout) cairo_text_extents_t *extents {
+       PyObject *o= SWIG_NewPointerObj(new cairo_text_extents_t(*$1), SWIGTYPE_p_cairo_text_extents_t, 0 |  0 );
+-      $result= SWIG_Python_AppendOutput($result, o);
++      $result= SWIG_AppendOutput($result, o);
+ }
+ 
+ %typemap(in) const char* (std::string s) {
+   if (PyUnicode_Check($input))
+   {
+     PyObject *tmp = PyUnicode_AsUTF8String($input);
+-    s = PyString_AsString(tmp);
++    s = PyBytes_AsString(tmp);
+     $1 = (char*)s.c_str();
+     Py_DECREF(tmp); 
+   } 
+-  else if (PyString_Check($input)) 
++  else if (PyBytes_Check($input))
+   {
+-    s = PyString_AsString($input); 
++    s = PyBytes_AsString($input);
+     $1 = (char*)s.c_str();
+   }
+   else 
+@@ -158,7 +158,7 @@
+         for (int c= PyList_Size($input), i= 0; i < c; i++)
+         {
+             PyObject *item = PyList_GetItem($input, i);
+-            if (PyFloat_Check(item)) 
++            if (PyFloat_Check(item))
+                 $1[i] = PyFloat_AsDouble(item);
+             else
+             {
+@@ -182,4 +182,3 @@ cairo_surface_t *cairo_image_surface_create_from_png_stream(PyObject *reader)
+ {
+   return cairo_image_surface_create_from_png_stream(py_read_func, reader);
+ }
+-
+diff --git a/library/forms/swig/mforms.i b/library/forms/swig/mforms.i
+index ac4c6e3..eea6539 100644
+--- a/library/forms/swig/mforms.i
++++ b/library/forms/swig/mforms.i
+@@ -137,7 +137,7 @@ static void show_python_exception()
+   std::string result;
+ 
+   /* See if we can get a full traceback */
+-  moduleName = PyString_FromString("traceback");
++  moduleName = PyUnicode_FromString("traceback");
+   pythonModule = PyImport_Import(moduleName);
+   Py_DECREF(moduleName);
+ 
+@@ -606,11 +606,11 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+   if (PyUnicode_Check($input))
+   {
+     PyObject *tmp = PyUnicode_AsUTF8String($input);
+-    $1 = new std::string(PyString_AsString(tmp));
++    $1 = new std::string(PyBytes_AsString(tmp));
+     Py_DECREF(tmp);
+   }
+-  else if (PyString_Check($input))
+-    $1 = new std::string(PyString_AsString($input));
++  else if (PyBytes_Check($input))
++    $1 = new std::string(PyBytes_AsString($input));
+   else
+   {
+     PyErr_SetString(PyExc_TypeError, "not a string");
+@@ -635,11 +635,11 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+       if (PyUnicode_Check(item))
+       {
+         PyObject *tmp = PyUnicode_AsUTF8String(item);
+-        $1->push_back(PyString_AsString(tmp));
++        $1->push_back(PyBytes_AsString(tmp));
+         Py_DECREF(tmp);
+       }
+-      else if (PyString_Check(item))
+-        $1->push_back(PyString_AsString(item));
++      else if (PyBytes_Check(item))
++        $1->push_back(PyBytes_AsString(item));
+       else
+       {
+         delete $1;
+@@ -656,7 +656,7 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+    $result = PyList_New(0);
+    for (std::vector<int>::const_iterator iter = $1.begin(); iter != $1.end(); ++iter)
+    {
+-     PyList_Append($result, PyInt_FromLong(*iter));
++     PyList_Append($result, PyLong_FromLong(*iter));
+    }
+ }
+ 
+@@ -664,7 +664,7 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+    $result = PyList_New(0);
+    for (std::vector<size_t>::const_iterator iter = $1.begin(); iter != $1.end(); ++iter)
+    {
+-     PyList_Append($result, PyInt_FromLong(*iter));
++     PyList_Append($result, PyLong_FromLong(*iter));
+    }
+ }
+ 
+@@ -674,7 +674,7 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+     for (int c= PyList_Size($input), i= 0; i < c; i++)
+     {
+       PyObject *item = PyList_GetItem($input, i);
+-      $1->push_back(PyInt_AsLong(item));
++      $1->push_back(PyLong_AsLong(item));
+     }
+   }
+   else
+@@ -698,11 +698,11 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+       if (PyUnicode_Check(item))
+       {
+         PyObject *tmp = PyUnicode_AsUTF8String(item);
+-        $1->push_back(PyString_AsString(tmp));
++        $1->push_back(PyBytes_AsString(tmp));
+         Py_DECREF(tmp);
+       }
+-      else if (PyString_Check(item))
+-        $1->push_back(PyString_AsString(item));
++      else if (PyBytes_Check(item))
++        $1->push_back(PyBytes_AsString(item));
+       else
+       {
+         delete $1;
+@@ -722,7 +722,7 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+ 
+ %typemap(argout) std::string &ret_password {
+     PyObject *o= PyUnicode_DecodeUTF8(($1)->data(), ($1)->size(), NULL);
+-    $result= SWIG_Python_AppendOutput($result, o);
++    $result= SWIG_AppendOutput($result, o);
+ }
+ 
+ %typemap(in,numinputs=0) std::string &ret_password(std::string temp) {
+@@ -731,7 +731,7 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+ 
+ %typemap(argout) std::string &ret_value {
+     PyObject *o= PyUnicode_DecodeUTF8(($1)->data(), ($1)->size(), NULL);
+-    $result= SWIG_Python_AppendOutput($result, o);
++    $result= SWIG_AppendOutput($result, o);
+ }
+ 
+ %typemap(in,numinputs=0) std::string &ret_value(std::string temp) {
+@@ -741,7 +741,7 @@ inline boost::function<void (mforms::TextEntryAction)> pycall_void_entryaction_f
+ 
+ %typemap(argout) bool &ret_store {
+     if (*$1) Py_INCREF(Py_True); else Py_INCREF(Py_False);
+-    $result= SWIG_Python_AppendOutput($result, *$1 ? Py_True : Py_False);
++    $result= SWIG_AppendOutput($result, *$1 ? Py_True : Py_False);
+ }
+ 
+ %typemap(in,numinputs=0) bool &ret_store(bool temp) {
+@@ -821,8 +821,8 @@ namespace std {
+       PyObject *item = PyList_GetItem($input, i);
+       if (PyFloat_Check(item))
+         $1.push_back(PyFloat_AsDouble(item));
+-      else if (PyInt_Check(item))
+-        $1.push_back(PyInt_AsLong(item));
++      else if (PyLong_Check(item))
++        $1.push_back(PyLong_AsLong(item));
+       else
+       {
+         SWIG_exception_fail(SWIG_TypeError, "expected list of doubles");
+diff --git a/library/forms/swig/mforms_drawbox.h b/library/forms/swig/mforms_drawbox.h
+index e540c54..eebfc83 100644
+--- a/library/forms/swig/mforms_drawbox.h
++++ b/library/forms/swig/mforms_drawbox.h
+@@ -164,7 +164,7 @@ namespace mforms {
+          {
+            PyObject *repr = PyObject_Repr(self);
+            printf("Error calling method %s from PyDrawBox delegate %s\n", method,
+-                  PyString_AsString(repr));
++                  PyBytes_AsString(repr));
+            Py_DECREF(repr);
+          }*/
+       }
+diff --git a/library/grt/src/grt.h b/library/grt/src/grt.h
+index bc5e352..c0fd68f 100644
+--- a/library/grt/src/grt.h
++++ b/library/grt/src/grt.h
+@@ -1385,7 +1385,7 @@ namespace grt {
+     }
+ 
+   protected:
+-    explicit ListRef<internal::Integer>(const ValueRef &lvalue) : BaseListRef(lvalue) {
++    explicit ListRef(const ValueRef &lvalue) : BaseListRef(lvalue) {
+       if (lvalue.is_valid() && content().content_type() != IntegerType)
+         throw type_error(IntegerType, content().content_type(), ListType);
+     }
+@@ -1813,7 +1813,7 @@ namespace grt {
+     }
+ 
+   protected:
+-    explicit ListRef<internal::Dict>(const ValueRef &lvalue) : BaseListRef(lvalue) {
++    explicit ListRef(const ValueRef &lvalue) : BaseListRef(lvalue) {
+       if (lvalue.is_valid() && content().content_type() != DictType)
+         throw type_error(DictType, content().content_type(), ListType);
+     }
+diff --git a/plugins/wb.admin/backend/wb_server_management.py b/plugins/wb.admin/backend/wb_server_management.py
+index 40ed515..c89c98b 100644
+--- a/plugins/wb.admin/backend/wb_server_management.py
++++ b/plugins/wb.admin/backend/wb_server_management.py
+@@ -28,7 +28,7 @@ import errno
+ import threading
+ import tempfile
+ import io
+-import pipes
++import shlex
+ import subprocess
+ import time
+ import inspect
+@@ -511,7 +511,7 @@ class ProcessOpsLinuxLocal(ProcessOpsBase):
+         return 0
+ 
+     def list2cmdline(self, args):
+-        return " ".join([pipes.quote(a) or "''" for a in args])
++        return " ".join([shlex.quote(a) or "''" for a in args])
+ 
+ 
+ _process_ops_classes.append(ProcessOpsLinuxLocal)
+@@ -592,7 +592,7 @@ class ProcessOpsLinuxRemote(ProcessOpsBase):
+ 
+ 
+     def list2cmdline(self, args):
+-        return " ".join([pipes.quote(a) or "''" for a in args])
++        return " ".join([shlex.quote(a) or "''" for a in args])
+ 
+ _process_ops_classes.append(ProcessOpsLinuxRemote)
+ 
+diff --git a/res/scripts/python/grt_python_debugger.py b/res/scripts/python/grt_python_debugger.py
+index efa442f..c36adda 100644
+--- a/res/scripts/python/grt_python_debugger.py
++++ b/res/scripts/python/grt_python_debugger.py
+@@ -26,7 +26,7 @@ import bdb
+ import traceback
+ import tempfile
+ import time
+-import imp
++import importlib
+ 
+ 
+ STOP_REASON_STEP = 0
+@@ -357,7 +357,7 @@ class PyDebugger(bdb.Bdb):
+                 if mpath == path:
+                     self.ui_print("Reloading module %s..."%file)
+                     try:
+-                        imp.reload(module)
++                        importlib.reload(module)
+                     except:
+                         self.ui_print("There was an error reloading %s" % file)
+                         import traceback
