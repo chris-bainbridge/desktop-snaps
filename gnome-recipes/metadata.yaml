@@ -2,6 +2,7 @@
 snap: gnome-recipes
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-recipes (stable)
 recipe-commit: dc9b347d0bdd8607dad84fdfdd37cfa7b3415db2
 imported: '2026-11-17'

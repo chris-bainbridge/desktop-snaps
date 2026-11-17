@@ -2,6 +2,7 @@
 snap: gnome-calendar
 base: core26
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/desktop (gnome-calendar)
 recipe-commit: 6fd4fe31776432ea976381ba2e3046ec1bc90a2b
 merge-request: https://code.launchpad.net/~desktop-snappers/desktop/+git/gnome-calendar/+merge/514119

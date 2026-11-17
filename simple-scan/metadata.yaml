@@ -2,6 +2,7 @@
 snap: simple-scan
 base: core26
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/simple-scan (simple-scan)
 recipe-commit: d2968438802b31290edf743da645022712c080b1
 merge-request: https://code.launchpad.net/~desktop-snappers/simple-scan/+git/simple-scan/+merge/514131

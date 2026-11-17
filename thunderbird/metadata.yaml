@@ -2,6 +2,7 @@
 snap: thunderbird
 base: core26
 mode: vendored
+redistribution: open-source
 upstream: https://github.com/ubuntu/thunderbird (beta)
 recipe-commit: 179154b5948ebec0a7436f8ab4dfdc475403fd7b
 merge-request: https://github.com/ubuntu/thunderbird/pull/70

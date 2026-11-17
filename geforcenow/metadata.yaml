@@ -2,6 +2,7 @@
 snap: geforcenow
 base: core24
 mode: vendored
+redistribution: canonical-published
 upstream: https://github.com/kenvandine/geforcenow (main)
 recipe-commit: b79cc6c9d96c85bbcec14d5c56dd6790260e6127
 imported: '2026-11-17'

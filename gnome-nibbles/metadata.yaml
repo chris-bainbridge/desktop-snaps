@@ -2,6 +2,7 @@
 snap: gnome-nibbles
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-nibbles (stable)
 recipe-commit: 6bc843eb5b4a172de51eaaa109e684a2a61d1e10
 imported: '2026-11-17'

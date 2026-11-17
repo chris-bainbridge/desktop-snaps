@@ -2,6 +2,7 @@
 snap: gnome-mines
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-mines (stable)
 recipe-commit: be43730f0742c555f72a42cda3fcbfaf4397580a
 imported: '2026-11-17'

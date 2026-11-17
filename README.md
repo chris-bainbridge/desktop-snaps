@@ -23,6 +23,18 @@ repackage, but Mozilla publishes it.
 
 Nothing here is wired to CI or to the Snap Store. No build ever uploads.
 
+## Redistribution
+
+A package is in scope if either:
+
+- its upstream is open source, so the licence permits redistribution, or
+- the software is already published as a snap by Canonical or by Canonical
+  staff; existing Canonical distribution is treated as permission.
+
+Being the first to distribute a proprietary application requires explicit
+permission. `metadata.yaml` records the basis in `redistribution:`
+(`open-source` or `canonical-published`).
+
 ## Layout
 
 Every package lives in a top-level directory named after its **snap name**
@@ -103,6 +115,7 @@ snapcraft.
 snap: gnome-calculator           # store name = directory name
 base: core26                     # snap base of the migrated recipe
 mode: vendored                   # vendored | overlay
+redistribution: open-source      # open-source | canonical-published
 
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-calculator (snap)
 recipe-commit: 89048f8fae2e...   # commit these recipe files came from
@@ -117,6 +130,10 @@ Overlay packages additionally set `overlay-repo`, `overlay-commit` and
 `overlay-to`; none currently do. Imported packages (2026-11-17) carry
 `imported: YYYY-MM-DD` and no `merge-request`; their `recipe-commit` is the
 packaging repository head they were copied from.
+
+`redistribution` records why we may ship the package: `open-source` when the
+licence permits it, `canonical-published` for proprietary software already
+distributed as a snap by Canonical or Canonical staff.
 
 The recipes are pinned to the `core26` migration branches. Once the merge
 proposals land, refresh the vendored copies from the merged refs.

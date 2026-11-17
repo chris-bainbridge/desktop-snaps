@@ -2,6 +2,7 @@
 snap: gnome-logs
 base: core26
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-logs (snap)
 recipe-commit: 47ff288a834db350bbb0cfae9070acdb8ac557e9
 merge-request: https://code.launchpad.net/~desktop-snappers/gnome-logs/+git/snap/+merge/514124

@@ -2,6 +2,7 @@
 snap: dippi
 base: core22
 mode: vendored
+redistribution: open-source
 upstream: https://github.com/kenvandine/dippi-snap (main)
 recipe-commit: e4c8120d750ceaa4b2d47606bce26023a002707c
 imported: '2026-11-17'

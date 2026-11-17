@@ -2,6 +2,7 @@
 snap: gnome-hitori
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/hitori (snap)
 recipe-commit: 7924e150d81c8e8ba45a86854b4267028e49c6bb
 imported: '2026-11-17'

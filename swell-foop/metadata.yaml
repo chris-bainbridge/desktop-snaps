@@ -2,6 +2,7 @@
 snap: swell-foop
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/swell-foop (stable)
 recipe-commit: 2a5bb687980276d0b6c80ae6b855e4917f6848c6
 imported: '2026-11-17'

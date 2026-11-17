@@ -2,6 +2,7 @@
 snap: gnome-system-monitor
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-system-monitor (stable)
 recipe-commit: 638443f49f53fe8ce1887ded3fa5bc5b556a540b
 imported: '2026-11-17'

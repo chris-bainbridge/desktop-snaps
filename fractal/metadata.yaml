@@ -2,6 +2,7 @@
 snap: fractal
 base: core20
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/fractal (main)
 recipe-commit: e813ebfaadad0a22a62aae88c5881fc61e07cfb6
 imported: '2026-11-17'

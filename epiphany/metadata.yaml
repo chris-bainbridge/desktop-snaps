@@ -2,6 +2,7 @@
 snap: epiphany
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/epiphany-browser (stable)
 recipe-commit: 13f9f6d22de2181886022e54af4f8dbe3ba624e2
 imported: '2026-11-17'

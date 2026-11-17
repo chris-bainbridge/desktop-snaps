@@ -2,6 +2,7 @@
 snap: gnome-robots
 base: core24
 mode: vendored
+redistribution: open-source
 upstream: https://git.launchpad.net/~desktop-snappers/gnome-robots (stable)
 recipe-commit: 63753a8232a6b80f6b4c2b705e42a5e913bc589f
 imported: '2026-11-17'
