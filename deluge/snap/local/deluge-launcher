@@ -1,0 +1,23 @@
+#!/bin/sh
+# Deluge is a Python 3 + GTK 3 application. The GNOME platform snap provides
+# the interpreter, PyGObject, pycairo, dbus-python and the GTK 3, Rsvg,
+# Notify and AyatanaAppIndicator3 typelibs; Twisted, libtorrent and the other
+# modules Deluge imports are staged inside this snap.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+# libtorrent, boost-python, the Pillow support libraries and the
+# zope.interface extension are in the snap's multiarch directory, which is not
+# on the linker's default search path; prepend it to the platform paths that
+# the GNOME launcher already exported.
+export LD_LIBRARY_PATH="${SNAP_LAUNCHER_ARCH_TRIPLET:+$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:}$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Deluge keeps its configuration, torrent state, logs and pid files in the
+# --config directory. XDG_CONFIG_HOME as set by the GNOME launcher is per
+# revision, while this directory is in the snap's per-user common area and
+# therefore survives refreshes.
+DELUGE_CONFIG_DIR="$SNAP_USER_COMMON/deluge"
+mkdir -p -m 700 "$DELUGE_CONFIG_DIR"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/deluge-gtk" \
+    --config="$DELUGE_CONFIG_DIR" "$@"

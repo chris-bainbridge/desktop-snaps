@@ -1,0 +1,201 @@
+name: brasero
+version: '3.12.4'
+summary: CD/DVD burning and disc image creation for GNOME
+description: |
+  Brasero is a CD/DVD mastering application for the GNOME desktop. It builds
+  data, audio and video disc projects, writes them to a disc or to an image
+  file, copies and erases discs, prints covers and saves projects for later.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. For a disc burning application that has direct consequences:
+
+  - Optical drives are not reachable. A strictly confined snap only sees the
+    base's /dev (null, random, urandom, zero): there is no /dev/sr* node, and
+    snapd has no interface that grants raw access to an optical device. The
+    removable-media interface only covers mounted filesystems, not the drive.
+    Brasero therefore cannot burn, copy, erase or rip physical discs, and no
+    drive or inserted disc is listed.
+  - Creating disc images does work, because it needs no device. A data
+    project is mastered with libisofs and written as an ISO file; an audio
+    project is written as a BIN/CUE pair by Brasero's own audio2cue backend.
+    Pick the "File Image" destination in the burn dialog (or pass
+    --image-file on the command line) and choose the output path.
+  - Video DVD projects are not usable. Authoring them needs the dvdauthor
+    helper and an MPEG-2 encoder (mpeg2enc from gst-plugins-bad or libav),
+    neither of which the platform provides and this snap does not stage;
+    the result could only be written to an optical disc in any case.
+  - Only non-hidden files in the home directory and, when removable-media is
+    connected, files on removable drives are visible. Files picked through
+    the desktop portal's file chooser are granted individually; system paths
+    and other applications' private data are not readable.
+  - Settings, projects and caches live in the snap's private per-user area
+    (~/snap/brasero/...) instead of ~/.config/brasero and are not shared with
+    a distribution-packaged Brasero.
+  - The external burner backends are not built: the cdrdao, cdrkit (wodim,
+    genisoimage, readom), cdrtools (cdrecord, mkisofs, cdda2wav, readcd),
+    growisofs and vcdimager plugins shell out to helper programs that cannot
+    see an optical device here, so no unused helper binaries are shipped.
+    The libdvdcss plugin is disabled as well: libdvdcss is not in the Ubuntu
+    archive and encrypted DVDs could not be read without /dev/sr* anyway.
+  - The PackageKit path that offers to install missing GStreamer codecs does
+    not work, because a strictly confined snap cannot install packages on the
+    host. Audio sources are limited to what the platform decodes (MP3, FLAC,
+    Ogg Vorbis/Opus, WAV and the rest of the base, good and ugly sets).
+  - The bundled user manual is not built: the host's help viewer cannot read
+    documentation stored inside a snap, so Help > Contents reports that the
+    manual is unavailable.
+  - MIME types for .brasero projects and disc images are shipped inside the
+    snap only, so the host cannot associate those files automatically.
+  - The preview pane previews audio through playbin's automatic sink; video
+    previews may show no picture because the platform ships the GTK4
+    GStreamer sink but not the GTK3/GSettings sinks the pane asks for.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Brasero needs beyond the GNOME
+# runtime is built from source or staged from the 26.04 archive; no vendor
+# binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://wiki.gnome.org/Apps/Brasero
+source-code: https://gitlab.gnome.org/GNOME/brasero
+issues: https://gitlab.gnome.org/GNOME/brasero/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # src/main.c registers org.gnome.Brasero with GApplication (the 3.12.x
+  # D-Bus port) so a second launch activates the running window; the slot
+  # lets the strict snap own that name on the session bus.
+  brasero:
+    interface: dbus
+    bus: session
+    name: org.gnome.Brasero
+
+apps:
+  brasero:
+    extensions: [gnome]
+    command: usr/bin/brasero
+    desktop: usr/share/applications/brasero.desktop
+    common-id: brasero.desktop
+    plugs:
+      - audio-playback  # preview playback through the host's audio server
+      - gsettings       # GTK reads the host theme, fonts and desktop settings
+      - home            # source files, projects and image output in the home
+      - removable-media # sources and images on USB sticks and other media
+      # Cover printing goes through the GTK3 print dialog, which talks to
+      # CUPS directly. cups-control is not auto-connected; connect it with
+      # "snap connect brasero:cups-control" if covers are to be printed.
+      - cups-control
+
+parts:
+  brasero:
+    source: https://gitlab.gnome.org/GNOME/brasero.git
+    source-type: git
+    # 3.12.4 (2026-09-28) is the latest stable release. The 3.12 series
+    # added the Meson build and the GtkApplication/D-Bus port; the autotools
+    # files are still present but Meson is what upstream builds with now.
+    source-tag: '3.12.4'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      # Install under the path where the snap is mounted so that the
+      # BRASERO_DATADIR, BRASERO_PLUGIN_DIRECTORY and PACKAGE_LOCALE_DIR
+      # values compiled into the binaries point inside the snap; the
+      # organize entry below then moves the tree to usr/.
+      - --prefix=/snap/brasero/current/usr
+      - --buildtype=release
+      # ISO mastering and the libburn backend. libisofs is what writes a
+      # data project straight to an image file, the only destination left
+      # when /dev/sr* cannot be opened.
+      - -Dlibburn=enabled
+      - -Dlibisofs=enabled
+      # Playlist import (.pls/.m3u/.asx) for audio projects. totem-pl-parser
+      # is not in gnome-core26 and is staged below.
+      - -Dplaylist=enabled
+      # The preview pane only needs gstreamer-video, which the platform has.
+      - -Dpreview=enabled
+      # The Tracker search pane would query the host's index, which a
+      # confined snap cannot read, and it is irrelevant for image creation.
+      - -Dsearch=disabled
+      # External-tool backends: they invoke cdrdao, wodim/genisoimage,
+      # cdrecord/mkisofs, dvdauthor, growisofs and vcdimager, none of which
+      # could reach an optical device from the snap. The dvdauthor backend
+      # additionally needs an MPEG-2 encoder the platform does not ship.
+      - -Dcdrdao=false
+      - -Dcdrkit=false
+      - -Dcdrtools=false
+      - -Ddvdauthor=false
+      - -Ddvdcss=false
+      - -Dgrowisofs=false
+      - -Dvcdimager=false
+      # The Nautilus extension is not ported to the current API (upstream
+      # comments it out in meson.build); the help pages cannot be read by
+      # the host's yelp; there is no API documentation to build.
+      - -Dnautilus=disabled
+      - -Dgtk-doc=false
+      - -Dyelp=false
+    build-packages:
+      # The gnome-core26-sdk build snap provides GTK3, GLib/GIO, cairo,
+      # gdk-pixbuf, libxml2 and the gettext/meson/ninja tooling. These are
+      # the extra build dependencies it does not provide:
+      - libburn-dev
+      - libisofs-dev
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libcanberra-gtk3-dev
+      - libnotify-dev
+      - libtotem-plparser-dev
+    override-build: |
+      craftctl default
+      # Use the icon shipped in the snap so it shows up in the launcher. The
+      # 256x256 PNG is the largest icon Meson installs (there is no regular
+      # scalable brasero.svg, only a symbolic one).
+      install -d "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/snap/brasero/current/usr/share/icons/hicolor/256x256/apps/brasero.png" \
+         "$CRAFT_PART_INSTALL/meta/gui/brasero.png"
+      sed -i -e 's|^Icon=brasero$|Icon=${SNAP}/meta/gui/brasero.png|' \
+         "$CRAFT_PART_INSTALL/snap/brasero/current/usr/share/applications/brasero.desktop"
+    organize:
+      snap/brasero/current/usr: usr
+    prime:
+      # Headers and pkg-config files are for building against the bundled
+      # libbrasero libraries, which nothing inside the snap does.
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  libraries:
+    after: [brasero]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has neither libburn nor libisofs. The libburn backend
+      # links both; libisofs is the ISO mastering library.
+      - libburn4t64
+      - libisofs6t64
+      # libxml2 parses plugin metadata and .brasero project files. It is in
+      # the gnome-core26-sdk build snap but not in the content snap, so the
+      # runtime copy has to be staged (see override-build for the path).
+      - libxml2-16
+      # Playlist parsing for the audio project pane. Not in gnome-core26;
+      # its own dependencies (libarchive, libgcrypt, GLib) come from the
+      # platform or the base.
+      - libtotem-plparser18
+    override-build: |
+      craftctl default
+      # gnome/cleanup deletes every primed file whose path also exists in the
+      # SDK snap, and the SDK carries libxml2 while the content snap does
+      # not. Keep the staged copy at usr/lib, which is not an SDK path; the
+      # RPATH snapcraft writes for the binaries resolves the dependency there.
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* \
+         $CRAFT_PART_INSTALL/usr/lib/
+    # Stage only these runtime files: the packages above pull in dependency
+    # libraries that the platform and the base already provide.
+    stage:
+      - usr/lib/*/libburn.so.4*
+      - usr/lib/*/libisofs.so.6*
+      - usr/lib/*/libtotem-plparser.so.18*
+      - usr/lib/libxml2.so.16*

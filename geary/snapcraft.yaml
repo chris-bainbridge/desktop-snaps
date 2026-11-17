@@ -1,0 +1,213 @@
+name: geary
+version: '46.0'
+summary: Email client for GNOME
+description: |
+  Geary is an email application built around conversations for the GNOME
+  desktop. It supports IMAP and SMTP accounts, threaded conversation view,
+  full-text search, multiple accounts, HTML mail rendering, attachments,
+  spell checking and desktop notifications.
+
+  This snap runs under strict confinement, as required by Core Desktop.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: LGPL-2.1-or-later
+website: https://wiki.gnome.org/Apps/Geary
+source-code: https://gitlab.gnome.org/GNOME/geary
+issues: https://gitlab.gnome.org/GNOME/geary/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+# Geary is pinned to the latest stable upstream release, 46.0
+# (2024-05-20), built with Meson. Upstream master is still active but has
+# not published a newer tag.
+#
+# Strict confinement is mandatory because these snaps target Core Desktop,
+# which has no classic snaps. The limitations that follow are documented in
+# README.md; the notable ones are:
+#   * Password storage needs the password-manager-service interface, which is
+#     deny-auto-connection and must be connected manually. GNOME Online
+#     Accounts needs the equally manual accounts-service interface.
+#   * The Evolution Data Server address books are host services that the snap
+#     cannot reach (there is no usable client stack staged), so contact
+#     autocompletion has no usable backend.
+#   * Geary's configuration, mail store and caches live in the snap's private
+#     XDG directories ($SNAP_USER_DATA); an existing ~/.config/geary or
+#     ~/.local/share/geary is not imported.
+#   * The autostart entry and D-Bus activation file installed by upstream are
+#     not visible to the host session, so "start in background at login" and
+#     D-Bus activation of org.gnome.Geary from other applications do not
+#     work.
+
+layout:
+  # Geary is built with the conventional /usr prefix, but inside the snap its
+  # resources, plugins and WebKit web extension live below $SNAP/usr. Expose
+  # the compiled-in paths so Geary can find them at run time.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/geary:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/geary
+  /usr/share/geary:
+    bind: $SNAP/usr/share/geary
+  # libfolks is staged from the 26.04 archive because gnome-core26 does not
+  # ship it. libfolks searches for persona-store backends below the libdir
+  # it was built with (/usr/lib/<triplet>/folks/26/backends), so expose the
+  # staged copy there. Only the key-file backend is staged (the EDS backend
+  # could not reach the host address books anyway).
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/folks:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/folks
+
+slots:
+  # for GtkApplication registration and the upstream
+  # usr/share/dbus-1/services/org.gnome.Geary.service file
+  geary:
+    interface: dbus
+    bus: session
+    name: org.gnome.Geary
+
+apps:
+  geary:
+    extensions: [gnome]
+    command: usr/bin/geary
+    desktop: usr/share/applications/org.gnome.Geary.desktop
+    common-id: org.gnome.Geary.desktop
+    plugs:
+      # GSettings/dconf access for the org.gnome.Geary schema
+      - gsettings
+      # open and save attachments in the user's home directory
+      - home
+      # IMAP, SMTP and remote content referenced by HTML mail
+      - network
+      # libsecret talks to the host keyring over org.freedesktop.secrets.
+      # This interface is deny-auto-connection: without
+      #   snap connect geary:password-manager-service
+      # Geary cannot store or reload account passwords.
+      - password-manager-service
+      # GNOME Online Accounts is a host session service. This interface is
+      # deny-auto-connection too; connect it manually to use GOA accounts and
+      # OAuth2 sign-in for Gmail/Outlook:
+      #   snap connect geary:accounts-service
+      - accounts-service
+      # the sent-sound plugin plays a sound when a message is sent
+      - audio-playback
+      # Geary renders HTML mail with WebKitGTK; declare the interface used by
+      # browser engines. WebKitGTK detects the snap and disables its own
+      # bubblewrap sandbox, so snapd's confinement applies instead.
+      - browser-support
+    environment:
+      # snapcraft does not add the snap's staged library directories when
+      # the gnome extension already defines LD_LIBRARY_PATH. Add them here so
+      # the main binary and Geary's WebKit web-process extension find the
+      # staged libgmime/libpeas/libfolks/libxml2, and keep SNAP_LIBRARY_PATH
+      # for the host GL drivers.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+
+parts:
+  geary:
+    source: https://gitlab.gnome.org/GNOME/geary.git
+    source-type: git
+    source-tag: '46.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      # Without this, the auto profile sees the git checkout and builds the
+      # development app ID (org.gnome.Geary.Devel), which would not match the
+      # D-Bus slot or the desktop file.
+      - -Dprofile=release
+      # API documentation is not needed in the snap.
+      - -Dvaladoc=disabled
+      # Elementary OS contractor integration is irrelevant here.
+      - -Dcontractor=disabled
+      # TNEF (winmail.dat) support; libytnef0 is staged below.
+      - -Dtnef=enabled
+      # Use libunwind for the stack traces in problem reports; libunwind8 is
+      # staged below and the SDK has no libunwind development files.
+      - -Dlibunwind=enabled
+    override-pull: |
+      craftctl default
+      # Geary decides whether it is "installed" by comparing the directory of
+      # the running executable (/snap/geary/<revision>/usr/bin) with its
+      # compiled-in prefix (/usr). That is never true inside a snap, and the
+      # fallback would look for resources in the build directory. Treat a
+      # SNAP_NAME=geary runtime as installed. Upstream has no environment
+      # override for this check.
+      sed -i -e 's|return this.exec_dir.has_prefix(this.install_prefix);|return this.exec_dir.has_prefix(this.install_prefix) \|\| GLib.Environment.get_variable("SNAP_NAME") == "geary";|' \
+          "$CRAFT_PART_SRC/src/client/application/application-client.vala"
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=@appid@$|Icon=${SNAP}/meta/gui/org.gnome.Geary.svg|' \
+          "$CRAFT_PART_SRC/desktop/org.gnome.Geary.desktop.in.in"
+      # Do not install the help media as symlinks into the build directory.
+      sed -i -e 's|^  media: geary_help_media$|  media: geary_help_media, symlink_media: false|' \
+          "$CRAFT_PART_SRC/help/meson.build"
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/icons/org.gnome.Geary.svg" \
+         "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Geary.svg"
+    build-packages:
+      # gnome-core26-sdk already provides GTK3, GLib/GIO, gdk-pixbuf, cairo,
+      # pango, WebKitGTK 4.1 (and its Vala bindings), JavaScriptCoreGTK 4.1,
+      # libsoup-3.0, json-glib, libsecret, gspell, GCR/GCK, libhandy, ICU,
+      # SQLite, libxml2, enchant-2, gsound, libgee, gobject-introspection,
+      # valac, meson/ninja, gettext, itstool, desktop-file-validate and
+      # appstream-util. The packages below are the Geary build dependencies
+      # that the SDK does not ship, or ships without pkg-config/VAPI files.
+      - iso-codes
+      - libappstream-glib-dev
+      - libfolks-dev
+      - libgmime-3.0-dev
+      - libgoa-1.0-dev
+      - libpeas-dev
+      - libstemmer-dev
+      - libunwind-dev
+      - libytnef0-dev
+      - yelp-tools
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides the GTK3/GLib stack, WebKitGTK 4.1, libsecret,
+      # gspell, gsound, GOA, GCR/GCK, libhandy, libsoup-3.0, SQLite, ICU,
+      # json-glib, enchant-2, libstemmer and libgee. It does not ship the
+      # libraries below, all of which Geary links directly:
+      - libfolks26           # contact aggregation (key-file backend only)
+      - libgmime-3.0-0t64    # MIME parsing
+      - libpeas-1.0-1        # plugin engine (GNOME 49 moved to libpeas 2)
+      - libunwind8           # problem-report stack traces
+      - libxml2-16           # XML/HTML helpers
+      - libytnef0            # winmail.dat attachments
+    override-build: |
+      craftctl default
+      # gnome-core26-sdk contains libxml2 but the gnome-core26 content snap
+      # does not. The gnome extension's cleanup part deletes every primed
+      # library whose path also exists in the SDK, so keep libxml2 outside
+      # the SDK's path layout; $SNAP/usr/lib is part of the generated
+      # LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      # Keep only the libraries and data that the content snap does not
+      # provide. Everything else that apt pulled in as a dependency
+      # (libgtk-3, libpython3.14's standard library, libgpgme, libidn2,
+      # liblzma, ...) is already in gnome-core26 or the core26 base.
+      - usr/lib/*/folks/**
+      - usr/lib/*/libfolks.so.*
+      - usr/lib/*/libgmime-3.0.so.*
+      - usr/lib/*/libpeas-1.0.so.*
+      - usr/lib/*/libunwind*.so.*
+      - usr/lib/*/libytnef.so.*
+      - usr/lib/libxml2.so.*
+      - usr/share/glib-2.0/schemas/org.freedesktop.folks.gschema.xml
+
+  cleanup:
+    after: [geary, libraries]
+    plugin: nil
+    override-prime: |
+      set -eux
+      # Compile the Geary and Folks GSettings schemas that were staged.
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .

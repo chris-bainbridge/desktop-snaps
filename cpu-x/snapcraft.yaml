@@ -1,0 +1,176 @@
+name: cpu-x
+version: '5.4.1'
+summary: CPU, motherboard and system information tool
+description: |
+  CPU-X gathers information about the processor, caches, motherboard,
+  memory, operating system and graphics cards, and includes a small
+  benchmark. It has a graphical interface (GTK3), a text-based interface
+  (ncurses) and a non-interactive dump mode.
+
+  The snap is strictly confined and runs as the user. CPU-X's root daemon
+  (started with pkexec/polkit upstream) cannot run inside a snap, so the
+  SMBIOS/DMI data it provides (motherboard, BIOS and DIMM details) and some
+  GPU sensors are unavailable. OpenCL is disabled because the ICD vendor
+  files live in the host's /etc/OpenCL, which a confined snap cannot read.
+
+  Sensor and load readings need the hardware-observe and system-observe
+  interfaces, which are not auto-connected: connect them with
+  `snap connect cpu-x:hardware-observe` and
+  `snap connect cpu-x:system-observe`.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X
+source-code: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X
+issues: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X/issues
+
+# CPU-X 5.4.1 builds with CMake and needs gtkmm 3.24 (GTK3), libcpuid >=
+# 0.8.0, libpci (pciutils), libproc2 (procps-ng) and ncursesw. Its DMI
+# decoder (dmidecode) and its x86 memory benchmark are bundled in the source
+# tree, so no external dmidecode or benchmark package is needed.
+#
+# Strict-confinement limitations (Core Desktop has no classic snaps, so the
+# snap must stay strict):
+#   * CPU-X runs as the user and cannot use its root daemon: there is no
+#     pkexec/polkit inside a strict snap, and the daemon binary and its polkit
+#     policy are therefore not shipped. Without the daemon the built-in
+#     dmidecode decoder cannot read /sys/firmware/dmi/tables/DMI (mode 0400,
+#     owned by root), so the motherboard, BIOS and memory-module (DIMM)
+#     details are missing, and /sys/kernel/debug (mode 0700) stays
+#     unreadable, so the AMDGPU core voltage/clock values from debugfs are
+#     missing too.
+#   * PCI config space is readable only up to the first 64 bytes as a normal
+#     user; fields that live further in (some subsystem IDs, BARs, capability
+#     data) may be incomplete. Device and vendor names work because the
+#     pci.ids database is shipped in the snap.
+#   * hardware-observe grants /sys/{bus,class,devices,firmware}/** and
+#     system-observe grants /proc counters such as /proc/stat; both are
+#     manually connected interfaces, so most sensor and load readings are
+#     empty until the user runs `snap connect cpu-x:hardware-observe` and
+#     `snap connect cpu-x:system-observe`.
+#   * CPU-X reads /etc/os-release, which inside a snap is the core26 base's
+#     file, so the System tab reports "Ubuntu Core 26" rather than the host
+#     distribution. The host file is visible at
+#     /var/lib/snapd/hostfs/etc/os-release with system-observe, but CPU-X
+#     does not read that path.
+#   * OpenCL is disabled (-DWITH_OPENCL=OFF): the OpenCL ICD vendor files
+#     are installed in the host's /etc/OpenCL/vendors, which a strictly
+#     confined snap cannot see, so the OpenCL tab would never find a
+#     platform. EGL/OpenGL and Vulkan do work, from the mesa-2604 content
+#     snap that the gnome extension provides.
+#   * The snap declares no home, removable-media or network plug: CPU-X
+#     does not read or write user files, and its settings are stored in the
+#     snap's private dconf database through the gsettings plug. The ncurses
+#     interface (`cpu-x --ncurses`) and the dump mode (`cpu-x --dump`) work
+#     from a terminal.
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  cpu-x:
+    extensions: [gnome]
+    command: usr/bin/cpu-x
+    desktop: usr/share/applications/io.github.thetumultuousunicornofdarkness.cpu-x.desktop
+    common-id: io.github.thetumultuousunicornofdarkness.cpu-x
+    plugs:
+      # CPU-X stores its preferences in a GSettings schema
+      - gsettings
+      # /sys/class/hwmon, /sys/devices/system/cpu, /sys/bus/pci and DMI IDs
+      - hardware-observe
+      # /proc/stat and the other system-wide counters
+      - system-observe
+
+parts:
+  cpu-x:
+    source: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X/archive/refs/tags/v5.4.1.tar.gz
+    source-checksum: sha256/40c34c0ac14eead0f9626518e0783fd9f365af84aa05761e39795c07086f3fef
+    plugin: cmake
+    cmake-parameters:
+      # CPU-X compiles its data directory (the GTK UI/CSS/logos) and its
+      # gettext locale directory into the binary; the data directory has no
+      # environment override, so use the runtime mount path; organize moves
+      # the tree back under usr/ in the snap.
+      - -DCMAKE_INSTALL_PREFIX=/snap/cpu-x/current/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # See the confinement notes above: the host's OpenCL ICDs are not
+      # reachable from a confined snap.
+      - -DWITH_OPENCL=OFF
+    organize:
+      snap/cpu-x/current/usr: usr
+    build-packages:
+      - cmake
+      - make
+      # gtkmm 3.24 is not part of the gnome-core26 SDK (it only has the
+      # GTK4/gtkmm-4 stack); build against the 26.04 archive's gtkmm3.
+      - libgtkmm-3.0-dev
+      - libcpuid-dev
+      - libpci-dev
+      - libproc2-dev
+      # The SDK has no ncurses headers; the wide library itself is in the
+      # core26 base at run time.
+      - libncurses-dev
+      # The built-in x86 memory benchmark (bandwidth) is assembled with NASM.
+      - on amd64:
+          - nasm
+    override-pull: |
+      craftctl default
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=io.github.thetumultuousunicornofdarkness.cpu-x$|Icon=${SNAP}/meta/gui/io.github.thetumultuousunicornofdarkness.cpu-x.png|' \
+        data/io.github.thetumultuousunicornofdarkness.cpu-x.desktop.in
+    override-build: |
+      craftctl default
+      # Upstream compiles the schema at install time with the prefix path
+      # (/snap/cpu-x/current/usr/share/glib-2.0/schemas) rather than
+      # $CRAFT_PART_INSTALL, so the gschemas.compiled file ends up outside
+      # the part. Compile it here, before organize moves the tree under usr/.
+      glib-compile-schemas "$CRAFT_PART_INSTALL/snap/cpu-x/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/CPU-X_256x256.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/io.github.thetumultuousunicornofdarkness.cpu-x.png"
+    prime:
+      # The daemon needs root and pkexec/polkit, neither of which a strictly
+      # confined snap can provide (see the confinement notes above). With the
+      # /snap/cpu-x/current prefix, CMake falls back to lib/cpu-x because
+      # /usr/libexec does not exist below that prefix.
+      - -usr/libexec/cpu-x-daemon
+      - -usr/lib/cpu-x/cpu-x-daemon
+      # The polkit policy would only apply to the host's polkit, not to the
+      # private polkit instance in the snap (there is none).
+      - -usr/share/polkit-1
+
+  libraries:
+    # gnome-core26 provides GTK3, GLib, gdk-pixbuf and libsigc++-2.0, the
+    # mesa-2604 content snap provides EGL/OpenGL/Vulkan, and the core26 base
+    # provides ncursesw, libudev and zlib. Ship only the runtime libraries
+    # that are absent from all of them.
+    after: [cpu-x]
+    plugin: nil
+    stage-packages:
+      # gtkmm 3.24 and the ABI-specific C++ wrappers GTK3 does not provide:
+      # glibmm-2.4, giomm-2.4, gdkmm-3.0, atkmm-1.6, cairomm-1.0 and
+      # pangomm-1.4 (the content snap only has the 2.68/1.16/2.48 ABIs used
+      # by gtkmm-4.0).
+      - libgtkmm-3.0-1t64
+      # CPU identification and PCI enumeration.
+      - libcpuid18
+      - libpci3
+      # System counters (procps-ng's libproc2).
+      - libproc2-0
+      # libpci looks names up in /usr/share/misc/pci.ids; its compressed-ID
+      # build falls back to the uncompressed file shipped by this package.
+      - pci.ids
+    prime:
+      - usr/lib/*/libgtkmm-3.0.so.*
+      - usr/lib/*/libgdkmm-3.0.so.*
+      - usr/lib/*/libglibmm-2.4.so.*
+      - usr/lib/*/libgiomm-2.4.so.*
+      - usr/lib/*/libatkmm-1.6.so.*
+      - usr/lib/*/libcairomm-1.0.so.*
+      - usr/lib/*/libpangomm-1.4.so.*
+      - usr/lib/*/libcpuid.so.*
+      - usr/lib/*/libpci.so.*
+      - usr/lib/*/libproc2.so.*
+      - usr/share/misc/pci.ids

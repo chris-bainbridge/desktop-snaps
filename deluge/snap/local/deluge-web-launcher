@@ -1,0 +1,16 @@
+#!/bin/sh
+# deluge-web is the browser interface to the Deluge RPC daemon. It needs Mako
+# and the rest of the Python modules staged in this snap; the GNOME platform
+# snap provides the interpreter.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export LD_LIBRARY_PATH="${SNAP_LAUNCHER_ARCH_TRIPLET:+$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:}$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Use the same configuration directory as the daemon and the other clients,
+# so that web.conf and the daemon credentials are shared.
+DELUGE_CONFIG_DIR="$SNAP_USER_COMMON/deluge"
+mkdir -p -m 700 "$DELUGE_CONFIG_DIR"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/deluge-web" \
+    --config="$DELUGE_CONFIG_DIR" "$@"

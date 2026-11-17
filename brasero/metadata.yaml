@@ -1,0 +1,6 @@
+snap: brasero
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/brasero (3.12.4)
+imported: '2026-11-17'

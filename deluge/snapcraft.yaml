@@ -1,0 +1,293 @@
+name: deluge
+version: '2.2.0'
+summary: BitTorrent client with GTK, console, web and daemon UIs
+description: |
+  Deluge is a lightweight BitTorrent client. This snap packages the GTK 3
+  desktop client together with the deluged daemon and the console and web
+  interfaces, so it can run standalone or as a thin client against a local or
+  remote daemon.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Configuration, torrent state, logs and pid files are kept in
+    ~/snap/deluge/common/deluge instead of ~/.config/deluge. Configuration
+    from a distribution-packaged Deluge is not imported.
+  - Only non-hidden paths in your home directory are visible. A .torrent file
+    in a hidden directory such as ~/.config or ~/.local cannot be opened. The
+    default download directory follows XDG_DOWNLOAD_DIR from
+    ~/.config/user-dirs.dirs when that file can be read, otherwise it is
+    ~/Downloads.
+  - Downloads and torrent files under /media, /mnt and /run/media need the
+    removable-media interface:
+    sudo snap connect deluge:removable-media
+  - Inbound peer connections, DHT and UPnP/NAT-PMP need network-bind. It is
+    auto-connected on install; where auto-connection is denied, run:
+    sudo snap connect deluge:network-bind
+  - The deluged service is installed stopped so that it does not compete with
+    the GUI, which defaults to Deluge's standalone mode (the BitTorrent core
+    runs inside the GUI process, and a running daemon makes that mode refuse
+    to start). Start the daemon with 'snap start deluge.deluged', or with
+    'snap start --enable deluge.deluged' to also start it at every login, then
+    switch the GTK client to Thin Client in Preferences -> Interface, or use
+    'snap run deluge.deluge-console'. The web UI is started with
+    'snap run deluge.deluge-web' and serves the running daemon on port 8112.
+  - Writes are restricted to visible paths in your home directory and to
+    connected removable media; the rest of the filesystem is read-only.
+  - Host-installed programs are not available inside the snap, so the snap
+    cannot attach to a deluged or deluge-console installed on the host; only
+    the bundled Deluge and the GNOME platform runtime are present.
+  - The system tray icon uses Ayatana AppIndicator from the GNOME platform and
+    only appears when the desktop shell supports AppIndicator (GNOME needs an
+    extension for it).
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Deluge needs beyond the GNOME runtime
+# is staged from the 26.04 archive or built from the upstream source; no vendor
+# binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://deluge-torrent.org/
+source-code: https://github.com/deluge-torrent/deluge
+issues: https://dev.deluge-torrent.org/
+
+icon: snap/local/deluge.png
+
+platforms:
+  amd64:
+  arm64:
+
+# Upstream does not own a name on the session bus: its only D-Bus use is as a
+# client of org.freedesktop.FileManager1 (deluge/common.py), which the desktop
+# interface already covers. No dbus slot is therefore declared.
+
+apps:
+  deluge:
+    extensions: [gnome]
+    command: bin/deluge-launcher
+    desktop: usr/share/applications/deluge.desktop
+    plugs:
+      - gsettings       # GTK reads the theme, fonts and other desktop settings
+      - home            # downloads, .torrent files and the file chooser
+      - network         # peers, trackers, DHT and the daemon RPC connection
+      - network-bind    # standalone mode listens for peers and UPnP/NAT-PMP
+      - removable-media # downloads and torrent files on removable drives
+
+  deluged:
+    extensions: [gnome]
+    command: bin/deluged-launcher
+    # Upstream ships a Type=simple unit that runs "deluged -d" and restarts on
+    # failure; mirror that as a user daemon. It is installed stopped because
+    # the GTK client's default standalone mode refuses to start while a daemon
+    # is running.
+    daemon: simple
+    daemon-scope: user
+    install-mode: disable
+    restart-condition: on-failure
+    plugs:
+      - home            # serving .torrent files and the configured save paths
+      - network         # peers, trackers, DHT and RPC clients
+      - network-bind    # RPC port 58846, peer port 6881-6890, DHT, UPnP
+      - removable-media # torrents and downloads on removable drives
+
+  deluge-console:
+    extensions: [gnome]
+    command: bin/deluge-console-launcher
+    plugs:
+      - network # connects to the local or a remote daemon over RPC
+
+  deluge-web:
+    extensions: [gnome]
+    command: bin/deluge-web-launcher
+    plugs:
+      - network      # connects to the daemon over RPC
+      - network-bind # listens for browsers on port 8112
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      deluge-launcher: bin/deluge-launcher
+      deluged-launcher: bin/deluged-launcher
+      deluge-console-launcher: bin/deluge-console-launcher
+      deluge-web-launcher: bin/deluge-web-launcher
+    # deluge.png is the store/desktop icon referenced by the top-level icon
+    # key, not a runtime file of its own.
+    prime:
+      - bin/deluge-launcher
+      - bin/deluged-launcher
+      - bin/deluge-console-launcher
+      - bin/deluge-web-launcher
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, dbus-python, the GTK 3, GdkPixbuf,
+      # Rsvg, Notify and AyatanaAppIndicator3 typelibs, libssl/libcrypto and
+      # most of the image libraries Pillow links against, plus libX11/libxcb
+      # through the gpu content snap. These are the modules and libraries the
+      # platform lacks or that are safer to ship explicitly:
+      - python3-twisted      # the RPC, HTTP, reactor and web layers
+      - python3-openssl      # Twisted TLS for the RPC server and trackers
+      - python3-rencode      # deluge's RPC wire encoding
+      - python3-xdg          # config and download directory lookup
+      - python3-mako         # the web UI templates
+      - python3-chardet      # torrent file encoding detection
+      - python3-distro       # OS name in the user agent
+      - python3-ifaddr       # network interface detection
+      - python3-setproctitle # process titles for deluged/deluge-gtk
+      - python3-pil          # tracker icon resizing
+      - python3-libtorrent   # the BitTorrent engine (built for Python 3.14)
+      - libtorrent-rasterbar2.0t64 # the C++ library behind python3-libtorrent
+      - libboost-python1.90.0 # python3-libtorrent's binding layer
+      - libraqm0             # Pillow's _imagingft text layout
+      - libimagequant0       # Pillow's _imaging quantiser
+      - libxcb1              # Pillow's _imaging XCB support (with Xau/Xdmcp)
+    # Stage only the runtime files. An explicit list keeps the interpreter and
+    # its standard library out of the snap (python3-libtorrent, python3-pil and
+    # python3-twisted all depend on python3); the gnome/cleanup part of the
+    # extension then prunes anything the SDK already ships.
+    stage:
+      - usr/lib/python3/dist-packages/OpenSSL
+      - usr/lib/python3/dist-packages/PIL
+      - usr/lib/python3/dist-packages/attr
+      - usr/lib/python3/dist-packages/attrs
+      - usr/lib/python3/dist-packages/attrs-*.dist-info
+      - usr/lib/python3/dist-packages/automat
+      - usr/lib/python3/dist-packages/automat-*.dist-info
+      - usr/lib/python3/dist-packages/chardet
+      - usr/lib/python3/dist-packages/chardet-*.dist-info
+      - usr/lib/python3/dist-packages/constantly
+      - usr/lib/python3/dist-packages/constantly-*.dist-info
+      - usr/lib/python3/dist-packages/cryptography
+      - usr/lib/python3/dist-packages/cryptography-*.dist-info
+      - usr/lib/python3/dist-packages/distro
+      - usr/lib/python3/dist-packages/distro-*.dist-info
+      - usr/lib/python3/dist-packages/hyperlink
+      - usr/lib/python3/dist-packages/hyperlink-*.dist-info
+      - usr/lib/python3/dist-packages/idna
+      - usr/lib/python3/dist-packages/idna-*.dist-info
+      - usr/lib/python3/dist-packages/ifaddr
+      - usr/lib/python3/dist-packages/ifaddr-*.dist-info
+      - usr/lib/python3/dist-packages/incremental
+      - usr/lib/python3/dist-packages/incremental-*.dist-info
+      - usr/lib/python3/dist-packages/libtorrent.cpython-*.so
+      - usr/lib/python3/dist-packages/libtorrent.egg-info
+      - usr/lib/python3/dist-packages/mako
+      - usr/lib/python3/dist-packages/Mako-*.egg-info
+      - usr/lib/python3/dist-packages/markupsafe
+      - usr/lib/python3/dist-packages/markupsafe-*.dist-info
+      - usr/lib/python3/dist-packages/pillow-*.egg-info
+      - usr/lib/python3/dist-packages/pyasn1
+      - usr/lib/python3/dist-packages/pyasn1-*.dist-info
+      - usr/lib/python3/dist-packages/pyasn1_modules
+      - usr/lib/python3/dist-packages/pyasn1_modules-*.dist-info
+      - usr/lib/python3/dist-packages/pyopenssl-*.dist-info
+      - usr/lib/python3/dist-packages/pyxdg-*.dist-info
+      - usr/lib/python3/dist-packages/rencode
+      - usr/lib/python3/dist-packages/rencode-*.egg-info
+      - usr/lib/python3/dist-packages/service_identity
+      - usr/lib/python3/dist-packages/service_identity-*.dist-info
+      - usr/lib/python3/dist-packages/setproctitle
+      - usr/lib/python3/dist-packages/setproctitle-*.egg-info
+      - usr/lib/python3/dist-packages/twisted
+      - usr/lib/python3/dist-packages/twisted-*.dist-info
+      - usr/lib/python3/dist-packages/xdg
+      - usr/lib/python3/dist-packages/xdg-*.egg-info
+      - usr/lib/python3/dist-packages/zope
+      - usr/lib/python3/dist-packages/zope_interface-*.dist-info
+      - usr/lib/*/libboost_python*.so.*
+      - usr/lib/*/libimagequant.so.*
+      - usr/lib/*/libraqm.so.*
+      - usr/lib/*/libtorrent-rasterbar.so.*
+      - usr/lib/*/libXau.so.*
+      - usr/lib/*/libxcb.so.*
+      - usr/lib/*/libXdmcp.so.*
+
+  deluge:
+    source: https://github.com/deluge-torrent/deluge.git
+    source-type: git
+    source-tag: 'deluge-2.2.0'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - gettext            # msgfmt/msgmerge for intltool-merge
+      - intltool           # generates deluge.desktop and the metainfo XML
+      - python3
+      - python3-setuptools
+      - python3-wheel      # listed in setup_requires, avoids fetching it
+    override-build: |
+      set -eux
+
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly. setup.py is still distutils
+      # based; setuptools provides the compatibility layer.
+      /usr/bin/python3 setup.py build
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr \
+        --single-version-externally-managed \
+        --record=install-files.txt
+
+      install="$CRAFT_PART_INSTALL"
+
+      # setup.py writes easy_install wrappers whose shebang is the build
+      # interpreter (/usr/bin/python3, which core26 does not have) and which
+      # resolve the entry point through pkg_resources on every start. Write
+      # the equivalent entry point scripts instead; the launchers run them with
+      # the platform interpreter. deluge/common.py reads the distribution
+      # version with importlib.metadata, so the egg-info stays installed.
+      cat >"$install/usr/bin/deluge" <<'EOF'
+      #!/usr/bin/env python3
+      from deluge.ui.ui_entry import start_ui
+
+      start_ui()
+      EOF
+      cat >"$install/usr/bin/deluge-gtk" <<'EOF'
+      #!/usr/bin/env python3
+      from deluge.ui.gtk3 import start
+
+      start()
+      EOF
+      cat >"$install/usr/bin/deluged" <<'EOF'
+      #!/usr/bin/env python3
+      from deluge.core.daemon_entry import start_daemon
+
+      start_daemon()
+      EOF
+      cat >"$install/usr/bin/deluge-console" <<'EOF'
+      #!/usr/bin/env python3
+      from deluge.ui.console import start
+
+      start()
+      EOF
+      cat >"$install/usr/bin/deluge-web" <<'EOF'
+      #!/usr/bin/env python3
+      from deluge.ui.web import start
+
+      start()
+      EOF
+      chmod 755 \
+        "$install/usr/bin/deluge" \
+        "$install/usr/bin/deluge-gtk" \
+        "$install/usr/bin/deluged" \
+        "$install/usr/bin/deluge-console" \
+        "$install/usr/bin/deluge-web"
+
+      # TryExec is resolved on the host, where deluge-gtk does not exist; a
+      # failed check makes desktops hide the entry. snapd rewrites Exec to the
+      # snap app (deluge), and StartupWMClass already matches the
+      # set_prgname('deluge') call in deluge/ui/gtk3/gtkui.py.
+      desktop="$install/usr/share/applications/deluge.desktop"
+      sed -i '/^TryExec=/d' "$desktop"
+
+      # The byte-code written by install_lib comes from the same Python 3.14
+      # that the platform snap ships, so it is kept: the snap is read-only at
+      # runtime and recompiling would slow every start.

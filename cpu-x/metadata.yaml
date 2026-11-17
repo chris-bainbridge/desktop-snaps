@@ -1,0 +1,6 @@
+snap: cpu-x
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X (v5.4.1)
+imported: '2026-11-17'

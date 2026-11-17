@@ -1,0 +1,6 @@
+snap: deluge
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/deluge-torrent/deluge (deluge-2.2.0)
+imported: '2026-11-17'

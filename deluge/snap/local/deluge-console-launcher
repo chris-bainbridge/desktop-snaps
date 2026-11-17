@@ -1,0 +1,16 @@
+#!/bin/sh
+# deluge-console is a thin client for the Deluge RPC daemon. It needs the
+# Python modules staged in this snap; the GNOME platform snap provides the
+# interpreter, PyGObject and pycairo.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export LD_LIBRARY_PATH="${SNAP_LAUNCHER_ARCH_TRIPLET:+$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:}$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Use the same configuration directory as the daemon and the GTK client, so
+# that the localhost credentials and the host list are shared.
+DELUGE_CONFIG_DIR="$SNAP_USER_COMMON/deluge"
+mkdir -p -m 700 "$DELUGE_CONFIG_DIR"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/deluge-console" \
+    --config="$DELUGE_CONFIG_DIR" "$@"

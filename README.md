@@ -5,16 +5,16 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 75 repackage snaps: the 13
+one-repository-per-snap setup. It contains 79 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
 from other `~desktop-snappers` repositories on 2026-11-17, 14 from the
-personal packaging repositories of Canonical staff, and 20 new recipes
+personal packaging repositories of Canonical staff, and 24 new recipes
 written on 2026-11-17.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the twenty new recipes, which are not in the store yet. Bases: 39 `core26`,
-29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26` packages
-have not been migrated.
+the twenty-four new recipes, which are not in the store yet. Bases: 43
+`core26`, 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26`
+packages have not been migrated.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
@@ -143,7 +143,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (75)
+## Snaps in scope (79)
 
 ### Migrated to core26 (13)
 
@@ -173,12 +173,13 @@ From personal packaging repositories of Canonical staff (14):
 `geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
 `squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
 
-### New core26 recipes (20)
+### New core26 recipes (24)
 
 `terminator`, `meld`, `gnome-tweaks`, `dconf-editor`, `baobab`,
 `gnome-disk-utility`, `homebank`, `bleachbit`, `gnumeric`, `dia`,
 `mypaint`, `easytag`, `rhythmbox`, `totem`, `pitivi`, `quodlibet`,
-`tilix`, `guake`, `bluefish`, `mupdf`.
+`tilix`, `guake`, `bluefish`, `mupdf`, `geary`, `deluge`, `brasero`,
+`cpu-x`.
 
 Written from scratch on 2026-11-17; not published yet. All use strict
 confinement because these snaps must run on Core Desktop, which has no
@@ -195,6 +196,11 @@ newer release tag, and `mypaint`/`easytag` carry compatibility patches for
 the modern Python/PyGObject/TagLib toolchain. `tilix` and `guake` are
 terminals and share terminator's strict limits; `mupdf` uses the `gpu`
 extension (GLUT/OpenGL, not GTK) instead of `gnome`.
+
+`geary` needs manual connections for the keyring and GNOME Online Accounts;
+`deluge` ships the GTK client, user daemon, console and web UI; `brasero`
+cannot access optical devices under strict confinement (image mastering
+only); `cpu-x` runs unprivileged, so DMI and debugfs data are unavailable.
 
 The last group repackages distinct upstream projects; only the recipes are
 checked in. snapcraft fetches upstream sources, and for the proprietary
@@ -234,8 +240,8 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 36 imported packages still on older bases; 39 of
-  the 75 are on `core26` (13 migrated, 6 imported and 20 new), and `freemind`
+- `core26` migration of the 36 imported packages still on older bases; 43 of
+  the 79 are on `core26` (13 migrated, 6 imported and 24 new), and `freemind`
   is still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

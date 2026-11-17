@@ -1,0 +1,20 @@
+#!/bin/sh
+# deluged is the Deluge RPC daemon. The GNOME platform snap provides Python 3,
+# PyGObject, pycairo and dbus-python; Twisted, libtorrent and the other
+# modules Deluge imports are staged inside this snap.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+# libtorrent and its boost-python binding live in the snap's multiarch
+# directory, which is not on the linker's default search path.
+export LD_LIBRARY_PATH="${SNAP_LAUNCHER_ARCH_TRIPLET:+$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:}$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Share the configuration directory with the GTK, console and web apps; it is
+# in the per-user common area so that it survives refreshes.
+DELUGE_CONFIG_DIR="$SNAP_USER_COMMON/deluge"
+mkdir -p -m 700 "$DELUGE_CONFIG_DIR"
+
+# Upstream's systemd unit runs "deluged -d": the service manager needs a
+# foreground process, and forking would leave snapd tracking the parent.
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/deluged" \
+    --do-not-daemonize --config="$DELUGE_CONFIG_DIR" "$@"
