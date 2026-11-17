@@ -1,0 +1,307 @@
+name: texmaker
+version: '6.0.2'
+summary: LaTeX editor with integrated PDF viewer
+description: |
+  Texmaker is a LaTeX editor with syntax highlighting, code completion, code
+  folding, a structure view, wizards for common documents and an integrated
+  PDF viewer with SyncTeX support.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - No TeX distribution is bundled, and the host's TeX installation is not
+    reachable. The host's /usr/bin is replaced by the core26 base inside the
+    snap, and a strictly confined application cannot execute host binaries.
+    Editing, searching and the built-in PDF viewer work out of the box, but
+    Quick Build, the bibliography tools and SyncTeX need a TeX installation
+    that the snap can execute. There is no TeX Live content snap with a
+    content interface today. The supported alternative is a TeX Live
+    installed under a visible path in your real home directory, for example
+    /home/<user>/texlive/2026. The home interface makes it reachable and
+    executable, and its full paths (for example
+    /home/<user>/texlive/2026/bin/x86_64-linux/pdflatex) can be entered in
+    Options -> Configure Texmaker -> Commands. Script-based tools such as
+    latexmk, biber, texdoc and latexindent also need Perl, which is not part
+    of core26; use the native binaries (pdflatex, lualatex, xelatex, bibtex,
+    makeindex) directly.
+  - Other external programs Texmaker can call (Ghostscript, ImageMagick,
+    Aspell, Git, external PDF viewers, terminal emulators) are not included
+    and cannot be reached on the host. The "Open Terminal" tool therefore
+    does not work, and the Git helper needs a Git configured inside a
+    reachable path.
+  - The internal QtWebEngine browser is not built. The user manual, LaTeX
+    reference, file-diff view and the language-tool grammar page open in the
+    desktop's default browser through snapctl user-open (the desktop
+    interface) instead of an embedded window.
+  - Files can be opened and saved in the real home directory, except hidden
+    top-level entries such as ~/.config and ~/.ssh, and on removable drives
+    after "snap connect texmaker:removable-media". System directories and
+    other applications' private data are not visible. The snap's own HOME is
+    ~/snap/texmaker/current, so file dialogs start there; your real home is
+    available as /home/<user>.
+  - Configuration, recent files, sessions and temporary files live in
+    ~/snap/texmaker/current/.config/xm1 and ~/snap/texmaker/current/tmp
+    instead of ~/.config and /tmp, and are not shared with a
+    distribution-packaged Texmaker.
+  - Spell checking uses the Hunspell dictionaries shipped by upstream (US and
+    GB English, French, German, Spanish, Italian, Dutch, Polish, Czech,
+    Portuguese, Catalan and Hungarian). The host's dictionaries are not
+    visible; further dictionaries can be imported in the preferences and are
+    stored in the snap's private area.
+  - Only the bundled DejaVu fonts are available. Fonts installed on the host
+    are not visible. Qt uses the Fusion style rather than the host's Qt/KDE
+    theme, because the host theme plugins are not part of the snap.
+  - Printing uses the CUPS snap through the cups interface, which is not
+    connected automatically: "snap connect texmaker:cups cups:cups".
+    Print-to-file works without it.
+  - Links are handed to the host's default handler through snapctl user-open
+    (desktop interface).
+  - Qt 6.10.2 is staged from the Ubuntu 26.04 archive because snapcraft has
+    no KDE/Qt extension for core26. Host Qt/KDE themes and platform plugins
+    are not visible; the Wayland and X11 plugins staged in the snap are used.
+    Mesa comes from the mesa-2604 content snap connected by the gpu
+    extension; the snap does not ship its own Mesa stack.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Texmaker is built from the pinned upstream
+# tarball; all libraries are staged from the 26.04 archive. No prebuilt
+# Texmaker binaries are embedded.
+#
+# Qt approach: stage Qt 6 from the 26.04 archive rather than using a KDE/Qt
+# content snap.
+#   * snapcraft 9.2.1 offers kde-neon, kde-neon-6 and kde-neon-qt6 only for
+#     core22 and core24. The KDE project publishes kde-qt6-core26 and
+#     kf6-core26 content snaps, but snapcraft has no extension for them: a
+#     recipe would have to declare the content plug, build against the KDE SDK
+#     snap and wire the library, plugin and QML paths by hand.
+#   * Texmaker needs only Qt Core, Gui, Widgets, Network, Xml, Concurrent,
+#     PrintSupport, Qml and Core5Compat, and no KDE Frameworks. Pulling the
+#     KDE content snap would add a large KDE/Qt stack and couple the recipe to
+#     KDE's SDK for no KDE functionality.
+#   * Qt 5 is not an alternative: the kde-neon Qt 5 extension is also limited
+#     to core22/core24, and Texmaker 6.x is a Qt 6 application (upstream's
+#     release builds and Debian build it against Qt 6).
+#   * The 26.04 archive carries Qt 6.10.2, built for exactly the Ubuntu release
+#     the core26 base ships. The staged Qt therefore shares the base's libc,
+#     libstdc++, GLib, OpenSSL, libpng, freetype and libxkbcommon.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libEGL/libGL/libGLX and the DRI drivers that Qt's
+# platform plugins link against, and its cleanup part removes the Mesa copies
+# that the Qt stage-packages would otherwise leave in the snap.
+#
+# QtWebEngine is deliberately not staged. Upstream's default build embeds a
+# QtWebEngine window for the HTML help, the diff view and the grammar page.
+# Chromium would add roughly 300 MB, and its namespace sandbox cannot be
+# enabled in a strictly confined snap: AppArmor denies unprivileged user
+# namespaces, and the allow-sandbox attribute of browser-support is reserved
+# for store-granted snaps. Running Chromium with its sandbox disabled for a
+# LaTeX editor is not a good trade. The local patch below makes
+# INTERNALBROWSER a cache option and defaults it to "no"; the affected pages
+# are opened with the desktop's default browser instead.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.xm1math.net/texmaker/
+
+# Upstream publishes release tarballs on xm1math.net and has no public version
+# control repository: the GitHub repositories are third-party imports of the
+# tarballs, not upstream's. The download page is therefore the canonical
+# source location.
+source-code: https://www.xm1math.net/texmaker/download.html
+
+icon: snap/local/texmaker.svg
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # libxkbcommon-x11 reads the keyboard-layout database from
+  # /usr/share/X11/xkb, which is the core26 base inside the snap and contains
+  # only XErrorDB. Bind the staged database and X11 locale data there.
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+
+apps:
+  texmaker:
+    extensions: [gpu]
+    command: usr/bin/texmaker
+    command-chain: [snap/command-chain/texmaker-launch]
+    desktop: usr/share/applications/texmaker.desktop
+    common-id: texmaker.desktop
+    plugs:
+      - desktop        # snapctl user-open for links, the manual and diff pages
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home           # open and save documents in the user's home
+      - network        # the update checker
+      - opengl         # /dev/dri access for the mesa-2604 content snap
+      - removable-media # documents on USB sticks and other removable media
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+      - cups           # printing through the CUPS snap, manual connection
+
+# No gsettings plug: Texmaker is a Qt application that stores its settings
+# with QSettings in ~/snap/texmaker/current/.config/xm1/texmaker.ini. It reads
+# the GTK theme name from ~/.config/gtk-4.0/settings.ini directly and does not
+# use GSettings.
+
+parts:
+  local:
+    # Command-chain launcher and the xdg-open shim that hands URLs to the
+    # host through snapctl user-open.
+    plugin: dump
+    source: snap/local
+    organize:
+      texmaker-launch: snap/command-chain/texmaker-launch
+      xdg-open: usr/bin/xdg-open
+    prime:
+      - snap/command-chain/texmaker-launch
+      - usr/bin/xdg-open
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -texmaker.svg
+
+  texmaker:
+    # 6.0.2 is the latest stable upstream release (2026-08-10). Upstream does
+    # not publish version control tags; the official source is the tarball on
+    # xm1math.net, and the checksum pins exactly that file. The tarball
+    # contains the bundled Hunspell, SyncTeX and PDFium sources, so no
+    # separate spell-check or PDF libraries are needed.
+    source: https://www.xm1math.net/texmaker/texmaker-6.0.2.tar.bz2
+    source-checksum: sha256/25ecbb16d156ed1528b31511d37c9da7858a2def328b87f17fc877f57f5139cf
+    plugin: cmake
+    override-pull: |
+      craftctl default
+      patch -p1 --batch < "$CRAFT_PROJECT_DIR/snap/local/0001-internal-browser-option.patch"
+    cmake-parameters:
+      # Texmaker compiles its data, translation and documentation directory
+      # into the binary (PREFIX) and has no runtime override. Use the runtime
+      # mount path so PREFIX, and therefore the HTML pages handed to the host
+      # browser, point at files that exist both inside and outside the snap;
+      # organize moves the tree back under usr/ in the snap.
+      - -DCMAKE_INSTALL_PREFIX=/snap/texmaker/current/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # Build without the internal QtWebEngine browser; see the comment at the
+      # top of the file. HTML help, diffs and grammar pages open in the
+      # default browser.
+      - -DINTERNALBROWSER=no
+    build-packages:
+      # The core26 build environment has a C++17 compiler and make, but no
+      # CMake, Qt or patch.
+      - build-essential
+      - cmake
+      - patch
+      - qt6-base-dev       # Core, Gui, Widgets, Network, Xml, Concurrent,
+                           # PrintSupport and the uic/moc/rcc tools
+      - qt6-tools-dev      # Qt6LinguistTools config; pulls lrelease
+      - qt6-declarative-dev # Qt6Qml, used for QJSEngine and the scripts
+      - qt6-5compat-dev    # QTextCodec
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates Qt's data, plugin and
+      # translation paths to the staged tree. Prefix is relative to usr/bin, so
+      # Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/snap/texmaker/current/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/texmaker
+      EOF
+    organize:
+      snap/texmaker/current/usr: usr
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out every package that is already in the base's chisel manifest,
+    # so the base's libc, libstdc++, GLib, OpenSSL, freetype, libpng, zlib and
+    # libxkbcommon are not duplicated here.
+    after: [texmaker]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive. libqt6gui6 also ships the xcb
+      # platform plugin and the PNG/JPEG image plugins.
+      - libqt6core6t64
+      - libqt6gui6
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6xml6
+      - libqt6concurrent6
+      - libqt6printsupport6 # the PDF viewer's print action; pulls libcups2
+      - libqt6qml6          # QJSEngine for the user scripts
+      - libqt6core5compat6  # QTextCodec
+      - libqt6waylandclient6     # native Wayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell etc. for the Wayland plugin
+      # The base has no fonts beyond Plymouth.ttf. Ship DejaVu; other fonts
+      # can be placed in the snap's private ~/.fonts directory.
+      - fonts-dejavu-core
+      # TeX Live is deliberately not staged: a usable TeX installation is far
+      # too large for a sane default, and this snap cannot execute the host's
+      # TeX binaries. See the description for the supported alternatives.
+    override-build: |
+      craftctl default
+
+      # fontconfig-config's conf.d entries are absolute symlinks into
+      # /usr/share/fontconfig. Inside the snap that path is the base, so make
+      # them relative to the staged tree; otherwise the aliases (including
+      # sans-serif -> DejaVu Sans) are silently ignored.
+      if [ -d "$CRAFT_PART_INSTALL/etc/fonts/conf.d" ]; then
+        find "$CRAFT_PART_INSTALL/etc/fonts/conf.d" -type l |
+        while IFS= read -r link; do
+          target="$(readlink "$link")"
+          case "$target" in
+            /usr/share/fontconfig/*)
+              ln -sfn "../../../usr/share/fontconfig/${target#/usr/share/fontconfig/}" "$link"
+              ;;
+          esac
+        done
+      fi
+    prime:
+      # Runtime packages do not need development files or documentation.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty /usr/share/X11 and break the layout bind.
+    # Fetch the data packages directly; they contain no binaries.
+    after: [texmaker]
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  cleanup:
+    # The staged Qt dependency tree can contain copies of libraries that the
+    # core26 base already ships (libstdc++, GLib, OpenSSL, zlib, ...). Loading
+    # two copies in one process is not safe, so drop every primed shared
+    # library whose path also exists in the base, exactly as the other core26
+    # recipes do. The gpu extension's gpu/cleanup part then removes the Mesa
+    # copies that the Qt stage-packages leave behind.
+    after: [texmaker, runtime, x11-data]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

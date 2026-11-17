@@ -5,14 +5,14 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 118 repackage snaps: the 13
+one-repository-per-snap setup. It contains 119 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
 from other `~desktop-snappers` repositories on 2026-11-17, 14 from the
-personal packaging repositories of Canonical staff, and 63 new recipes
+personal packaging repositories of Canonical staff, and 64 new recipes
 written on 2026-11-17.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the sixty-three new recipes, which are not in the store yet. Bases: 82
+the sixty-four new recipes, which are not in the store yet. Bases: 83
 `core26`, 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26`
 packages have not been migrated.
 
@@ -143,7 +143,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (118)
+## Snaps in scope (119)
 
 ### Migrated to core26 (13)
 
@@ -173,7 +173,7 @@ From personal packaging repositories of Canonical staff (14):
 `geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
 `squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
 
-### New core26 recipes (63)
+### New core26 recipes (64)
 
 `terminator`, `meld`, `gnome-tweaks`, `dconf-editor`, `baobab`,
 `gnome-disk-utility`, `homebank`, `bleachbit`, `gnumeric`, `dia`,
@@ -185,7 +185,8 @@ From personal packaging repositories of Canonical staff (14):
 `lmms`, `mixxx`, `stellarium`, `zotero`, `mysql-workbench`,
 `prismlauncher`, `barrier`, `synaptic`, `hardinfo`, `virt-manager`,
 `input-leap`, `kitty`, `wezterm`, `qutebrowser`, `yakuake`, `heroic`,
-`bottles`, `qgis`, `evolution`, `calligra`, `pgadmin4`, `librewolf`.
+`bottles`, `qgis`, `evolution`, `calligra`, `pgadmin4`, `librewolf`,
+`texmaker`.
 
 Written from scratch on 2026-11-17; not published yet. All use strict
 confinement because these snaps must run on Core Desktop, which has no
@@ -211,9 +212,10 @@ unavailable; `lutris` downloads runners into its private area and bundles no
 Wine; `wesnoth` hosts LAN games with `network-bind`.
 
 There is no KDE/Qt extension for core26 in snapcraft 9.2.1, so the Qt
-applications (`scribus`, `texstudio`, `lyx`, `strawberry`, `stacer`) stage
-Qt 5/6 from the archive instead. `lyx` does not bundle TeX Live, so it can
-edit but not render until a TeX content snap exists. `gnucash` builds
+applications (`scribus`, `texstudio`, `lyx`, `strawberry`, `stacer`,
+`texmaker`) stage Qt 5/6 from the archive instead. `lyx` and `texmaker` do
+not bundle TeX Live, so they can edit but not compile documents until a TeX
+content snap (or a TeX installation in a visible home path) exists. `gnucash` builds
 AqBanking support in but cannot use smartcard readers or Perl quote modules;
 `abiword` is a packaging of a largely unmaintained upstream; `stacer` cannot
 perform root-level cleaning.
@@ -293,8 +295,8 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 36 imported packages still on older bases; 82 of
-  the 118 are on `core26` (13 migrated, 6 imported and 63 new), and `freemind`
+- `core26` migration of the 36 imported packages still on older bases; 83 of
+  the 119 are on `core26` (13 migrated, 6 imported and 64 new), and `freemind`
   is still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

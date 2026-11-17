@@ -1,0 +1,26 @@
+#!/bin/sh
+# Hand URLs to the host's default handler.
+#
+# A strictly confined snap has its own mount namespace and PATH, so the host's
+# browsers and other applications cannot be started from inside it. snapd's
+# user-open API is the supported way to ask the desktop to open a URL, and the
+# desktop interface grants it. Texmaker passes file:// URLs (the manual, the
+# LaTeX reference and the generated diff/grammar pages) and plain absolute
+# paths (the "open file browser" action) through QDesktopServices.
+set -u
+
+url=${1:-}
+case "$url" in
+    http://*|https://*|mailto:*|file://*)
+        ;;
+    /*)
+        url="file://$url"
+        ;;
+esac
+
+if [ -n "$url" ] && snapctl user-open "$url"; then
+    exit 0
+fi
+
+# Fall back to the base's xdg-open for anything snapctl does not handle.
+exec /usr/bin/xdg-open "$@"

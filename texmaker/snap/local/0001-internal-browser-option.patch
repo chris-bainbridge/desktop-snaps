@@ -1,0 +1,15 @@
+Description: make the internal QtWebEngine browser a cache option, off by default
+ The snap does not ship QtWebEngine: Chromium is large and its sandbox cannot
+ be enabled in a strictly confined snap. Build without the internal browser
+ and open HTML help, diff and grammar pages in the default browser instead.
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -20,7 +20,7 @@
+ ################ OPTIONS ####################
+ set(COMPILEUSB "no")
+ set(AUTHORIZELINUXQSTYLES "yes")
+-set(INTERNALBROWSER "yes")
++set(INTERNALBROWSER "no" CACHE STRING "Build the internal QtWebEngine HTML browser")
+ set(DEBIANSPELLDIR "no")
+ ################# INSTALL_DIR #####################
+ if (UNIX AND NOT APPLE)

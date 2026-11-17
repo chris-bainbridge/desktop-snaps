@@ -1,0 +1,69 @@
+#!/bin/sh
+# Command-chain launcher for the strictly confined Texmaker snap.
+#
+# Texmaker was built with a /snap/texmaker/current/usr prefix, but Qt's own
+# paths were compiled for /usr, which is the core26 base inside the snap, and
+# fontconfig has no configuration in the base. Point the lookups that happen
+# outside the staged tree at the staged copies before exec'ing the binary.
+set -eu
+
+# Qt's plugin location is architecture dependent. qt.conf next to the binary
+# already encodes the build triplet; this is a fallback for the platform, icon
+# engine and QML plugins if that file is ever missing.
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+
+# snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
+# LD_LIBRARY_PATH. Add the staged library directories, keeping the entries
+# that the gpu-2604 wrapper prepared for Mesa.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Core Desktop is Wayland-first. Prefer the staged Wayland plugin and fall back
+# to xcb on an X11 session or when no compositor is reachable.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# The base has no /etc/fonts/fonts.conf and no fonts beyond Plymouth.ttf. Build
+# a small fontconfig configuration that adds the staged DejaVu fonts and the
+# staged fontconfig rules (aliases, hinting, generic families).
+fontconfig="$SNAP_USER_DATA/fontconfig.conf"
+mkdir -p "$SNAP_USER_DATA/fontconfig-cache"
+cat > "$fontconfig" <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>$SNAP/usr/share/fonts</dir>
+  <cachedir>$SNAP_USER_DATA/fontconfig-cache</cachedir>
+  <include ignore_missing="yes">$SNAP/etc/fonts/conf.d</include>
+  <include ignore_missing="yes">$SNAP/etc/fonts/local.conf</include>
+</fontconfig>
+EOF
+export FONTCONFIG_FILE="$fontconfig"
+
+# QStandardPaths looks for application data under XDG_DATA_DIRS, which does
+# not include $SNAP/usr/share by default. Keep the entries the gpu wrapper has
+# already added (mesa's drirc/vulkan data).
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# The diff view and the language-tool grammar page are written to QDir's temp
+# directory and then handed to the host browser. The snap's /tmp is private, so
+# keep temporary files in the snap's visible per-user directory instead.
+export TMPDIR="$SNAP_USER_DATA/tmp"
+mkdir -p "$TMPDIR"
+
+# Printing goes through the CUPS snap when the cups interface is connected.
+# Its socket is bind-mounted at /var/cups/cups.sock, which is not libcups's
+# default location; point CUPS_SERVER at it only when the interface is there,
+# so print-to-file keeps working without it.
+if snapctl is-connected cups 2>/dev/null; then
+    export CUPS_SERVER=/var/cups/cups.sock
+fi
+
+exec "$SNAP/usr/bin/texmaker" "$@"
