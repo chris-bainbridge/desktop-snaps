@@ -1,0 +1,191 @@
+name: rawtherapee
+version: '5.13'
+summary: Advanced raw photo processing program
+description: |
+  RawTherapee is a raw photo processing program for developing images from
+  digital cameras. It supports a broad range of raw formats, DNG and HDR
+  files, and non-raw JPEG, TIFF and PNG images. It offers a non-destructive
+  editor with a file browser and filmstrip, a batch queue, colour management
+  with ICC and DCP profiles, profiled lens correction, and a command-line
+  interface for batch processing.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - The built-in file browser can only browse your home directory
+    (non-hidden paths) and, when the removable-media interface is connected,
+    USB drives and camera cards. It cannot browse the host's system
+    directories, hidden directories such as ~/.config, or network shares:
+    there is no gvfs backend in the snap. Connect removable media with
+    "snap connect rawtherapee:removable-media".
+  - Settings, the thumbnail cache, recently used files and the batch queue
+    live in the snap's private per-user directories (~/snap/rawtherapee/...),
+    not in ~/.config/RawTherapee or ~/.cache/RawTherapee. They are not shared
+    with a distribution-packaged RawTherapee.
+  - The lensfun database, ICC profiles, DCP profiles and processing profiles
+    shipped with the snap are used. The host's /usr/share/color/icc and
+    /usr/share/lensfun are not visible; a profile or an updated lens
+    database stored under your home directory can be selected in
+    Preferences instead.
+  - Opening an image in an external editor, or showing it in a file manager,
+    does not work: programs installed on the host cannot be started from
+    inside the sandbox, and no external programs are bundled.
+  - Completion sounds are not played because the audio-playback interface is
+    not declared.
+  - The snap has a private /tmp; files written there are not visible to host
+    applications, so intermediate or exported files must go through your home
+    directory or removable media to be shared.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything RawTherapee needs beyond the GNOME
+# runtime is built from the pinned upstream source or staged from the 26.04
+# archive; no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://www.rawtherapee.com/
+source-code: https://github.com/RawTherapee/RawTherapee
+issues: https://github.com/RawTherapee/RawTherapee/issues
+
+icon: snap/local/rawtherapee.png
+
+platforms:
+  amd64:
+  arm64:
+
+# RawTherapee 5.13 is the latest stable upstream release (2026-07-26). It is
+# a C++11/GTK3 application built with CMake. LibRaw, KLT and the other
+# bundled libraries are compiled from the same source tree.
+slots:
+  # RTApplication is a Gtk::Application with this id. The slot lets the
+  # strict snap own the name, which is what makes a second launch (or an
+  # "Open With" from the desktop) reach the running instance.
+  application:
+    interface: dbus
+    bus: session
+    name: com.rawtherapee.application
+
+apps:
+  rawtherapee:
+    extensions: [gnome]
+    command: usr/bin/rawtherapee
+    desktop: usr/share/applications/rawtherapee.desktop
+    common-id: rawtherapee.desktop
+    plugs:
+      - gsettings       # GTK theme, fonts, icons and accessibility settings
+      - home            # open and save images in the user's home directory
+      - removable-media # photos on USB drives, SD cards and other media
+
+  rawtherapee-cli:
+    extensions: [gnome]
+    command: usr/bin/rawtherapee-cli
+    plugs:
+      - home            # read inputs and write outputs in the user's home
+      - removable-media # process photos straight from a camera card
+
+parts:
+  rawtherapee:
+    source: https://github.com/RawTherapee/RawTherapee.git
+    source-type: git
+    source-tag: '5.13'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      # The data directory is compiled into the binary (DATA_SEARCH_PATH) and
+      # has no runtime override, so install under the path where the snap is
+      # mounted and let organize move the tree back under usr/ below.
+      - -DCMAKE_INSTALL_PREFIX=/snap/rawtherapee/current/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # Without this CMake downloads fmt from GitHub at configure time.
+      # Build against the archive's fmt (10.1.1, which has fmt::println).
+      - -DWITH_SYSTEM_FMT=ON
+      # The gnome-core26 platform ships libjxl 0.12; the SDK provides its
+      # headers. Enable JPEG XL support explicitly, as upstream's release
+      # builds do.
+      - -DWITH_JXL=ON
+      # lensfun's default database search path is the base's
+      # /usr/share/lensfun, not the copy staged in the snap. The path is
+      # compiled into the binary; Preferences can still override it.
+      - -DLENSFUNDBDIR=/snap/rawtherapee/current/usr/share/lensfun/version_1
+    organize:
+      snap/rawtherapee/current/usr: usr
+    build-packages:
+      # The gnome-core26-sdk build snap provides the GTK3, GLib/GIO,
+      # gdk-pixbuf, lcms2, librsvg, libcanberra-gtk3, libjxl, libjpeg,
+      # libpng, libtiff, zlib, expat and sigc++-2.0 development files, but
+      # no gtkmm-3.0 (it only carries the gtkmm-4.0/glibmm-2.68 stack), no
+      # CMake, make or git, and no exiv2, lensfun, libiptcdata, fftw3f or
+      # fmt development files.
+      - cmake
+      - make
+      - git # UpdateInfo.cmake runs git describe/rev-parse at build time
+      # LibRaw is built from the bundled autotools tree; autoreconf needs the
+      # unversioned automake/aclocal symlinks and libtoolize, which neither
+      # the SDK nor the base provides.
+      - libtool
+      - libgtkmm-3.0-dev
+      - libexiv2-dev
+      - liblensfun-dev
+      - libiptcdata0-dev
+      - libfftw3-dev
+      - libfmt-dev
+      # LibRaw's autotools configure checks for jpeglib.h and -ljpeg using
+      # the default compiler paths, which do not include the SDK; provide the
+      # archive files for lossy (JPEG-compressed) DNG support.
+      - libjpeg-dev
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      desktop="$CRAFT_PART_INSTALL/snap/rawtherapee/current/usr/share/applications/rawtherapee.desktop"
+      sed -i -e '/^TryExec=/d' \
+        -e 's|^Icon=rawtherapee$|Icon=${SNAP}/meta/gui/rawtherapee.png|' \
+        "$desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "${CRAFT_PROJECT_DIR}/snap/local/rawtherapee.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/rawtherapee.png"
+
+  libraries:
+    # gnome-core26 provides GTK3, GLib/GIO, gdk-pixbuf, lcms2, fftw3f,
+    # librsvg, libcanberra, libjxl, libjpeg, libpng, libtiff, expat, zlib
+    # and sigc++-2.0 (plus libgomp), and the core26 base provides libstdc++
+    # and libgcc. Ship only the runtime libraries that are absent from all
+    # of them.
+    after: [rawtherapee]
+    plugin: nil
+    stage-packages:
+      # gtkmm 3.24 and the ABI-specific C++ wrappers (glibmm-2.4, giomm-2.4,
+      # gdkmm-3.0, atkmm-1.6, cairomm-1.0 and pangomm-1.4) that the content
+      # snap does not ship; it only has the ABIs used by gtkmm-4.0.
+      - libgtkmm-3.0-1t64
+      # EXIF/IPTC/XMP metadata, the lens database, and the IPTC reader.
+      - libexiv2-28
+      # libexiv2 0.28.8 reads its configuration through inih/INIReader;
+      # neither library is in gnome-core26.
+      - libinireader0
+      - libinih1
+      - liblensfun1
+      - liblensfun-data-v1
+      - libiptcdata0
+      # RawTherapee is built with WITH_SYSTEM_FMT=ON.
+      - libfmt10
+    prime:
+      - usr/lib/*/libgtkmm-3.0.so.*
+      - usr/lib/*/libgdkmm-3.0.so.*
+      - usr/lib/*/libglibmm-2.4.so.*
+      - usr/lib/*/libgiomm-2.4.so.*
+      - usr/lib/*/libatkmm-1.6.so.*
+      - usr/lib/*/libcairomm-1.0.so.*
+      - usr/lib/*/libpangomm-1.4.so.*
+      - usr/lib/*/libexiv2.so.*
+      - usr/lib/*/libINIReader.so.*
+      - usr/lib/*/libinih.so.*
+      - usr/lib/*/liblensfun.so.*
+      - usr/lib/*/libiptcdata.so.*
+      - usr/lib/*/libfmt.so.*
+      # The lens database that LENSFUNDBDIR points at. The 26.04 archive
+      # copy is a snapshot; an updated database can be selected in
+      # Preferences from a directory under the user's home.
+      - usr/share/lensfun/version_1/*
+      # libiptcdata's message catalogs.
+      - usr/share/locale/*/LC_MESSAGES/libiptcdata.mo

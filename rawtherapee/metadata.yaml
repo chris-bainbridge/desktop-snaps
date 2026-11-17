@@ -1,0 +1,6 @@
+snap: rawtherapee
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/RawTherapee/RawTherapee (5.13)
+imported: '2026-11-17'

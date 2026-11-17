@@ -1,0 +1,280 @@
+name: lutris
+version: '0.5.22'
+summary: Video game preservation platform
+description: |
+  Lutris helps you install and play video games from all eras and from most
+  gaming systems. It combines existing emulators, engine re-implementations
+  and compatibility layers behind a single interface, and drives the game
+  installers published on lutris.net.
+
+  Lutris does not ship Wine, Proton, DXVK or any of the emulators it launches:
+  they are downloaded into the snap's private area
+  (~/snap/lutris/<revision>/.local/share/lutris) the first time a game needs
+  them.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - HOME is the snap's per-user directory (~/snap/lutris/<revision>), not your
+    real home. Games are installed below that private directory by default;
+    to put them somewhere the host can see, choose a path under /home/<you>
+    or on connected removable media in the installer.
+  - Only non-hidden paths in your real home are reachable, through the home
+    interface. Hidden directories such as ~/.steam, ~/.local/share/Steam and
+    ~/.wine are not accessible, so Steam and GOG Galaxy libraries, existing
+    Wine prefixes and the host's Steam client cannot be used from Lutris.
+  - Host-installed programs are not on PATH. Steam, Feral GameMode, MangoHud
+    and gamescope are not shipped, so their launch options have no effect.
+  - Configurations and runners installed by a distribution package of Lutris
+    are not reused; the snap keeps its own under the private directories
+    above.
+  - Snap desktop entries cannot register new MIME types on the host, so
+    application/x-lutris files (.lutris) are not associated with the snap.
+  - Games run unprivileged inside the snap sandbox. Anti-cheat systems that
+    require kernel drivers or host services do not work, and the GPU is
+    reached through the standard OpenGL/Vulkan interfaces only.
+
+  Three interfaces are not connected automatically; without them game
+  installers cannot read removable drives, controllers are not detected and
+  Lutris cannot signal processes outside its own application:
+
+    sudo snap connect lutris:removable-media
+    sudo snap connect lutris:joystick
+    sudo snap connect lutris:process-control
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Lutris needs beyond the GNOME
+# runtime is staged from the 26.04 archive; no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://lutris.net/
+source-code: https://github.com/lutris/lutris
+issues: https://github.com/lutris/lutris/issues
+
+icon: snap/local/lutris.png
+
+platforms:
+  amd64:
+  arm64:
+
+# /usr/bin/7z from the 7zip package is a shell wrapper that execs
+# /usr/lib/7zip/7z by absolute path, and the binary loads its 7z.so codec
+# module from the same directory. The base has no /usr/lib/7zip, so bind the
+# snap's copy over it for the benefit of the unmodified wrapper.
+layout:
+  /usr/lib/7zip:
+    bind: $SNAP/usr/lib/7zip
+
+slots:
+  # Lutris uses Gtk.Application with application_id "net.lutris.Lutris" and
+  # register_session=True (lutris/gui/application.py), so it claims this name
+  # on the session bus for single-instance behaviour. The slot lets the
+  # strict snap bind its own name.
+  session:
+    interface: dbus
+    bus: session
+    name: net.lutris.Lutris
+
+apps:
+  lutris:
+    extensions: [gnome]
+    command: bin/lutris-launcher
+    desktop: usr/share/applications/net.lutris.Lutris.desktop
+    common-id: net.lutris.Lutris.desktop
+    plugs:
+      - gsettings       # GTK theme, fonts and other desktop settings
+      - home            # games, installers, covers and the file chooser
+      - network         # lutris.net, game downloads, service logins
+      - removable-media # games and installers on removable drives
+      - process-control # signal game processes that left Lutris's process tree
+      - audio-playback  # sound for the games Lutris launches
+      - joystick        # game controllers, read through evdev
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/lutris-launcher
+    # lutris.png only feeds the top-level icon key, which snapcraft reads from
+    # the project directory.
+    prime:
+      - bin/lutris-launcher
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, dbus-python and the GTK 3, GdkPixbuf,
+      # WebKit2, Notify and AyatanaAppIndicator3 typelibs. These are the
+      # modules it does not ship; all of them are imported at start-up.
+      # pypresence (Discord Rich Presence), moddb (moddb.com links) and
+      # webdav4 (save syncing) are optional and not in the 26.04 archive:
+      # Lutris catches their ImportError and turns the feature off.
+      - python3-yaml         # installer and configuration files
+      - python3-lxml         # GOG, Amazon and Ubisoft service scraping
+      - python3-requests     # every HTTP client in lutris.util.http
+      - python3-pil          # cover and banner handling
+      - python3-distro       # OS detection in lutris.util.linux
+      - python3-evdev        # controller support (lutris.util.joypad)
+      - python3-protobuf     # Battle.net product database parser
+      - python3-pefile       # icons of Windows executables
+      - python3-setproctitle # process titles for lutris-wrapper
+      # lutris/util/magic.py loads libmagic through ctypes; libmagic-mgc is the
+      # compiled database (pulled in as a dependency, listed for clarity).
+      - libmagic1t64
+      - libmagic-mgc
+      # Installer helpers the Debian package depends on. 7zip provides /usr/bin/7z
+      # (it is the p7zip-full replacement in 26.04), cabextract and innoextract
+      # unpack Windows installers, unzip handles plain archives.
+      - 7zip
+      - cabextract
+      - innoextract
+      - unzip
+      # Tools that lutris/util/linux.py and lutris/util/system.py look up in
+      # PATH: fuser, glxinfo, vulkaninfo and xrandr. lspci is not shipped:
+      # without its pci.ids database it can only report numeric PCI IDs, and
+      # Lutris prefers the Vulkan device name anyway.
+      - psmisc
+      - mesa-utils-bin
+      - mesa-utils
+      - vulkan-tools
+      - x11-xserver-utils
+    # Stage only the runtime files. An explicit list keeps the interpreter and
+    # its standard library out of the snap (every python3-* package depends on
+    # python3), and drops the parts of x11-xserver-utils and vulkan-tools that
+    # are not wanted. The gnome/cleanup part of the extension then removes the
+    # libraries the platform already ships; only the ones it lacks are listed.
+    stage:
+      - usr/lib/python3/dist-packages/PIL
+      - usr/lib/python3/dist-packages/pillow-*.egg-info
+      - usr/lib/python3/dist-packages/_yaml
+      - usr/lib/python3/dist-packages/yaml
+      - usr/lib/python3/dist-packages/pyyaml-*.dist-info
+      - usr/lib/python3/dist-packages/certifi
+      - usr/lib/python3/dist-packages/certifi-*.dist-info
+      - usr/lib/python3/dist-packages/charset_normalizer
+      - usr/lib/python3/dist-packages/charset_normalizer-*.dist-info
+      - usr/lib/python3/dist-packages/distro
+      - usr/lib/python3/dist-packages/distro-*.dist-info
+      - usr/lib/python3/dist-packages/evdev
+      - usr/lib/python3/dist-packages/evdev-*.dist-info
+      - usr/lib/python3/dist-packages/google
+      - usr/lib/python3/dist-packages/protobuf-*.egg-info
+      - usr/lib/python3/dist-packages/idna
+      - usr/lib/python3/dist-packages/idna-*.dist-info
+      - usr/lib/python3/dist-packages/lxml
+      - usr/lib/python3/dist-packages/lxml-*.egg-info
+      - usr/lib/python3/dist-packages/ordlookup
+      - usr/lib/python3/dist-packages/pefile.py
+      - usr/lib/python3/dist-packages/pefile-*.egg-info
+      - usr/lib/python3/dist-packages/peutils.py
+      - usr/lib/python3/dist-packages/requests
+      - usr/lib/python3/dist-packages/requests-*.dist-info
+      - usr/lib/python3/dist-packages/setproctitle
+      - usr/lib/python3/dist-packages/setproctitle-*.egg-info
+      - usr/lib/python3/dist-packages/urllib3
+      - usr/lib/python3/dist-packages/urllib3-*.dist-info
+      - usr/lib/*/libmagic.so.*
+      - usr/lib/file/magic.mgc
+      # lxml links against libxml2 (present only in the mesa content snap),
+      # Pillow against libimagequant and libraqm, cabextract against libmspack,
+      # and innoextract against three Boost libraries. libimagequant, libraqm,
+      # libmspack and Boost are in neither the platform nor the mesa snap.
+      - usr/lib/*/libxml2.so.*
+      - usr/lib/*/libimagequant.so.*
+      - usr/lib/*/libboost_filesystem.so.*
+      - usr/lib/*/libboost_iostreams.so.*
+      - usr/lib/*/libboost_program_options.so.*
+      - usr/lib/*/libmspack.so.*
+      - usr/lib/*/libraqm.so.*
+      - usr/bin/7z
+      - usr/lib/7zip/7z
+      - usr/lib/7zip/7z.so
+      - usr/bin/cabextract
+      - usr/bin/innoextract
+      - usr/bin/unzip
+      - usr/bin/fuser
+      - usr/bin/glxinfo*
+      - usr/bin/vulkaninfo
+      - usr/bin/xrandr
+
+  lutris:
+    source: https://github.com/lutris/lutris.git
+    source-type: git
+    source-tag: 'v0.5.22'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - gettext # msgfmt for the translations, the desktop entry and the metainfo
+      - python3
+      - python3-setuptools
+    override-build: |
+      set -eux
+
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly. setup.py installs the lutris
+      # package, bin/lutris and (through data_files) the whole share/ tree,
+      # which is upstream's Makefile layout, without needing meson.
+      /usr/bin/python3 setup.py build
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr \
+        --single-version-externally-managed \
+        --record=install-files.txt
+
+      install="$CRAFT_PART_INSTALL"
+      share="$install/usr/share"
+
+      # Translations: locale.bindtextdomain("lutris", LOCALE_DIR) in bin/lutris
+      # expects $SNAP/usr/share/locale/<lang>/LC_MESSAGES/lutris.mo.
+      for po in po/*.po; do
+        lang="${po#po/}"
+        lang="${lang%.po}"
+        install -d "$share/locale/$lang/LC_MESSAGES"
+        msgfmt "$po" -o "$share/locale/$lang/LC_MESSAGES/lutris.mo"
+      done
+
+      # The desktop entry and the metainfo XML are gettext templates upstream
+      # merges with meson; fill their translated fields in from po/.
+      msgfmt --desktop \
+        --template=share/applications/net.lutris.Lutris.desktop \
+        -d po -o "$share/applications/net.lutris.Lutris.desktop"
+      msgfmt --xml \
+        --template=share/metainfo/net.lutris.Lutris.metainfo.xml \
+        -d po -o "$share/metainfo/net.lutris.Lutris.metainfo.xml"
+
+      # bin/lutris reads LOCALE_DIR from optional_settings, which only exists
+      # when the meson build generated it. The meson build bakes in the
+      # configure-time prefix (/usr), which inside a snap is the base, not the
+      # snap; resolve it against $SNAP at runtime instead.
+      cat >"$install/usr/lib/python3/dist-packages/optional_settings.py" <<'EOF'
+      """Optional configuration normally generated by the build system.
+
+      bin/lutris reads LOCALE_DIR from this module to bind the gettext domain.
+      """
+
+      import os
+
+      LOCALE_DIR = os.path.join(os.environ.get("SNAP", "/usr"), "usr/share/locale")
+      EOF
+
+      # core26 has no /usr/bin/python3; the launcher provides the platform
+      # interpreter, so use env(1) rather than an absolute shebang.
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' "$install/usr/bin/lutris"
+
+      # lutris/util/datapath.py looks for the data directory relative to
+      # sys.path[0] when it is not under /usr: from $SNAP/usr/bin it probes
+      # $SNAP/share/lutris. lutris/monitored_command.py, on the other hand,
+      # wants the lutris-wrapper script at $SNAP/usr/share/lutris/bin. Point
+      # the first location at the second.
+      ln -s usr/share "$install/share"
+
+      # The second desktop entry only exists to handle application/x-lutris
+      # files, a MIME type snapd cannot register on the host; drop it.
+      rm -f "$share/applications/net.lutris.Lutris1.desktop"

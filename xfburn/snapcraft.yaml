@@ -1,0 +1,169 @@
+name: xfburn
+version: '0.8.0'
+summary: CD/DVD burning and ISO image creation for Xfce
+description: |
+  Xfburn is a CD/DVD/Blu-ray burning application for the Xfce desktop. It
+  builds data compositions and writes them to a disc or to an ISO image,
+  burns existing images, creates audio CDs and blanks or formats rewritable
+  media. libburn and libisofs from the libburnia project do the actual work;
+  GStreamer decodes compressed audio for audio-CD projects.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. For a disc burning application that has direct consequences:
+
+  - Optical drives are not reachable. A strictly confined snap gets a private
+    /dev containing only the standard pseudo-devices (null, zero, random,
+    urandom, tty, ...): there is no /dev/sr* or /dev/sg* node, so libburn
+    finds no drive to open. snapd's optical-drive interface can grant read
+    access, but a plug that asks for write access (write: true) is denied
+    connection by snapd's base declaration unless the snap has a
+    store-approved declaration, which a locally built snap cannot have. This
+    snap does not declare the interface: read-only access would still not
+    allow burning, and no burn-capable grant is available. Burning, copying,
+    blanking and formatting discs, creating audio CDs and writing an existing
+    image to a disc therefore cannot work, and no drive is listed.
+  - Data image creation does work, because it needs no device. In a data
+    composition, open Burn, tick "Only create ISO" and choose the output
+    path; libisofs masters the ISO 9660/Joliet image and xfburn writes it to
+    the file. The default is /tmp/xfburn.iso inside the snap's private /tmp;
+    pick a path under the home directory to keep the image.
+  - Audio-CD projects have no image output; they can only be burned to a
+    drive, so they are unusable here even though GStreamer is built in.
+  - Only non-hidden files in the home directory and, when removable-media is
+    connected, files on mounted removable media are visible. A mounted data
+    disc is visible through removable-media as ordinary files. Files picked
+    through the desktop portal's file chooser are granted individually;
+    system paths and other applications' private data are not readable.
+  - Settings, recent files and caches live in the snap's private per-user
+    area (~/snap/xfburn/...) instead of ~/.config/xfburn and are not shared
+    with a distribution-packaged Xfburn.
+  - The removable-media interface is not auto-connected. Run
+    "snap connect xfburn:removable-media" to browse mounted USB sticks, SD
+    cards and data discs.
+  - Help > Contents asks the Xfce help browser to open the manual; xfhelp is
+    not part of the GNOME platform and documentation inside the snap is not
+    readable by the host's help viewer, so the help window does not open. The
+    manual page is shipped inside the snap only.
+  - GStreamer decoding uses the platform's plugin set (base, good and the
+    extra codecs it carries). Additional codecs cannot be installed at
+    runtime, because the install-on-demand helper used by distribution
+    packages relies on PackageKit, which a strictly confined snap cannot use.
+  - The Thunar "Send To" entry is installed inside the snap only, so a host
+    Thunar does not show it.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Xfburn needs beyond the GNOME
+# runtime is either built from source or staged from the 26.04 archive; no
+# vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://docs.xfce.org/apps/xfburn/start
+source-code: https://gitlab.xfce.org/apps/xfburn
+issues: https://gitlab.xfce.org/apps/xfburn/-/issues
+
+icon: snap/local/xfburn.svg
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  xfburn:
+    extensions: [gnome]
+    command: usr/bin/xfburn
+    desktop: usr/share/applications/xfburn.desktop
+    common-id: xfburn.desktop
+    plugs:
+      - gsettings       # GTK reads the host theme, fonts and desktop settings
+      - home            # compositions read from and ISO images written to home
+      - removable-media # mounted USB sticks, SD cards and data discs
+
+parts:
+  xfburn:
+    # 0.8.0 (2025-06-18) is the latest stable release and ships both build
+    # systems. The release tarball is used because it carries a generated
+    # autotools configure script and the pre-built man page, so the build
+    # needs neither xfce4-dev-tools nor xsltproc/docbook-xsl. Meson is
+    # upstream's newer path but adds that documentation toolchain.
+    plugin: autotools
+    source: https://archive.xfce.org/src/apps/xfburn/0.8/xfburn-0.8.0.tar.bz2
+    source-checksum: sha256/13a301aebcef27de18f63f8ca10b43bc42f9c1b9865dff1bfb3e97cfd95dd989
+    autotools-configure-parameters:
+      # Xfburn compiles DATADIR and PACKAGE_LOCALE_DIR into the binary and has
+      # no environment override for them, so install under the path where the
+      # snap is mounted at runtime; organize moves the tree back under usr/.
+      - --prefix=/snap/xfburn/current/usr
+      - --enable-gudev
+      - --enable-gstreamer
+      - --disable-debug
+      - --disable-maintainer-mode
+    build-packages:
+      # The gnome-core26-sdk build snap provides GTK3, GLib/GIO, cairo,
+      # gdk-pixbuf, gettext, pkg-config and the autotools toolchain. These are
+      # the extra build dependencies it does not provide. libgudev and
+      # GStreamer development files also exist in the SDK, but are listed
+      # explicitly because configure hard-requires them with the options
+      # above.
+      - libburn-dev
+      - libisofs-dev
+      - libgudev-1.0-dev
+      - libgstreamer1.0-dev
+      - libgstreamer-plugins-base1.0-dev
+      # Xfce libraries: libxfce4ui supplies XfceTitledDialog and the frame
+      # box helpers, libxfce4util the resource lookup and XfceRc settings
+      # store, exo the tree views and the burn-image dialog action area.
+      - libxfce4ui-2-dev
+      - libxfce4util-dev
+      - libexo-2-dev
+    override-build: |
+      craftctl default
+      # Use the icon shipped in the snap so it shows up in the launcher. The
+      # scalable stock_xfburn icon is the largest application icon upstream
+      # ships (there is no separate xfburn.svg).
+      install -d "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/snap/xfburn/current/usr/share/icons/hicolor/scalable/stock/media/stock_xfburn.svg" \
+         "$CRAFT_PART_INSTALL/meta/gui/xfburn.svg"
+      sed -i -e 's|^Icon=stock_xfburn$|Icon=${SNAP}/meta/gui/xfburn.svg|' \
+         "$CRAFT_PART_INSTALL/snap/xfburn/current/usr/share/applications/xfburn.desktop"
+    organize:
+      snap/xfburn/current/usr: usr
+
+  libraries:
+    after: [xfburn]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has none of the libburnia or Xfce libraries. The libburn
+      # backend links libburn and libisofs; libisofs is what writes an ISO
+      # straight to a file, the only destination left when /dev/sr* cannot be
+      # opened.
+      - libburn4t64
+      - libisofs6t64
+      # libxfce4ui-2.so.0 needs libxfce4util, libxfconf and the
+      # startup-notification library; exo-2 is linked for the tree views.
+      # Their -common data packages are not staged: Xfburn never opens the
+      # Xfce help or settings files those carry.
+      - libxfce4ui-2-0
+      - libxfce4util7
+      - libexo-2-0
+      - libxfconf-0-3
+      - libstartup-notification0
+      # libstartup-notification additionally needs xcb-util and the Xlib/XCB
+      # bridge. Neither is in gnome-core26; the rest of the X11 stack comes
+      # with the GTK3 platform.
+      - libxcb-util1
+      - libx11-xcb1
+    # Stage only these runtime libraries. The packages above pull in
+    # dependency libraries and data that the platform and the base already
+    # provide.
+    stage:
+      - usr/lib/*/libburn.so.4*
+      - usr/lib/*/libisofs.so.6*
+      - usr/lib/*/libxfce4ui-2.so.0*
+      - usr/lib/*/libxfce4util.so.7*
+      - usr/lib/*/libexo-2.so.0*
+      - usr/lib/*/libxfconf-0.so.3*
+      - usr/lib/*/libstartup-notification-1.so.0*
+      - usr/lib/*/libxcb-util.so.1*
+      - usr/lib/*/libX11-xcb.so.1*

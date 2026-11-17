@@ -1,0 +1,14 @@
+#!/bin/sh
+# Lutris is a Python 3 + GTK 3 application. The gnome extension mounts the
+# gnome-core26 platform snap at $SNAP/gnome-platform, which provides the
+# interpreter, PyGObject, pycairo, dbus-python and the GTK 3, WebKit2 and
+# libnotify typelibs. core26 has no /usr/bin/python3 of its own, so call the
+# platform interpreter explicitly and add the modules staged in this snap.
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+# libmagic is loaded through ctypes (lutris/util/magic.py) and only looks
+# outside its compiled-in database path ($MAGIC) when asked to. The database
+# is staged in the snap; /usr is the base's, so point libmagic at it.
+export MAGIC="$SNAP/usr/lib/file/magic.mgc"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/lutris" "$@"

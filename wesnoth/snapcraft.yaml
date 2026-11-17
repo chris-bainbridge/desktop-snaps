@@ -1,0 +1,168 @@
+name: wesnoth
+version: '1.18.8'
+summary: Turn-based fantasy strategy game
+description: |
+  The Battle for Wesnoth is a turn-based strategy game with a high fantasy
+  theme. Build up an army, recruit units with different strengths and
+  weaknesses, and fight over villages across many mainline campaigns,
+  standalone scenarios and multiplayer maps. The package also includes the
+  map editor and the game's add-on client.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Saves, preferences, logs and downloaded add-ons live in the snap's private
+    per-user area (~/snap/wesnoth/current/.local/share/wesnoth/1.18 and
+    ~/snap/wesnoth/current/.config/wesnoth/1.18) instead of ~/.local/share
+    and ~/.config, and are not shared with a distribution-packaged Wesnoth.
+    To keep saves in a directory both installations can read, start the game
+    with a visible path, for example
+    "snap run wesnoth --userdata-dir=$HOME/Documents/wesnoth".
+  - The home interface only exposes non-hidden paths in the home directory.
+    Hidden directories such as ~/.local/share and ~/.config, and files in
+    system directories, are not readable. Existing saves from a distribution
+    package must be copied into the snap's data directory or a visible
+    directory passed to --userdata-dir; they cannot be opened in place.
+  - Add-ons are downloaded from the official add-on server into the snap's
+    private data directory. They work normally but cannot be shared with a
+    distribution installation.
+  - Network multiplayer works through the network interface. Hosting a LAN
+    game also works: the client starts the bundled wesnothd, which listens
+    through the network-bind interface. The server's admin FIFO is created in
+    the snap's private /tmp and is not reachable from the host.
+  - Map Editor is available from the desktop entry's "Map Editor" action, or
+    with "snap run wesnoth -e".
+  - Fonts bundled with the game are used, with fontconfig fallback to the
+    fonts shipped by the GNOME platform snap. Fonts installed only on the
+    host are not visible to the game.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. The game is built from the upstream release tag;
+# nothing prebuilt from upstream is embedded. Only the libraries that the
+# gnome-core26 platform does not ship are staged (SDL2, Boost and readline);
+# pango, cairo, fontconfig, ICU, OpenSSL, cURL, D-Bus, Vorbis and PulseAudio
+# come from the platform snap.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.wesnoth.org/
+source-code: https://github.com/wesnoth/wesnoth
+issues: https://github.com/wesnoth/wesnoth/issues
+
+icon: snap/local/wesnoth-icon.png
+
+platforms:
+  amd64:
+  arm64:
+
+# The game is compiled with WESNOTH_PATH=/usr/share/wesnoth (the default
+# DATADIRNAME), so bind the installed data tree there inside the snap's mount
+# namespace. Without it the client would look for its data on the host.
+layout:
+  /usr/share/wesnoth:
+    bind: $SNAP/usr/share/wesnoth
+
+apps:
+  wesnoth:
+    extensions: [gnome]
+    command: usr/bin/wesnoth
+    desktop: usr/share/applications/org.wesnoth.Wesnoth.desktop
+    common-id: org.wesnoth.Wesnoth.desktop
+    plugs:
+      - audio-playback # music and sound effects through the host's audio server
+      - home           # --userdata-dir and files the user points the game at
+      - network        # multiplayer servers and the add-on server
+      - network-bind   # listening socket of the wesnothd started for LAN games
+
+parts:
+  wesnoth:
+    source: https://github.com/wesnoth/wesnoth.git
+    source-type: git
+    source-tag: '1.18.8'
+    source-depth: 1
+    # Only Lua is needed. Upstream compiles its bundled copy as C++, which the
+    # archive's liblua5.4 is not; the mariadbpp submodule is only used by the
+    # optional MySQL-enabled campaign server, which is not built.
+    source-submodules: [src/modules/lua]
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DENABLE_SYSTEM_LUA=OFF
+      - -DENABLE_SERVER=ON
+      - -DENABLE_NOTIFICATIONS=ON
+      - -DENABLE_NLS=ON
+      - -DENABLE_TESTS=OFF
+      - -DENABLE_CAMPAIGN_SERVER=OFF
+      # The admin FIFO of a LAN server is the only file the game wants to
+      # create outside its install prefix; /tmp is private and writable in a
+      # strict snap. A failure here is non-fatal, but this keeps it working.
+      - -DFIFO_DIR=/tmp
+    build-packages:
+      # The gnome-core26 SDK already provides pango, cairo, fontconfig, ICU,
+      # OpenSSL, cURL, D-Bus and gettext development files. Boost, SDL2,
+      # libvorbis and readline are not part of it.
+      - gettext # msgfmt for the message catalogs
+      - git     # utils/autorevision.sh generates the revision header
+      - libboost-coroutine-dev
+      - libboost-filesystem-dev
+      - libboost-graph-dev
+      - libboost-iostreams-dev
+      - libboost-locale-dev
+      - libboost-program-options-dev
+      - libboost-random-dev
+      - libboost-regex-dev
+      - libboost-thread-dev
+      - libreadline-dev
+      - libsdl2-dev
+      - libsdl2-image-dev
+      - libsdl2-mixer-dev
+      - libvorbis-dev
+      # The cmake plugin installs cmake and gcc, but Ubuntu's cmake only
+      # recommends make and snapcraft installs build packages without
+      # recommends.
+      - make
+      - pkgconf
+      - python3
+    override-build: |
+      set -eux
+      craftctl default
+
+      # Upstream launches the game through "sh -c", which snapd cannot map to
+      # a snap app: it would either drop the Exec line or run the shell with
+      # the rest as arguments. Snapcraft replaces only the first word of Exec
+      # with the app name, so hand it plain commands. The Editor action is
+      # rewritten as well; snapd prefixes both with the snap wrapper.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/org.wesnoth.Wesnoth.desktop"
+      sed -i -E \
+        -e 's|^Exec=sh -c "wesnoth([[:space:]]*-e)?[[:space:]]*>.*$|Exec=wesnoth\1|' \
+        "$desktop"
+      # SDL derives WM_CLASS from argv[0] ("wesnoth"); declare it so the
+      # window is grouped with its launcher.
+      sed -i -E 's|^(Categories=.*)$|\1\nStartupWMClass=wesnoth|' "$desktop"
+      grep -q '^Exec=wesnoth$' "$desktop"
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # SDL2 and its codec dependencies are not part of gnome-core26. Wesnoth
+      # draws text with pangocairo, so SDL2_ttf is not a dependency.
+      - libsdl2-2.0-0
+      - libsdl2-image-2.0-0
+      - libsdl2-mixer-2.0-0
+      # Boost's shared libraries are not in the platform either. Boost 1.90
+      # dropped boost_system; the 1.18.8 build only links it when the archive
+      # provides it.
+      - libboost-coroutine1.90.0
+      - libboost-filesystem1.90.0
+      - libboost-graph1.90.0
+      - libboost-iostreams1.90.0
+      - libboost-locale1.90.0
+      - libboost-program-options1.90.0
+      - libboost-random1.90.0
+      - libboost-regex1.90.0
+      - libboost-thread1.90.0
+      # The in-game chat console and --history use GNU readline; the platform
+      # does not ship libreadline/libhistory.
+      - libreadline8t64
