@@ -1,0 +1,6 @@
+snap: qgis
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/qgis/QGIS (final-4_2_3)
+imported: '2026-11-17'

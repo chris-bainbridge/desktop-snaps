@@ -5,16 +5,16 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 111 repackage snaps: the 13
+one-repository-per-snap setup. It contains 115 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
 from other `~desktop-snappers` repositories on 2026-11-17, 14 from the
-personal packaging repositories of Canonical staff, and 56 new recipes
+personal packaging repositories of Canonical staff, and 60 new recipes
 written on 2026-11-17.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the fifty-six new recipes, which are not in the store yet. Bases: 75
-`core26`, 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26`
-packages have not been migrated.
+the sixty new recipes, which are not in the store yet. Bases: 79 `core26`,
+29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26` packages
+have not been migrated.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
@@ -143,7 +143,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (111)
+## Snaps in scope (115)
 
 ### Migrated to core26 (13)
 
@@ -173,7 +173,7 @@ From personal packaging repositories of Canonical staff (14):
 `geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
 `squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
 
-### New core26 recipes (56)
+### New core26 recipes (60)
 
 `terminator`, `meld`, `gnome-tweaks`, `dconf-editor`, `baobab`,
 `gnome-disk-utility`, `homebank`, `bleachbit`, `gnumeric`, `dia`,
@@ -184,7 +184,8 @@ From personal packaging repositories of Canonical staff (14):
 `stacer`, `geany`, `filezilla`, `handbrake`, `qbittorrent`, `ardour`,
 `lmms`, `mixxx`, `stellarium`, `zotero`, `mysql-workbench`,
 `prismlauncher`, `barrier`, `synaptic`, `hardinfo`, `virt-manager`,
-`input-leap`, `kitty`, `wezterm`, `qutebrowser`, `yakuake`.
+`input-leap`, `kitty`, `wezterm`, `qutebrowser`, `yakuake`, `heroic`,
+`bottles`, `qgis`, `evolution`.
 
 Written from scratch on 2026-11-17; not published yet. All use strict
 confinement because these snaps must run on Core Desktop, which has no
@@ -243,6 +244,12 @@ GNOME Wayland. `qutebrowser` ships QtWebEngine with Chromium's sandbox
 disabled (snapd denies `allow-sandbox` without a store declaration) and no
 DRM support.
 
+`heroic` repackages the official Electron deb (Wine/Proton downloaded into
+its private area); `bottles` provides the Wine prefix manager without Wine;
+`qgis` stages Qt 6/GDAL/GEOS/PROJ and disables GRASS/SAGA/OTB/QtWebEngine;
+`evolution` builds a matching evolution-data-server from source with
+`org.gnome.Evolution.*` D-Bus service names.
+
 The last group repackages distinct upstream projects; only the recipes are
 checked in. snapcraft fetches upstream sources, and for the proprietary
 launchers the vendor artifacts, at build time - no vendor binaries are
@@ -281,8 +288,8 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 36 imported packages still on older bases; 75 of
-  the 111 are on `core26` (13 migrated, 6 imported and 56 new), and `freemind`
+- `core26` migration of the 36 imported packages still on older bases; 79 of
+  the 115 are on `core26` (13 migrated, 6 imported and 60 new), and `freemind`
   is still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

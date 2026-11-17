@@ -1,0 +1,37 @@
+#!/bin/sh
+# Bottles is a Python 3 + GTK 4/libadwaita application. The GNOME platform
+# snap mounted at $SNAP/gnome-platform provides the Python 3.14 interpreter,
+# PyGObject, pycairo, GTK 4, libadwaita and the GtkSource 5 and libportal
+# typelibs; Bottles' own modules are installed under $SNAP/usr/share/bottles
+# and the Python modules and command line tools it needs are staged in this
+# snap.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+# The staged extension modules (pycurl, yara) and the archive tools link
+# against libraries in the snap's multiarch directory, which is not on the
+# platform's linker path. Prepend it to the paths the GNOME launcher exported.
+export LD_LIBRARY_PATH="${SNAP_LAUNCHER_ARCH_TRIPLET:+$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:}$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# The console scripts Meson installs have a "#!/usr/bin/env python3" shebang
+# and Bottles re-invokes them through PATH; the interpreter lives in the
+# platform snap.
+export PATH="$SNAP/gnome-platform/usr/bin:$PATH"
+# patool asks file(1) for the archive type. The base has neither file nor
+# libmagic's database; point libmagic at the copy staged in the snap.
+export MAGIC="$SNAP/usr/share/file/magic.mgc"
+
+# Bottles keeps runners, prefixes, components, backups and program icons in
+# XDG_DATA_HOME/bottles. The gnome extension points XDG_DATA_HOME at the
+# per-revision $SNAP_USER_DATA, which snapd discards on every refresh; use the
+# per-user common area instead so multi-gigabyte bottles and downloaded
+# runners survive updates.
+export XDG_DATA_HOME="$SNAP_USER_COMMON/.local/share"
+mkdir -p "$XDG_DATA_HOME"
+
+# snapd sets HOME to the snap's private data directory. Point it at the real
+# home so GTK's file chooser starts in the user's files; the home interface
+# grants access to the non-hidden entries. Bottles' own data is anchored to
+# XDG_DATA_HOME above, not to HOME.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/bottles" "$@"

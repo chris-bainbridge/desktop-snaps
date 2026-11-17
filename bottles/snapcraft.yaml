@@ -1,0 +1,297 @@
+name: bottles
+version: '67.7'
+summary: Wine prefix manager for Windows software and games
+description: |
+  Bottles is a Wine prefix manager. It organises Windows applications and
+  games into bottles, lets you pick a Wine runner per bottle and offers
+  ready-made environments, dependency installers, backups, drive and registry
+  editors, a task manager and per-program launch options.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Wine, Proton and the runners are not bundled. Bottles downloads the
+    runner you select into its private per-user area
+    (~/snap/bottles/common/.local/share/bottles/runners) and executes it from
+    there. A Wine installation on the host is unreachable: /usr/bin/wine is
+    not part of the snap, and ~/.wine is a hidden directory that the home
+    interface does not expose. For the same reason the helpers that import
+    bottles from Lutris, PlayOnLinux or Bottles 1.x cannot see their data, and
+    an existing Bottles data directory in ~/.local/share/bottles or in the
+    Flatpak application area is not imported either.
+  - Windows programs see the snap's filesystem, not the host's. Wine's Z:
+    drive is the sandbox root (the core26 base plus the mounted content
+    snaps), not /. Your real home is reachable only through the home
+    interface, which hides top-level dotfiles and dot-directories. removable-
+    media, hardware-observe (GPU/PCI details for Vulkan vendor detection) and
+    joystick (game controllers) are not auto-connected:
+    sudo snap connect bottles:removable-media
+    sudo snap connect bottles:hardware-observe
+    sudo snap connect bottles:joystick
+  - The snap is 64-bit only and the core26 base has no 32-bit loader or C
+    library. Modern runners use Wine's WoW64 mode to run 32-bit Windows
+    programs in a 64-bit prefix; a runner or prefix that relies on a 32-bit
+    Wine build cannot start.
+  - Kernel-level anti-cheat, Windows services, drivers and anything else that
+    needs privileges outside the sandbox do not work.
+  - The optional per-bottle sandbox uses bwrap from the GNOME platform. If the
+    host blocks nested unprivileged user namespaces, launches inside it fail;
+    turn that option off in that case.
+  - The UMU launcher is not shipped, so Proton/UMU game sessions report that
+    no UMU launcher is available. Plain Wine runners downloaded by Bottles
+    work.
+  - The external fvs2 tool used by Bottles' versioning feature is not
+    shipped: creating or restoring bottle states fails, and existing .fvs2
+    repositories are not shown.
+  - ImageMagick is not shipped, so icons embedded in .exe files are not
+    extracted and programs use Bottles' generic icon.
+  - Steam keeps its configuration and libraries in hidden directories, so the
+    Steam library import and the Steam program listing cannot find anything.
+  - Bottles writes .desktop launchers for installed programs into its private
+    data directory. snapd does not export those to the host application menu;
+    start programs from Bottles or with 'snap run bottles.bottles-cli'.
+  - The "launch at login" option uses the background portal; the snap cannot
+    write ~/.config/autostart itself, and whether the host portal can start a
+    snap command at login depends on the desktop. If it does not, add
+    'snap run bottles.bottles-cli autostart' to the desktop's own autostart
+    settings.
+  - The Microsoft identity helper keeps tokens in the Secret Service. The
+    password-manager-service interface is not declared, so that sign-in path
+    fails instead of storing credentials.
+  - Gamescope, MangoHud, vkBasalt and GameMode are host or Flatpak extensions
+    and are not visible inside the snap.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Bottles needs beyond the GNOME
+# runtime is staged from the 26.04 archive; no vendor binaries are embedded
+# and no Wine/Proton runner is shipped.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-only
+website: https://usebottles.com/
+source-code: https://github.com/bottlesdevs/Bottles
+issues: https://github.com/bottlesdevs/Bottles/issues
+
+icon: snap/local/bottles.png
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Bottles picks a Vulkan ICD by globbing /usr/share/vulkan/icd.d/*.json
+  # (bottles/backend/utils/vulkan.py). That path is the base's, while the
+  # driver JSONs belong to the mesa-2604 content snap, so bind the provider's
+  # tree there. The gpu-2604 wrapper still supplies its libvulkan and the
+  # relative library paths used by the JSON files.
+  /usr/share/vulkan:
+    bind: $SNAP/gpu-2604/mesa-2604/usr/share/vulkan
+
+slots:
+  # Gtk.Application registration: bottles/frontend/main.py passes APP_ID
+  # (com.usebottles.bottles) to Adw.Application, which owns this name on the
+  # session bus for single-instance behaviour and D-Bus activation.
+  bottles:
+    interface: dbus
+    bus: session
+    name: com.usebottles.bottles
+
+apps:
+  bottles:
+    extensions: [gnome]
+    command: bin/bottles-launcher
+    desktop: usr/share/applications/com.usebottles.bottles.desktop
+    common-id: com.usebottles.bottles.desktop
+    plugs:
+      - gsettings       # Bottles' own schema and the desktop theme
+      - home            # .exe/.msi installers and game files outside the snap
+      - network         # runner, dependency and installer downloads
+      - removable-media # games and installers on USB sticks and other media
+      - audio-playback  # Wine and Windows programs play through PulseAudio
+      - joystick        # game controllers (manual connection)
+      - hardware-observe # lspci/Vulkan vendor detection (manual connection)
+      - network-bind    # Windows games hosting LAN multiplayer servers
+      - screen-inhibit-control # keep the screen awake while a game runs
+
+  # Upstream's console interface. It shares the manager and data directory
+  # with the GUI and is useful when the desktop is not running.
+  bottles-cli:
+    extensions: [gnome]
+    command: bin/bottles-cli-launcher
+    plugs:
+      - gsettings       # the same Bottles settings as the GUI
+      - home            # installers, executables and game files
+      - network         # downloads
+      - removable-media # programs and games on removable drives
+      - audio-playback  # programs started from the CLI can play audio
+      - joystick        # programs started from the CLI can use controllers
+      - hardware-observe # lspci/Vulkan vendor detection (manual connection)
+      - network-bind    # programs started from the CLI can host LAN servers
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/bottles-launcher
+      cli-launcher: bin/bottles-cli-launcher
+    # Only the launchers belong in the snap; bottles.png is the store icon
+    # referenced by the top-level icon key.
+    prime:
+      - bin/bottles-launcher
+      - bin/bottles-cli-launcher
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, GTK 4, libadwaita, GtkSource 5,
+      # libportal (Xdp/XdpGtk4) and their typelibs. What Bottles imports or
+      # runs but the platform does not ship is staged from the 26.04 archive.
+      - python3-certifi            # requests' CA bundle
+      - python3-chardet            # chardet in the download and file helpers
+      - python3-charset-normalizer # requests' default decoder
+      - python3-icoextract         # program icons from PE resources
+      - python3-idna               # requests
+      - python3-markdown           # installer notes in the UI
+      - python3-pathvalidate       # bottle name validation
+      - python3-pefile             # Eagle's PE analysis, used by icoextract
+      - python3-pycurl             # repository and connectivity probes
+      - python3-requests           # downloads
+      - python3-socks              # PySocks, requests[socks] proxy support
+      - python3-urllib3            # requests
+      - python3-yaml               # repositories, bottle metadata, backups
+      - python3-yara               # Eagle's YARA rules
+      - libyara10                  # the C engine behind python3-yara
+      # Command line tools Bottles shells out to. tar, gzip, bzip2 and the
+      # basic shell utilities come from core26; these do not.
+      - 7zip                       # .7z and self-extracting installers
+      - cabextract                 # dependency .cab archives
+      - file                       # patool's archive type detection
+      - libmagic1t64               # file's database library
+      - libpci3                    # lspci's PCI access library
+      - pci.ids                    # vendor names used by GPUUtils' lspci grep
+      - pciutils                   # lspci for GPU vendor detection
+      - unzip                      # .zip installers and components
+      - vulkan-tools               # VulkanUtils.check_support() runs vulkaninfo
+      - xz-utils                   # .tar.xz dependency archives via patool
+      - zstd                       # .tar.zst archives and runner payloads
+    # Stage only the runtime files. An explicit list keeps the interpreter and
+    # its standard library out of the snap (several of the packages above
+    # depend on python3); the gnome/cleanup part of the extension removes
+    # anything the platform already ships, such as libyaml, libcurl and
+    # libvulkan from the mesa-2604 content snap.
+    stage:
+      - usr/lib/python3/dist-packages/_yaml
+      - usr/lib/python3/dist-packages/certifi
+      - usr/lib/python3/dist-packages/certifi-*.dist-info
+      - usr/lib/python3/dist-packages/chardet
+      - usr/lib/python3/dist-packages/chardet-*.dist-info
+      - usr/lib/python3/dist-packages/charset_normalizer
+      - usr/lib/python3/dist-packages/charset_normalizer-*.dist-info
+      - usr/lib/python3/dist-packages/icoextract
+      - usr/lib/python3/dist-packages/icoextract-*.egg-info
+      - usr/lib/python3/dist-packages/idna
+      - usr/lib/python3/dist-packages/idna-*.dist-info
+      - usr/lib/python3/dist-packages/markdown
+      - usr/lib/python3/dist-packages/markdown-*.dist-info
+      - usr/lib/python3/dist-packages/ordlookup
+      - usr/lib/python3/dist-packages/patool-*.egg-info
+      - usr/lib/python3/dist-packages/patoolib
+      - usr/lib/python3/dist-packages/pathvalidate
+      - usr/lib/python3/dist-packages/pathvalidate-*.dist-info
+      - usr/lib/python3/dist-packages/pefile.py
+      - usr/lib/python3/dist-packages/pefile-*.egg-info
+      - usr/lib/python3/dist-packages/peutils.py
+      - usr/lib/python3/dist-packages/pycurl.cpython-*.so
+      - usr/lib/python3/dist-packages/pycurl-*.dist-info
+      - usr/lib/python3/dist-packages/requests
+      - usr/lib/python3/dist-packages/requests-*.dist-info
+      - usr/lib/python3/dist-packages/socks.py
+      - usr/lib/python3/dist-packages/sockshandler.py
+      - usr/lib/python3/dist-packages/PySocks-*.egg-info
+      - usr/lib/python3/dist-packages/urllib3
+      - usr/lib/python3/dist-packages/urllib3-*.dist-info
+      - usr/lib/python3/dist-packages/yaml
+      - usr/lib/python3/dist-packages/pyyaml-*.dist-info
+      - usr/lib/python3/dist-packages/yara.cpython-*.so
+      - usr/lib/python3/dist-packages/yara_python-*.egg-info
+      - usr/lib/*/libmagic.so.1*
+      - usr/lib/*/libyara.so.1*
+      # file(1) finds its compiled database through the MAGIC variable that
+      # the launchers set to this copy.
+      - usr/lib/file/magic.mgc
+      - usr/share/file/magic.mgc
+      - usr/lib/*/libpci.so.3*
+      - usr/share/misc/pci.ids
+      - usr/bin/lspci
+      - usr/bin/7z
+      - usr/lib/7zip/7z
+      - usr/lib/7zip/7z.so
+      - usr/bin/cabextract
+      - usr/bin/file
+      - usr/bin/unzip
+      - usr/bin/vulkaninfo
+      - usr/bin/xz
+      - usr/bin/unxz
+      - usr/bin/xzcat
+      - usr/bin/zstd
+      - usr/bin/unzstd
+      - usr/bin/zstdcat
+    override-build: |
+      craftctl default
+      # Debian's 7zip package ships /usr/bin/7z as a wrapper that runs the
+      # absolute path /usr/lib/7zip/7z, which is the base's path, not the
+      # snap's. Point it at the copy staged here instead.
+      if [ -f "$CRAFT_PART_INSTALL/usr/bin/7z" ]; then
+        sed -i 's|^exec /usr/lib/7zip/7z|exec "$SNAP/usr/lib/7zip/7z"|' \
+          "$CRAFT_PART_INSTALL/usr/bin/7z"
+      fi
+
+  bottles:
+    source: https://github.com/bottlesdevs/Bottles.git
+    source-type: git
+    source-tag: '67.7'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    override-pull: |
+      craftctl default
+      # Upstream only builds inside Flatpak (frontend/meson.build errors out
+      # without /.flatpak-info). The same patch resolves the baked
+      # pkgdatadir/localedir against $SNAP, where the installed files really
+      # are inside the sandbox.
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-snap-packaging.patch"
+      # Use the icon shipped in the snap for the launcher, and drop TryExec:
+      # it is resolved on the host, where no "bottles" program exists, and a
+      # failed check makes desktops hide the entry. StartupWMClass is already
+      # "bottles", matching Gtk.Application's window class.
+      sed -i \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/com.usebottles.bottles.svg|' \
+        -e '/^TryExec=/d' \
+        data/com.usebottles.bottles.desktop.in.in
+    override-build: |
+      craftctl default
+      install_root="$CRAFT_PART_INSTALL"
+      # Meson bakes the build interpreter's path into the two console
+      # scripts. core26 has no /usr/bin/python3, so make them work when they
+      # are re-invoked through PATH (bottlepicker.py runs "bottles" and
+      # main.py runs "bottles-cli"). The launchers execute the platform
+      # interpreter explicitly.
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' \
+        "$install_root/usr/bin/bottles" \
+        "$install_root/usr/bin/bottles-cli"
+      # Meson's gnome.post_install() skips glib-compile-schemas when DESTDIR is
+      # set, which is how snapcraft installs. Compile the schema here so the
+      # GSettings lookup works without depending on the first desktop-launch
+      # run.
+      glib-compile-schemas "$install_root/usr/share/glib-2.0/schemas"
+      # The desktop file points at ${SNAP}/meta/gui, the location snapd
+      # exposes to the host shell.
+      mkdir -p "$install_root/meta/gui"
+      cp \
+        "$install_root/usr/share/icons/hicolor/scalable/apps/com.usebottles.bottles.svg" \
+        "$install_root/meta/gui/"

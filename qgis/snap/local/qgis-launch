@@ -1,0 +1,70 @@
+#!/bin/sh
+# Launcher for the strictly confined QGIS snap.
+#
+# The gnome extension's command-chain (gpu-2604-wrapper, desktop-launch) runs
+# before this script and has already added the gnome-core26 platform's
+# libraries, GSettings schemas, fonts and XKB data to the environment. QGIS,
+# Qt, GDAL and PyQt6 are staged inside the snap, with multiarch paths that the
+# snapcraft environment cannot compute at build time.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+# snapd and the desktop wrappers know about $SNAP/lib and the platform, but
+# not about the staged multiarch directory with Qt, GDAL, GEOS and the QGIS
+# libraries.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Qt was built for /usr/lib/$triplet/qt6, which is the base inside the snap.
+# qt.conf next to the binary also sets these; the variables make the lookup
+# explicit and cover helper processes that do not read qt.conf.
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+export QML2_IMPORT_PATH="$SNAP/usr/lib/$triplet/qt6/qml${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+
+# QCA's crypto plugins and GDAL's driver plugins are compiled to look in the
+# base's multiarch directories; point them at the staged copies.
+export QCA_PLUGIN_PATH="$SNAP/usr/lib/$triplet/qca-qt6/crypto${QCA_PLUGIN_PATH:+:$QCA_PLUGIN_PATH}"
+export GDAL_DRIVER_PATH="$SNAP/usr/lib/$triplet/gdalplugins${GDAL_DRIVER_PATH:+:$GDAL_DRIVER_PATH}"
+
+# QGIS' Python bindings live below share/qgis/python (upstream's default),
+# PyQt6 and the other staged modules below dist-packages. The platform
+# interpreter only searches its own tree.
+export PYTHONPATH="$SNAP/usr/share/qgis/python:$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+# QGIS embeds libpython. Without PYTHONHOME, CPython uses its compiled prefix
+# (/usr), which inside the snap is the core26 base with its trimmed standard
+# library. The snap deliberately does not stage a second stdlib, so point
+# Python at the gnome-core26 platform's full interpreter tree instead; it is
+# the same Python 3.14 ABI the staged PyQt6 modules and the QGIS bindings were
+# built for.
+export PYTHONHOME="${PYTHONHOME:-$SNAP/gnome-platform/usr}"
+
+# The staged GDAL and PROJ data; their libraries were built with /usr/share
+# paths, which are the base inside the snap.
+export GDAL_DATA="$SNAP/usr/share/gdal"
+export PROJ_DATA="$SNAP/usr/share/proj"
+
+# Make the snap's icons, MIME database and QGIS data visible while keeping
+# the platform and gtk-common-themes entries the desktop wrapper prepared.
+export XDG_DATA_DIRS="$SNAP/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+
+# The GDAL Processing algorithms run gdal_translate, gdalbuildvrt and the
+# other utilities from gdal-bin by name. Put the staged bin directory first so
+# they are found before the (empty) base directories; the desktop wrapper has
+# already added the platform's /usr/bin for python3 and friends.
+export PATH="$SNAP/usr/bin${PATH:+:$PATH}"
+
+# Core Desktop is Wayland-first; fall back to xcb on an X11 session or when no
+# compositor is reachable. qgis_process overrides this with QT_QPA_PLATFORM=
+# offscreen in the app definition.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+exec "$@"

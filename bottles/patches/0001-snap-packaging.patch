@@ -1,0 +1,51 @@
+Build Bottles outside of Flatpak and resolve its data directories against the
+snap. Upstream's frontend/meson.build refuses to configure unless
+/.flatpak-info exists, and the generated entry points bake /usr/share/bottles
+into pkgdatadir, which does not exist inside a snap (the snap's files are at
+$SNAP/usr/share/bottles).
+
+diff --git a/bottles/frontend/bottles.py b/bottles/frontend/bottles.py
+index 76a04ac..38bb9cb 100644
+--- a/bottles/frontend/bottles.py
++++ b/bottles/frontend/bottles.py
+@@ -24,8 +24,8 @@ import sys
+ 
+ APP_VERSION = "@APP_VERSION@"
+ APP_ID = "@APP_ID@"
+-pkgdatadir = "@pkgdatadir@"
+-localedir = "@localedir@"
++pkgdatadir = os.environ.get("SNAP", "") + "/usr/share/bottles"
++localedir = os.environ.get("SNAP", "") + "/usr/share/locale"
+ # noinspection DuplicatedCode
+ data_gresource_path = f"{pkgdatadir}/data.gresource"
+ bottles_gresource_path = f"{pkgdatadir}/bottles.gresource"
+diff --git a/bottles/frontend/cli/cli.py b/bottles/frontend/cli/cli.py
+index 133fe8c..b422230 100644
+--- a/bottles/frontend/cli/cli.py
++++ b/bottles/frontend/cli/cli.py
+@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore")  # suppress GTK warnings
+ gi.require_version("Gtk", "4.0")
+ 
+ APP_VERSION = "@APP_VERSION@"
+-pkgdatadir = "@pkgdatadir@"
++pkgdatadir = os.environ.get("SNAP", "") + "/usr/share/bottles"
+ # noinspection DuplicatedCode
+ gresource_path = f"{pkgdatadir}/bottles.gresource"
+ sys.path.insert(1, pkgdatadir)
+diff --git a/bottles/frontend/meson.build b/bottles/frontend/meson.build
+index 6ff7c01..c26ea0b 100644
+--- a/bottles/frontend/meson.build
++++ b/bottles/frontend/meson.build
+@@ -23,12 +23,6 @@ params_file = configure_file(
+     configuration: conf
+ )
+ 
+-fs = import('fs')
+-
+-if not fs.is_file('/' + '.flatpak-info')
+-  error('file does not exist')
+-endif
+-
+ bottles_sources = [
+   '__init__.py',
+   'main.py',

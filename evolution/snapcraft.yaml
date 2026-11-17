@@ -1,0 +1,405 @@
+name: evolution
+version: '3.62.1'
+summary: Groupware suite with mail, calendar, contacts, tasks and memos
+description: |
+  Evolution is a groupware suite that combines mail, calendar, address
+  book, tasks and memos in one application. It supports IMAP, SMTP,
+  CalDAV, CardDAV, WebDAV, WebCal, LDAP address books, local mail stores
+  and GNOME Online Accounts, and renders HTML mail with WebKitGTK.
+
+  The snap is strictly confined, as required by Core Desktop, which has no
+  classic snaps. Evolution and evolution-data-server are both built from
+  source at the same upstream release, 3.62.1, because gnome-core26 does
+  not provide evolution-data-server. evolution-data-server is built with
+  a D-Bus name prefix (org.gnome.Evolution.*) so its services can neither
+  collide with nor accidentally use a host evolution-data-server.
+
+  Manual connections are required before the corresponding features work:
+
+    snap connect evolution:password-manager-service
+    snap connect evolution:accounts-service
+    snap connect evolution:cups
+
+  password-manager-service and accounts-service are deny-auto-connection:
+  without the first, account passwords and OAuth2 tokens cannot be stored
+  in or read from the host keyring; without the second, GNOME Online
+  Accounts sources are not available. cups is deny-auto-connection too, so
+  printing needs the third command.
+
+  Strict-confinement limitations:
+   * Configuration, mail, calendar, contacts and caches live in the snap's
+     private XDG directories below $SNAP_USER_DATA. A host Evolution
+     installation's ~/.config/evolution and ~/.local/share/evolution are
+     hidden paths that the home interface does not expose, so existing
+     data is not imported. Export and re-import via vCard, iCalendar or
+     mbox files in visible directories.
+   * The home interface only exposes non-hidden files. ~/.gnupg and
+     ~/.pki are inaccessible, so existing OpenPGP keys and S/MIME
+     certificates are not visible and messages cannot be signed or
+     encrypted.
+   * There is no host sendmail and no access to /var/mail or the local
+     mail spool. SMTP submission works; local delivery and the sendmail
+     transport do not.
+   * The EDS evolution-alarm-notify daemon is spawned by Evolution via the
+     layout bind, not by a systemd user unit, so reminders start only
+     after Evolution has been launched in the session. Evolution itself
+     has no login autostart entry, so background mail checking requires
+     Evolution to be running.
+   * Exchange/EWS and MAPI support is not built (separate upstream
+     modules). Bogofilter and SpamAssassin spam filters are not shipped
+     (external binaries), PST import is disabled (libpst not staged),
+     Markdown composition is disabled (cmark not staged), text
+     highlighting is disabled (highlight binary not shipped) and contact
+     maps are disabled (libchamplain is not in the 26.04 archive).
+   * Attachments and files can be opened from non-hidden home directories.
+     Removable media needs the removable-media interface (not declared),
+     and launching host applications that are not shipped in the snap is
+     limited to what the desktop portal provides. Spell checking uses the
+     en_US dictionary shipped in gnome-core26; other dictionaries are not
+     available to the snap.
+   * The snap owns org.gnome.Evolution on the session bus. A host
+     Evolution instance cannot run at the same time; the self-contained
+     EDS services use prefixed names and are unaffected by the host EDS.
+
+grade: stable
+confinement: strict
+base: core26
+license: LGPL-2.0-or-later
+website: https://gitlab.gnome.org/GNOME/evolution/-/wikis/home
+source-code: https://gitlab.gnome.org/GNOME/evolution
+issues: https://gitlab.gnome.org/GNOME/evolution/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Evolution and evolution-data-server are built with the conventional
+  # /usr prefix. Their private libraries, modules, backends and data are
+  # looked up through compiled-in paths below /usr, which do not exist in
+  # the base or the content snap. Map them onto the snap's own copies.
+  /usr/lib/evolution:
+    bind: $SNAP/usr/lib/evolution
+  /usr/share/evolution:
+    bind: $SNAP/usr/share/evolution
+  /usr/lib/evolution-data-server:
+    bind: $SNAP/usr/lib/evolution-data-server
+  /usr/share/evolution-data-server:
+    bind: $SNAP/usr/share/evolution-data-server
+  # EDS factories and evolution-alarm-notify are spawned by path.
+  /usr/libexec/evolution-data-server:
+    bind: $SNAP/usr/libexec/evolution-data-server
+  # killev, spawned by Evolution on --force-shutdown
+  /usr/libexec/evolution:
+    bind: $SNAP/usr/libexec/evolution
+  # Evolution's backup tool reads the EDS D-Bus service files from this
+  # compiled-in directory; expose the snap's copies rather than the base's.
+  /usr/share/dbus-1/services:
+    bind: $SNAP/usr/share/dbus-1/services
+
+slots:
+  # Evolution's GtkApplication name.
+  evolution:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evolution
+  evolution-alarm-notify:
+    interface: dbus
+    bus: session
+    # EDS also prefixes this name with -DDBUS_SERVICES_PREFIX.
+    name: org.gnome.Evolution.org.gnome.Evolution-alarm-notify
+  # EDS is built with -DDBUS_SERVICES_PREFIX=org.gnome.Evolution, the same
+  # approach Flathub uses. These are the names compiled into EDS and into
+  # the Evolution client libraries, so the snap's EDS cannot be confused
+  # with a host EDS.
+  eds-sources:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evolution.org.gnome.evolution.dataserver.Sources5
+  eds-calendar:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evolution.org.gnome.evolution.dataserver.Calendar8
+  eds-addressbook:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evolution.org.gnome.evolution.dataserver.AddressBook10
+  eds-user-prompter:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evolution.org.gnome.evolution.dataserver.UserPrompter0
+  eds-oauth2:
+    interface: dbus
+    bus: session
+    name: org.gnome.Evolution.org.gnome.evolution.dataserver.OAuth2Response0
+
+apps:
+  evolution:
+    extensions: [gnome]
+    command: usr/bin/evolution
+    desktop: usr/share/applications/org.gnome.Evolution.desktop
+    common-id: org.gnome.Evolution.desktop
+    plugs:
+      # dconf/GSettings for the org.gnome.evolution schemas. The gnome
+      # extension no longer adds this plug for core26, so declare it.
+      - gsettings
+      # attachments, local mbox/vCard/iCalendar files and the user's
+      # Documents/Downloads directories (non-hidden home paths only)
+      - home
+      - network
+      # libsecret talks to the host keyring over org.freedesktop.secrets.
+      # Deny-auto-connection; connect manually.
+      - password-manager-service
+      # GNOME Online Accounts over org.gnome.OnlineAccounts.
+      # Deny-auto-connection; connect manually.
+      - accounts-service
+      # notification and alarm sounds through libcanberra/PulseAudio
+      - audio-playback
+      # WebKitGTK HTML mail and the EDS OAuth2 sign-in dialog
+      - browser-support
+      # printing from the GTK print dialog. Deny-auto-connection; connect
+      # manually if printing is needed.
+      - cups
+
+  # EDS D-Bus services. Each is bus-activated through a snapd-generated
+  # service file; daemon-scope: user keeps them in the user session.
+  evolution-source-registry:
+    extensions: [gnome]
+    command: usr/libexec/evolution-source-registry
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-sources]
+    plugs:
+      - gsettings
+      - network
+      - password-manager-service
+      - accounts-service
+
+  evolution-calendar-factory:
+    extensions: [gnome]
+    command: usr/libexec/evolution-calendar-factory
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-calendar]
+    plugs:
+      - gsettings
+      - home
+      - network
+      - password-manager-service
+      - accounts-service
+
+  evolution-addressbook-factory:
+    extensions: [gnome]
+    command: usr/libexec/evolution-addressbook-factory
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-addressbook]
+    plugs:
+      - gsettings
+      - home
+      - network
+      - password-manager-service
+      - accounts-service
+
+  evolution-user-prompter:
+    extensions: [gnome]
+    command: usr/libexec/evolution-user-prompter
+    daemon: dbus
+    daemon-scope: user
+    # The prompter owns UserPrompter0 and, while a WebKit OAuth2 dialog is
+    # open, exports OAuth2Response0. Only UserPrompter0 is used for
+    # activation: starting the prompter on an OAuth2Response0 request would
+    # not export that name until a dialog exists. The eds-oauth2 slot below
+    # still grants ownership.
+    activates-on: [eds-user-prompter]
+    plugs:
+      - gsettings
+      - network
+      - password-manager-service
+      - accounts-service
+      - browser-support
+
+environment:
+  # gnome-core26 provides most of the GNOME stack, but not EDS, libical,
+  # libytnef, gnome-autoar or libxml2. The staged libraries live in
+  # $SNAP/usr/lib and $SNAP/usr/lib/<triplet>; add both ahead of the
+  # content snap's paths and keep SNAP_LIBRARY_PATH for the host GL
+  # drivers.
+  LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+
+parts:
+  evolution-data-server:
+    source: https://gitlab.gnome.org/GNOME/evolution-data-server.git
+    source-type: git
+    source-tag: '3.62.1'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DCMAKE_BUILD_TYPE=Release
+      # Keep the snap's EDS away from a host EDS and from EDS services
+      # started by other applications. The prefixed names are compiled
+      # into libedataserver, so Evolution (built against this stage) uses
+      # them automatically. This is the same scheme Flathub uses.
+      - -DDBUS_SERVICES_PREFIX=org.gnome.Evolution
+      # Evolution is GTK3; libedataserverui-1.2 is required by it.
+      - -DENABLE_GTK=ON
+      - -DENABLE_GTK4=OFF
+      - -DENABLE_OAUTH2_WEBKITGTK=ON
+      - -DENABLE_GOA=ON
+      - -DENABLE_WEATHER=ON
+      - -DENABLE_CANBERRA=ON
+      - -DENABLE_IPV6=ON
+      # The Berkeley DB address-book backend is obsolete and libdb headers
+      # are not in the SDK.
+      - -DWITH_LIBDB=OFF
+      - -DENABLE_FILE_LOCKING=fcntl
+      - -DENABLE_DOT_LOCKING=OFF
+      # No systemd user units: snapd does not install them. The D-Bus
+      # slots and daemon apps below provide activation instead.
+      - -DWITH_SYSTEMDUSERUNITDIR=OFF
+      # g-ir-scanner in the core26 build environment cannot parse the
+      # SDK's newer glibc headers; the GIRs are not consumed here.
+      - -DENABLE_INTROSPECTION=OFF
+      - -DENABLE_VALA_BINDINGS=OFF
+      - -DENABLE_GTK_DOC=OFF
+      - -DWITH_PRIVATE_DOCS=OFF
+      - -DENABLE_EXAMPLES=OFF
+      - -DENABLE_TESTS=OFF
+      - -DENABLE_INSTALLED_TESTS=OFF
+    build-packages:
+      # gnome-core26-sdk provides GTK3, GLib/GIO, libsoup-3.0, libsecret,
+      # libgcr, libgspell, libcanberra-gtk3, WebKitGTK 4.1, libgweather,
+      # geocode-glib, libxml2, SQLite, ICU, NSS/NSPR, Kerberos and OpenLDAP
+      # development files. It does not provide gperf, GOA's development
+      # files or libical (EDS is not part of the GNOME SDK).
+      - gperf
+      - libgoa-1.0-dev
+      - libical-dev
+    override-stage: |
+      craftctl default
+      # craft-parts rewrites only the "prefix=" line of staged .pc files.
+      # These files put the include and library directories in absolute
+      # /usr paths, which do not exist in the build environment where the
+      # next part consumes them. Make the build-time variables relative to
+      # the stage prefix, but keep the runtime variables (privlibdir,
+      # privdatadir, privlibexecdir, icondir, D-Bus names) absolute so
+      # Evolution compiles in the paths that the layout binds provide.
+      for pc in "$CRAFT_STAGE"/usr/lib/pkgconfig/*.pc; do
+        sed -i \
+          -e 's|^libdir=/usr/lib$|libdir=${prefix}/lib|' \
+          -e 's|^includedir=/usr/include$|includedir=${prefix}/include|' \
+          -e 's|^datarootdir=/usr/share$|datarootdir=${prefix}/share|' \
+          -e 's|^datadir=/usr/share$|datadir=${prefix}/share|' \
+          -e 's|^privincludedir=/usr/include/evolution-data-server$|privincludedir=${prefix}/include/evolution-data-server|' \
+          "$pc"
+      done
+      # libedbus-private.so is installed into privlibdir and has no RPATH
+      # of its own. Public EDS libraries list it as a dependency; keep a
+      # copy in $SNAP/usr/lib (which is in LD_LIBRARY_PATH) so both the
+      # Evolution link step and the runtime loader find it.
+      if [ -f "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" ]; then
+        cp -a "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" \
+              "$CRAFT_STAGE/usr/lib/"
+      fi
+    prime:
+      # Development files are only needed while Evolution is built.
+      - -usr/include
+      - -usr/lib/pkgconfig
+
+  evolution:
+    after: [evolution-data-server]
+    source: https://gitlab.gnome.org/GNOME/evolution.git
+    source-type: git
+    source-tag: '3.62.1'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DCMAKE_BUILD_TYPE=Release
+      # The archive provides gnome-autoar and ytnef; enable the archive
+      # attachment and winmail.dat support and stage those libraries.
+      - -DENABLE_AUTOAR=ON
+      - -DENABLE_YTNEF=ON
+      - -DENABLE_GNOME_DESKTOP=ON
+      - -DENABLE_CANBERRA=ON
+      - -DENABLE_GSPELL=ON
+      - -DENABLE_LIBNOTIFY=ON
+      - -DENABLE_WEATHER=ON
+      # Optional features whose runtime dependencies are not available in
+      # gnome-core26 or the 26.04 archive. See the description.
+      - -DENABLE_CONTACT_MAPS=OFF
+      - -DENABLE_PST_IMPORT=OFF
+      - -DENABLE_MARKDOWN=OFF
+      - -DENABLE_TEXT_HIGHLIGHT=OFF
+      - -DWITH_BOGOFILTER=OFF
+      - -DWITH_SPAMASSASSIN=OFF
+      - -DWITH_GLADE_CATALOG=OFF
+      - -DWITH_HELP=ON
+      - -DENABLE_GTK_DOC=OFF
+      - -DENABLE_INSTALLED_TESTS=OFF
+      - -DBUILD_TESTING=OFF
+    build-packages:
+      # gnome-core26-sdk provides GTK3, WebKitGTK 4.1, libsoup-3.0,
+      # libsecret, libgspell, libcanberra-gtk3, libnotify, libgweather,
+      # geocode-glib, gnome-desktop-3, libxml2, SQLite, enchant-2,
+      # NSS/NSPR and libunity. It does not provide intltool, iso-codes'
+      # pkg-config file, libical, libytnef or gnome-autoar.
+      - intltool
+      - iso-codes
+      - libgnome-autoar-0-dev
+      - libical-dev
+      - libytnef0-dev
+    build-environment:
+      - C_INCLUDE_PATH: $CRAFT_STAGE/usr/include/evolution-data-server${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib:$CRAFT_STAGE/usr/lib/evolution-data-server${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+    override-build: |
+      craftctl default
+      # The exported desktop file must point at an icon that the host icon
+      # theme can resolve; the snap's hicolor directory is not in the host
+      # theme search path.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/evolution.svg" \
+         "$CRAFT_PART_INSTALL/meta/gui/evolution.svg"
+      sed -i -e 's|^Icon=evolution$|Icon=${SNAP}/meta/gui/evolution.svg|' \
+          "$CRAFT_PART_INSTALL/usr/share/applications/org.gnome.Evolution.desktop"
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 does not ship EDS, libical, libytnef, gnome-autoar or
+      # libxml2. These are the runtime libraries that the two builds link
+      # directly and that the content snap does not provide.
+      - libical3t64
+      - libytnef0
+      - libgnome-autoar-0-0
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library
+      # whose path also exists in gnome-core26-sdk. libxml2 is in the SDK
+      # but not in the content snap, so move it out of the SDK's
+      # multiarch path; $SNAP/usr/lib is part of LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/*/libical*.so.*
+      - usr/lib/*/libgnome-autoar-0.so.*
+      - usr/lib/*/libytnef.so.*
+      - usr/lib/libxml2.so.*
+
+  cleanup:
+    after: [evolution-data-server, evolution, libraries]
+    plugin: nil
+    override-prime: |
+      set -eux
+      # Compile the Evolution and EDS GSettings schemas that were staged.
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .

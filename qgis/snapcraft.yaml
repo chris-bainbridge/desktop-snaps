@@ -1,0 +1,587 @@
+name: qgis
+version: '4.2.3'
+summary: Desktop geographic information system
+description: |
+  QGIS is a professional geographic information system for viewing, editing,
+  analysing and publishing spatial data. It reads vector, raster, mesh and
+  point-cloud formats through GDAL/OGR, reprojects on the fly with PROJ, runs
+  hundreds of Processing algorithms, and composes print maps. PostGIS and
+  PostgreSQL, SpatiaLite, GeoPackage, WMS/WMTS/WFS/WCS, XYZ tiles, GPS
+  traces, 3D map views and Python plugins are supported.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Settings, plugins, the authentication database and the default profile
+    live in the snap's private per-user directory
+    (~/snap/qgis/current/.local/share/QGIS4), not in ~/.local/share/QGIS4.
+    They are not shared with a distribution-packaged QGIS; an existing
+    profile can be copied into the snap's directory by hand.
+  - Only non-hidden paths in your real home directory are visible through
+    the home interface. Top-level dotfiles and dot-directories such as
+    ~/.config, ~/.local and ~/.ssh are not reachable. The file chooser starts
+    in the private home, so type /home/<user> or add a bookmark to reach the
+    real one. Projects and data in ~/Documents, ~/Downloads and other
+    non-hidden directories work normally.
+  - The root filesystem is the snap's core26 base and the GNOME runtime, not
+    the host's. Host-installed programs are not on PATH and cannot be
+    started, and host Python modules are not importable. This affects
+    everything that shells out: GRASS, SAGA, OTB and R providers, gpsbabel,
+    external editors and helper scripts. The GDAL utilities used by the GDAL
+    Processing algorithms are bundled inside the snap, but host copies are
+    not visible.
+  - Database and web services on the same machine are reachable over TCP
+    (for PostgreSQL/PostGIS use host=localhost), but Unix domain sockets and
+    the host's service directories are not visible. A local PostgreSQL
+    reached through /run/postgresql is not available.
+  - Printing needs the cups-control interface, which is not connected
+    automatically:
+      sudo snap connect qgis:cups-control
+    Without it, layouts can still be exported to PDF, SVG or images.
+  - USB drives, camera cards and other removable media need the
+    removable-media interface:
+      sudo snap connect qgis:removable-media
+  - GPS receivers on a serial port need the serial-port interface, which is
+    not connected automatically:
+      sudo snap connect qgis:serial-port
+    A GPS reachable through gpsd on the host is not available: the gpsd
+    socket is outside the sandbox. Bluetooth GPS devices are not reachable.
+  - Credentials stored in the host keyring are not available unless the
+    password-manager-service interface is connected:
+      sudo snap connect qgis:password-manager-service
+    Without it, QGIS asks for the authentication-database master password
+    each session and cannot use the host's Secret Service.
+  - QGIS Server is not built. It runs as a CGI/FastCGI application under a
+    web server, and a strictly confined snap cannot expose its binary or
+    socket to the host's web server. The desktop application and the
+    qgis_process command-line tool (the qgis-process app) are included.
+  - The GRASS provider and plugin are not built: they need a complete GRASS
+    GIS installation, which would add a second GIS and hundreds of
+    megabytes, and the plugin runs GRASS modules as subprocesses. QGIS 4 has
+    no SAGA provider any more; external SAGA, OTB and R installations cannot
+    be used because host executables are invisible.
+  - The PDAL point-cloud provider is not built because 26.04 has no PDAL
+    development package. EPT and COPC point clouds work through the built-in
+    laz-perf decoder. Oracle and SAP HANA providers are not built (no
+    proprietary client libraries), and the MSSQL provider has no ODBC driver
+    for SQL Server in the archive.
+  - QtWebEngine is not bundled. HTML layout items and HTML annotations use
+    Qt's plain text browser, and links that need a real browser are handed to
+    the host through the desktop interface. This avoids a second Chromium
+    (about 250 MB) and its unusable sandbox in a strict snap.
+  - Python is the platform's Python 3.14 with the modules staged in the snap
+    (PyQt6, numpy, pyproj, psycopg2, OWSLib, lxml, requests, Pygments,
+    plotly, python3-gdal and their dependencies). Plugins installed through
+    the QGIS plugin manager work if they are pure Python and only use those
+    modules. pip installs into the host's site-packages are not visible, and
+    plugins that need matplotlib, scipy, pandas or compiled extensions must
+    be installed into a writable path inside the snap's private home and
+    added to PYTHONPATH by hand.
+  - OpenCL is built in, but the host's ICD registry (/etc/OpenCL/vendors) is
+    not visible. Unless an ICD is shipped inside the snap, OpenCL algorithms
+    fall back to the CPU.
+  - Qt 6.10 and its plugins are staged from the 26.04 archive. Host Qt and
+    KDE themes are not visible; Qt uses its GNOME theme integration and the
+    Fusion fallback, with the icon themes supplied by gtk-common-themes.
+  - Snap desktop entries cannot add MIME types to the host's shared-mime-info
+    database, so .qgs/.qgz files are not associated with the snap on the
+    host. The snap's own file filters know the QGIS formats.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. QGIS is built from the pinned upstream release
+# tarball; Qt, GDAL, GEOS, PROJ, SpatiaLite and the rest are staged from the
+# 26.04 archive. No prebuilt QGIS binaries are embedded.
+#
+# Qt approach: stage Qt 6.10.2 and the modules QGIS links from the 26.04
+# archive.
+#   * snapcraft 9.2.1 provides kde-neon, kde-neon-6 and kde-neon-qt6 for
+#     core22 and core24 only; there is no KDE/Qt extension for core26. KDE's
+#     kde-qt6-core26 content snaps have no corresponding snapcraft extension,
+#     so a recipe would have to wire the content plug, SDK and multiarch Qt
+#     paths by hand. QGIS is not a KDE application and needs no KDE
+#     Frameworks, so staging the linked Qt modules is both simpler and much
+#     smaller than the 915 MB Qt content snap.
+#   * QGIS 4.2 requires Qt 6.4 or newer and links Core, Gui, Widgets,
+#     Network, Xml, Svg, SvgWidgets, Concurrent, Sql (plus SqlPrivate when Qt
+#     is 6.9 or newer), PrintSupport, OpenGL and OpenGLWidgets, Positioning,
+#     SerialPort, Multimedia, Core5Compat, Qml/Quick/QuickControls2 and the
+#     Qt 3D modules. qt6-base-private-dev supplies SqlPrivate; the Qml, Quick
+#     and QuickControls2 CMake configs live in qt6-declarative-dev.
+#   * Qwt and libspatialindex are built from QGIS' external/ tree: the
+#     archive has no Qt 6 Qwt, and QGIS refuses libspatialindex 2.1.0 (the
+#     26.04 version) because of libspatialindex issue #276. MDAL, poly2tri,
+#     laz-perf and the OAuth2/o2 helper also come from external/.
+#   * Qt is compiled with the /usr prefix, which is the core26 base inside
+#     the snap. A qt.conf next to the binaries (installed below) relocates
+#     Qt's plugin, translation and QML paths to the staged tree, and the
+#     launcher adds the multiarch library directory to LD_LIBRARY_PATH.
+#
+# Optional upstream features that are switched off, and why:
+#   * WITH_GRASS7/WITH_GRASS8: the GRASS provider and plugin need grass-dev
+#     at build time and the complete grass-core/grass842 runtime plus GRASS
+#     Python modules at run time. Staging a second GIS adds hundreds of
+#     megabytes and there is no core26 GRASS content snap; the grassprovider
+#     Python plugin is removed from the install tree because it would
+#     advertise unusable algorithms. GRASS processing is unavailable.
+#   * SAGA: QGIS 4 has no SAGA provider (the plugin was removed upstream), so
+#     there is nothing to configure. External SAGA/OTB/R providers cannot be
+#     used because a strict snap cannot execute host programs.
+#   * WITH_PDAL: there is no libpdal-dev or libpdal runtime in the 26.04
+#     archive, so the PDAL point-cloud provider is not built. The EPT and
+#     COPC providers are built and use the bundled laz-perf and the base's
+#     zstd.
+#   * WITH_QTWEBENGINE: QtWebEngine embeds Chromium (about 250 MB installed
+#     for the Qt 6.10 libraries, process helper and resources). Its sandbox
+#     needs unprivileged user namespaces or the allow-sandbox attribute of
+#     browser-support, which snapd denies to snaps without a store-granted
+#     declaration. QGIS uses QTextBrowser for HTML frames instead and hands
+#     external links to the host browser.
+#   * WITH_SERVER: QGIS Server is a CGI/FastCGI program started by a web
+#     server. A strict snap cannot expose its socket or binary to the host's
+#     web server, so only the desktop app and qgis_process are built.
+#   * WITH_ORACLE, WITH_HANA: proprietary Oracle and SAP HANA client
+#     libraries cannot be shipped. The MSSQL provider is built, but the
+#     archive has no ODBC driver for SQL Server, so it cannot connect.
+#   * WITH_QUICK: the QML/QField-oriented QGIS Quick library is disabled;
+#     the desktop app uses the Qt Widgets interface. WITH_DESKTOP still
+#     requires Qml/Quick/QuickControls2 at configure and link time.
+#   * WITH_QSPATIALITE: QGIS' own Qt SQL SpatiaLite driver is not built. The
+#     SpatiaLite data provider links libspatialite directly, and
+#     libsqlite3-mod-spatialite is staged for Python plugins that open
+#     SpatiaLite databases through sqlite3.
+#   * USE_OPENCL is left on, but the host's /etc/OpenCL/vendors is not
+#     visible, so without an ICD in the snap the algorithms use the CPU.
+#   * WITH_APIDOC, WITH_CUSTOM_WIDGETS, ENABLE_TESTS and WITH_TRACY are off:
+#     they are development or documentation builds and are not shipped.
+#
+# The official qgis.org source tarball is used rather than the GitHub archive
+# because it is a single stable file with no generated archive metadata; the
+# checksum below was computed from that file. The tarball contains the Qt
+# 6.10-compatible external dependencies listed above and all QGIS resources
+# (SRS database, SVG symbols, colour ramps, projections metadata).
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://qgis.org/
+source-code: https://github.com/qgis/QGIS
+issues: https://github.com/qgis/QGIS/issues
+
+icon: snap/local/qgis.svg
+
+platforms:
+  amd64:
+  arm64:
+
+# QGIS derives its prefix from the executable path (usr/bin/qgis -> usr), so
+# its data, plugins, libraries and Python bindings are found inside the snap
+# without a layout. QCA's crypto plugins and GDAL's driver plugins are
+# compiled to look under the multiarch directory of the base; the launcher
+# points QCA_PLUGIN_PATH and GDAL_DRIVER_PATH at the staged copies instead,
+# because layout keys cannot use $SNAP_ARCH at run time.
+
+apps:
+  qgis:
+    extensions: [gnome]
+    command: usr/bin/qgis
+    command-chain: [snap/command-chain/qgis-launch]
+    desktop: usr/share/applications/org.qgis.qgis.desktop
+    common-id: org.qgis.qgis
+    environment:
+      # The QGIS Python bindings are installed below share/qgis/python (the
+      # upstream default); the platform interpreter only searches its own
+      # dist-packages, so add both the bindings and the staged PyQt6 tree.
+      PYTHONPATH: $SNAP/usr/share/qgis/python:$SNAP/usr/lib/python3/dist-packages
+      # GDAL and PROJ were built with /usr/share/gdal and /usr/share/proj,
+      # which are base paths inside the snap.
+      GDAL_DATA: $SNAP/usr/share/gdal
+      PROJ_DATA: $SNAP/usr/share/proj
+    plugs:
+      - cups-control            # printing, connected manually (see description)
+      - gsettings               # GNOME theme, fonts and colour scheme for Qt
+      - home                    # projects, rasters, vectors and the file chooser
+      - network                 # WMS/WFS/WCS, XYZ tiles, databases and plugins
+      - password-manager-service # QGIS auth master password, manual connection
+      - removable-media         # data on USB drives and cards, manual connection
+      - serial-port             # serial GPS receivers, manual connection
+  qgis-process:
+    extensions: [gnome]
+    command: usr/bin/qgis_process
+    command-chain: [snap/command-chain/qgis-launch]
+    environment:
+      # qgis_process is a console application; keep it off the display server
+      # even when it renders a layer for an algorithm.
+      QT_QPA_PLATFORM: offscreen
+      PYTHONPATH: $SNAP/usr/share/qgis/python:$SNAP/usr/lib/python3/dist-packages
+      GDAL_DATA: $SNAP/usr/share/gdal
+      PROJ_DATA: $SNAP/usr/share/proj
+    plugs:
+      - home            # input datasets and output files
+      - network         # remote datasets and database connections
+      - removable-media # input datasets on removable media
+
+parts:
+  local:
+    # Launcher and the QGIS MIME definition from upstream's Debian packaging.
+    # The MIME file only registers the formats inside the snap (QMimeDatabase
+    # reads $SNAP/usr/share through XDG_DATA_DIRS); snapd does not merge it
+    # into the host's database.
+    plugin: dump
+    source: snap/local
+    organize:
+      qgis-launch: snap/command-chain/qgis-launch
+      qgis.xml: usr/share/mime/packages/qgis.xml
+    prime:
+      - snap/command-chain/qgis-launch
+      - usr/share/mime/packages/qgis.xml
+
+  qgis:
+    # 4.2.3 is the latest stable upstream release (2026-09-25); the tag
+    # final-4_2_3 points at commit b041a18904a4dc9fdada8ecb2c84385054ddfee1.
+    # The 3.44 series is the Long Term Release, not the current release. The
+    # checksum pins the official qgis.org tarball.
+    source: https://qgis.org/downloads/qgis-4.2.3.tar.bz2
+    source-checksum: sha256/b044889d895c07d9355512cba76973822830153f6f15feb0d5e00077d3d76e59
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # Keep QGIS libraries in /usr/lib. QGIS computes its library path as
+      # prefix/lib, not prefix/lib/<triplet>, and loads libqgis_core and the
+      # provider plugins from there.
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      # QGIS defaults this to "qml", which would install into /usr/qml. Use
+      # the same layout as the Debian package.
+      - -DQGIS_QML_SUBDIR=share/qgis/qml
+      # Full desktop application plus Python bindings and qgis_process.
+      - -DWITH_CORE=ON
+      - -DWITH_GUI=ON
+      - -DWITH_DESKTOP=ON
+      - -DWITH_ANALYSIS=ON
+      - -DWITH_PYTHON=ON
+      - -DWITH_BINDINGS=ON
+      # Install the bindings into the upstream data directory; the launcher
+      # puts share/qgis/python on PYTHONPATH.
+      - -DBINDINGS_GLOBAL_INSTALL=OFF
+      # Byte-compile the installed Python plugins and bindings so the
+      # read-only snap does not need to write .pyc files at first start.
+      - -DWITH_PY_COMPILE=ON
+      # Generate the PyQGIS API file used by the Python console.
+      - -DWITH_QSCIAPI=ON
+      - -DWITH_QGIS_PROCESS=ON
+      - -DWITH_AUTH=ON
+      - -DWITH_OAUTH2_PLUGIN=ON
+      # Optional features that are available in 26.04.
+      - -DWITH_3D=ON
+      - -DWITH_SFCGAL=ON
+      - -DWITH_GEOGRAPHICLIB=ON
+      - -DWITH_POSTGRESQL=ON
+      - -DWITH_SPATIALITE=ON
+      - -DWITH_QSPATIALITE=OFF
+      - -DWITH_QTSERIALPORT=ON
+      - -DWITH_QTPOSITIONING=ON
+      - -DWITH_QTPRINTER=ON
+      - -DWITH_EPT=ON
+      - -DWITH_COPC=ON
+      - -DWITH_DRACO=ON
+      - -DUSE_OPENCL=ON
+      # Use archive copies where they are new enough.
+      - -DWITH_INTERNAL_NLOHMANN_JSON=OFF
+      - -DWITH_INTERNAL_MESHOPTIMIZER=OFF
+      # Internal copies where there is no usable archive package.
+      - -DWITH_INTERNAL_QWT=ON
+      - -DWITH_INTERNAL_SPATIALINDEX=ON
+      - -DWITH_INTERNAL_MDAL=ON
+      - -DWITH_INTERNAL_POLY2TRI=ON
+      - -DWITH_INTERNAL_LAZPERF=ON
+      # Features that cannot be packaged under strict confinement (see the
+      # comment block above).
+      - -DWITH_GRASS7=OFF
+      - -DWITH_GRASS8=OFF
+      - -DWITH_PDAL=OFF
+      - -DWITH_HANA=OFF
+      - -DWITH_ORACLE=OFF
+      - -DWITH_QTWEBENGINE=OFF
+      - -DWITH_SERVER=OFF
+      - -DWITH_QUICK=OFF
+      - -DWITH_APIDOC=OFF
+      - -DWITH_CUSTOM_WIDGETS=OFF
+      - -DENABLE_TESTS=OFF
+      - -DWITH_TRACY=OFF
+      # Use the build environment's Python 3.14, not the GNOME SDK's
+      # interpreter: PyQt6 and the development headers are installed for the
+      # former by the build-packages below.
+      - -DPython_EXECUTABLE=/usr/bin/python3
+    build-packages:
+      # The core26 build environment provides the CMake plugin's toolchain,
+      # but Qt, the geospatial stack and the Python headers come only from
+      # these packages. snapcraft installs build packages without Recommends.
+      - build-essential
+      - cmake
+      - ninja-build
+      - pkg-config
+      - bison
+      - flex
+      # Qt 6.10 development files. QGIS requires Qt >= 6.4 and uses
+      # Qt6::SqlPrivate when Qt >= 6.9, hence the private headers.
+      - qt6-base-dev
+      - qt6-base-private-dev
+      - qt6-5compat-dev
+      - qt6-svg-dev
+      - qt6-tools-dev
+      - qt6-tools-dev-tools
+      - qt6-l10n-tools
+      - qt6-declarative-dev   # Qml, Quick and QuickControls2 CMake configs
+      - qt6-positioning-dev
+      - qt6-serialport-dev
+      - qt6-multimedia-dev    # QgsVideoExporter links Qt6::Multimedia
+      - qt6-3d-dev            # 3D map views
+      # QGIS also links QScintilla, QCA and QtKeychain directly.
+      - libqscintilla2-qt6-dev
+      - libqca-qt6-dev
+      - qtkeychain-qt6-dev
+      # Geospatial stack and the libraries QGIS links or configures against.
+      - libgdal-dev
+      - libgeos-dev
+      - libproj-dev
+      - libspatialite-dev
+      - libsqlite3-dev
+      - libexpat1-dev
+      - libzip-dev
+      - zlib1g-dev
+      - libzstd-dev
+      - libprotobuf-dev
+      - protobuf-compiler
+      - nlohmann-json3-dev
+      - libdraco-dev
+      - libmeshoptimizer-dev
+      - libexiv2-dev
+      - libgeographiclib-dev
+      - libgsl-dev
+      - libpq-dev
+      - libsfcgal-dev
+      - libcups2-dev
+      - ocl-icd-opencl-dev
+      - opencl-headers
+      # Python bindings: interpreter and headers, PyQt6 with its SIP files,
+      # sip-build and PyQt-builder.
+      - python3-dev
+      - python3-pyqt6
+      - python3-pyqt6.qsci
+      - python3-pyqt6.sip
+      - python3-pyqtbuild
+      - pyqt6-dev
+      - pyqt6-dev-tools
+      - pyqt6.qsci-dev
+      - sip-tools
+    override-build: |
+      craftctl default
+
+      install="$CRAFT_PART_INSTALL"
+      triplet="$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+
+      # Qt was built with /usr as its prefix, which is the core26 base inside
+      # the snap. A qt.conf next to the binaries relocates Qt's plugin,
+      # translation and QML lookup to the staged tree. Prefix is relative to
+      # the directory holding qt.conf (usr/bin), so Qt follows the snap mount
+      # rather than the base.
+      cat >"$install/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$triplet/qt6/plugins
+      Translations = share/qt6/translations
+      Qml2Imports = lib/$triplet/qt6/qml
+      EOF
+
+      # TryExec is resolved on the host, where no qgis binary exists, and a
+      # failed TryExec makes desktop environments hide the entry. snapcraft
+      # rewrites Exec to the snap command and snapd supplies the icon from
+      # meta/gui, so drop the host-specific hint.
+      desktop="$install/usr/share/applications/org.qgis.qgis.desktop"
+      sed -i -e '/^TryExec=/d' "$desktop"
+
+      # The GRASS Python plugin is installed unconditionally even when the
+      # GRASS provider is not built. Remove it so Processing does not list
+      # algorithms that cannot run.
+      rm -rf "$install/usr/share/qgis/python/plugins/grassprovider"
+
+      # Development and test binaries that the Debian package also omits.
+      rm -f "$install/usr/bin/qgis_bench" \
+        "$install/usr/bin/test_provider_wcs" \
+        "$install/usr/bin/qgis_quickapp"
+
+  runtime:
+    # Stage the runtime libraries and data that the core26 base and the
+    # gnome-core26 platform lack. craft-parts filters out every package that
+    # is already in the base's chisel manifest, so the base's libc,
+    # libstdc++, libexpat, libsqlite3, libzstd, zlib, GLib, freetype and
+    # libpng are not duplicated here.
+    after: [qgis]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 runtime modules linked by QGIS. libqt6gui6 also carries the
+      # xcb, minimal and offscreen platform plugins; the Wayland plugin comes
+      # from libqt6waylandclient6 below.
+      - libqt6core6t64
+      - libqt6concurrent6
+      - libqt6gui6
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6xml6
+      - libqt6svg6
+      - libqt6svgwidgets6
+      - libqt6sql6
+      - libqt6printsupport6
+      - libqt6opengl6
+      - libqt6openglwidgets6
+      - libqt6positioning6
+      - libqt6serialport6
+      - libqt6multimedia6
+      - libqt6multimediawidgets6
+      - libqt6core5compat6
+      - libqt6qml6
+      - libqt6quick6
+      - libqt6quickcontrols2-6
+      - libqt6quicktemplates2-6
+      - libqt6quickwidgets6
+      - libqt6qmlmodels6
+      - libqt6qmlworkerscript6
+      - libqt63dcore6
+      - libqt63drender6
+      - libqt63dinput6
+      - libqt63dlogic6
+      - libqt63dextras6
+      - libqt63dquick6
+      - libqt63dquickextras6
+      - libqt63dquickscene2d6
+      - libqt6waylandclient6      # libqwayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell and friends
+      - qt6-image-formats-plugins
+      - qt6-svg-plugins
+      - qt6-translations-l10n
+      # Qt 3D asset import and scene plugins used by the 3D map view.
+      - qt6-3d-assimpsceneimport-plugin
+      - qt6-3d-defaultgeometryloader-plugin
+      - qt6-3d-gltfsceneio-plugin
+      - qt6-3d-scene2d-plugin
+      # QML modules the Qt Quick parts of the desktop app and the QGIS QML
+      # tree import. QGIS Quick itself is disabled, but the application still
+      # links QuickControls2.
+      - qml6-module-qtqml
+      - qml6-module-qtqml-models
+      - qml6-module-qtqml-workerscript
+      - qml6-module-qtquick
+      - qml6-module-qtquick-controls
+      - qml6-module-qtquick-dialogs
+      - qml6-module-qtquick-effects
+      - qml6-module-qtquick-layouts
+      - qml6-module-qtquick-shapes
+      - qml6-module-qtquick-templates
+      - qml6-module-qtquick-window
+      # Qt Widgets/console and authentication dependencies.
+      - libqscintilla2-qt6-15
+      - libqca-qt6-2
+      - libqca-qt6-plugins  # OpenSSL, GnuPG, SASL and softstore providers
+      - libqt6keychain1
+      # Qt SQL drivers for the providers that use QtSql (PostgreSQL, SQLite
+      # and the MSSQL/ODBC provider).
+      - libqt6sql6-sqlite
+      - libqt6sql6-psql
+      - libqt6sql6-odbc
+      # GDAL/OGR and its data. libgdal38 pulls gdal-plugins and the archive,
+      # netCDF, HDF4/HDF5, KML, PDF, image and database format libraries.
+      - libgdal38
+      - gdal-data
+      - gdal-bin          # GDAL utilities used by the GDAL Processing algorithms
+      - libgeos-c1t64
+      - libproj25
+      - proj-data
+      - libspatialite8t64
+      - libsqlite3-mod-spatialite # for plugins that load it through sqlite3
+      - libzip5
+      - libprotobuf32t64
+      - libpq5
+      - libgsl28
+      - libdraco9
+      - libmeshoptimizer2d
+      - libexiv2-28
+      - libgeographiclib26
+      - libsfcgal2
+      - libodbc2
+      - libhdf5-310
+      - libnetcdf22
+      - ocl-icd-libopencl1
+      # Python bindings and the Python plugins shipped by QGIS. The Python
+      # interpreter and standard library come from the gnome-core26 platform.
+      - python3-pyqt6
+      - python3-pyqt6.qtmultimedia
+      - python3-pyqt6.qtpositioning
+      - python3-pyqt6.qtqml
+      - python3-pyqt6.qtquick
+      - python3-pyqt6.qtserialport
+      - python3-pyqt6.qtsvg
+      - python3-pyqt6.qsci
+      - python3-pyqt6.sip
+      - python3-jinja2
+      - python3-markupsafe
+      - python3-yaml
+      - python3-numpy
+      - python3-pyproj
+      - python3-psycopg2
+      - python3-owslib
+      - python3-lxml
+      - python3-pygments
+      - python3-requests
+      - python3-dateutil
+      - python3-packaging
+      - python3-plotly   # histogram/box/scatter plot algorithms
+      - python3-gdal     # osgeo imports in the GDAL Processing algorithms
+      # QMimeDatabase needs the shared MIME database; the base only ships the
+      # packages directory. The cleanup part regenerates mime.cache after the
+      # QGIS MIME definition from snap/local is in the prime tree.
+      - shared-mime-info
+    prime:
+      # Runtime packages do not need development files or documentation.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # python3-pyqt6 depends on python3, which would stage a second
+      # interpreter, standard library and libpython next to the platform's.
+      # Keep only the dist-packages (PyQt6 and the pure-Python modules).
+      - -usr/bin/python3*
+      - -usr/lib/python3.14
+      - -usr/lib/*/libpython3.14.so*
+
+  cleanup:
+    # The staged Qt, GDAL, Python and geospatial trees contain copies of
+    # libraries that the core26 base already ships (libstdc++, libexpat,
+    # libsqlite3, libzstd, ...). Loading two copies in one process is not
+    # safe, so drop every primed shared library whose path also exists in the
+    # base, exactly as the other core26 recipes do. The gnome extension's
+    # gpu/cleanup part then removes the Mesa copies that the Qt stage-packages
+    # leave behind.
+    after: [local, qgis, runtime]
+    plugin: nil
+    build-packages:
+      - shared-mime-info # update-mime-database
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+
+      # shared-mime-info ships only the XML sources in the archive package;
+      # the maintainer script that normally builds mime.cache does not run for
+      # a staged package. Generate the cache here, after every part has been
+      # primed, so it also covers the QGIS MIME definitions.
+      update-mime-database "$CRAFT_PRIME/usr/share/mime"
+
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

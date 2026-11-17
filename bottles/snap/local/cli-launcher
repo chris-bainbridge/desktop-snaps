@@ -1,0 +1,20 @@
+#!/bin/sh
+# Console front end for Bottles. It uses the same interpreter, staged Python
+# modules and data directory as the GUI, so the two see the same bottles.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export LD_LIBRARY_PATH="${SNAP_LAUNCHER_ARCH_TRIPLET:+$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:}$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$SNAP/gnome-platform/usr/bin:$PATH"
+# patool asks file(1) for the archive type. The base has neither file nor
+# libmagic's database; point libmagic at the copy staged in the snap.
+export MAGIC="$SNAP/usr/share/file/magic.mgc"
+
+# Keep runners and bottles in the per-user common area, which survives
+# refreshes (see launcher for details).
+export XDG_DATA_HOME="$SNAP_USER_COMMON/.local/share"
+mkdir -p "$XDG_DATA_HOME"
+
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/bottles-cli" "$@"

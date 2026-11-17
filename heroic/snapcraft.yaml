@@ -1,0 +1,243 @@
+name: heroic
+title: Heroic Games Launcher
+base: core26
+adopt-info: heroic
+
+summary: Open source launcher for GOG, Epic Games and Amazon Games
+
+description: |
+  Heroic is an open source games launcher for GOG, Epic Games and Amazon
+  Games. It combines the three libraries in one Electron interface, installs
+  and updates games, synchronises saves, and runs Windows titles with a Wine
+  or Proton build that it downloads itself.
+
+  This snap repackages the official Linux deb published by the Heroic
+  project. Heroic is licensed under GPL-3.0-only. Heroic, GOG, Epic Games,
+  Amazon Games and the games themselves are trademarks of their respective
+  owners; this is an unofficial package.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Wine, Proton, Java and the compatibility runners are not bundled by this
+    snap. Heroic downloads Wine and Proton builds, DXVK, VKD3D, UMU and
+    winetricks into its private directory the first time they are needed.
+    The host's Wine and Java, and Wine, Proton or runner installations from
+    distribution packages, Flatpak, Steam or Lutris, are not visible and
+    cannot be selected: inside the sandbox /usr is the core26 base, only
+    non-hidden paths in the real home are mounted, and nothing in ~/.wine,
+    ~/.steam or ~/.local/share/Steam is reachable.
+  - The helper programs Heroic drives for the stores (legendary, gogdl,
+    nile, comet) are part of the official deb and therefore of the snap.
+    They are read-only and cannot update themselves; their versions change
+    only with a snap refresh.
+  - Configuration, downloaded runners, Wine prefixes and, by default, games
+    live under ~/snap/heroic/common (SNAP_USER_COMMON), not in
+    ~/.config/heroic or ~/Games. They survive refreshes and are not shared
+    with a distribution package of Heroic. The default install directory is
+    ~/snap/heroic/common/Games/Heroic; the install dialog can point it at a
+    non-hidden path in the real home or on connected removable media.
+  - Top-level hidden entries of the real home (~/.config, ~/.local,
+    ~/.steam, ~/.wine) are not reachable. Existing Steam libraries, GOG
+    Galaxy libraries, Wine prefixes and Lutris runners cannot be imported,
+    "Add to Steam" and Steam shortcut syncing cannot write ~/.steam, and
+    Steam itself cannot be started from the launcher.
+  - Chromium's own sandbox is disabled. AppArmor does not grant
+    unprivileged user namespaces to a strictly confined snap, and snapd's
+    base declaration denies the allow-sandbox attribute of browser-support
+    to snaps without a store-granted declaration. The launcher starts
+    Heroic with --no-sandbox and the chrome-sandbox helper is removed:
+    renderer processes are not sandboxed by Chromium, and only the snap's
+    confinement contains them. Keep the snap up to date.
+  - UMU and the Steam Linux Runtime need unprivileged user namespaces for
+    pressure-vessel and therefore do not work under this confinement.
+    Select one of the plain Wine builds from Heroic's Wine Manager instead
+    of a Proton/UMU entry.
+  - Feral GameMode, MangoHud and gamescope are not shipped and host
+    executables are not on PATH, so the corresponding launch options have
+    no effect. Rendering goes through the desktop's OpenGL/Vulkan stack and
+    the mesa-2604 content snap.
+  - Anti-cheat systems that require kernel drivers or host services do not
+    work inside the sandbox, and games cannot install services, drivers or
+    registry entries outside their Wine prefix.
+  - Snap desktop entries cannot register new URL schemes, so heroic:// links
+    are not routed to the snap, and the MimeType line of the upstream desktop
+    entry is dropped. Creating shortcuts in Heroic writes them inside the
+    snap's private home, not on the host desktop.
+  - Game controllers are read through the joystick interface; features that
+    need raw hidraw/evdev access (RGB, some DualSense features) are not
+    available. Voice capture is not granted either: audio output works, but
+    no microphone interface is declared.
+  - Updates come from the snap store. The deb packaging type disables
+    Heroic's in-application updater; it shows a "use your package manager"
+    notice instead.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. There is no classic fallback and none is
+# proposed. Everything Heroic needs beyond the GNOME runtime and the
+# mesa-2604 content snap is staged from the 26.04 archive; no app binary is
+# committed to this repository.
+#
+# Build versus package: Heroic builds with pnpm 12.5.1, electron-vite and
+# electron-builder, and electron-builder downloads the Electron 43 runtime
+# (hundreds of MB) plus every Node dependency at build time. The official deb
+# is exactly that build output, is published for both amd64 and arm64, and is
+# GPL-3.0-only, so it can be redistributed. Repackaging it keeps this recipe
+# reproducible and avoids a fragile npm/electron-builder build in LXD. The
+# download is pinned by release tag and per-architecture sha256 below.
+grade: stable
+confinement: strict
+license: GPL-3.0-only
+website: https://heroicgameslauncher.com/
+source-code: https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher
+issues: https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/issues
+
+icon: snap/gui/heroic.png
+
+platforms:
+  amd64:
+  arm64:
+
+# /usr/bin/7z from the 7zip package is a shell wrapper that execs
+# /usr/lib/7zip/7z by absolute path, and that binary loads its 7z.so codec
+# module from the same directory. The base has no /usr/lib/7zip, so bind the
+# snap's copy over it for the benefit of the unmodified wrapper. Heroic may
+# use 7z through winetricks; Heroic itself extracts its downloads with tar.
+layout:
+  /usr/lib/7zip:
+    bind: $SNAP/usr/lib/7zip
+
+apps:
+  heroic:
+    extensions: [gnome]
+    command: bin/heroic-launcher
+    desktop: usr/share/applications/heroic.desktop
+    common-id: com.heroicgameslauncher.hgl
+    environment:
+      # Keep config, downloaded Wine/Proton builds and games out of the
+      # revision-specific SNAP_USER_DATA, which snapd copies on every refresh:
+      # a multi-gigabyte tools directory would otherwise be duplicated at each
+      # update. The launcher sets the XDG directories as well, because the
+      # GNOME command-chain runs before it and points XDG_CONFIG_HOME at
+      # SNAP_USER_DATA.
+      HOME: $SNAP_USER_COMMON
+      TMPDIR: $XDG_RUNTIME_DIR
+    # The gnome extension supplies desktop, desktop-legacy, opengl, wayland
+    # and x11; they are listed here as well to make the display and GPU
+    # requirements explicit. gsettings is not added by the core26 extension.
+    plugs:
+      - audio-playback        # game audio through PipeWire/PulseAudio
+      - browser-support       # shared memory, oom_score_adj, udev data for Chromium
+      - desktop               # notifications, portals, xdg-open, tray watcher
+      - gsettings             # GTK theme, fonts and desktop settings
+      - home                  # games, installers and the file chooser
+      - joystick              # game controllers (js* and udev-tagged evdev)
+      - network               # stores, logins, downloads, metadata, updates
+      - opengl                # GPU through the gpu-2604/mesa-2604 content snap
+      - removable-media       # games and installers on removable drives
+      - screen-inhibit-control # keep the screen awake during downloads/games
+      - shmem                 # private /dev/shm for Chromium renderers
+      - wayland               # native Wayland session
+      - x11                   # XWayland session and Wine windows
+
+plugs:
+  shmem:
+    interface: shared-memory
+    private: true
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/heroic-launcher
+    prime:
+      - bin/heroic-launcher
+
+  heroic:
+    # The deb is fetched in override-pull rather than through source: because
+    # the URL and checksum differ per architecture. Both checksums below were
+    # verified against the v2.22.4 release assets.
+    plugin: nil
+    build-packages:
+      - curl
+      - ca-certificates
+    stage-packages:
+      # Heroic extracts Wine, Proton and DXVK with `tar -xf` from PATH. The
+      # core26 base has gzip and tar but no xz, so .tar.xz downloads (all
+      # Wine-GE and Proton-GE builds) would fail without xz-utils.
+      - xz-utils
+      # Heroic downloads winetricks into its private directory and runs it.
+      # Winetricks checks for these helpers and uses them for its verbs; the
+      # base only provides tar, gzip and mawk. zenity is its GUI fallback and
+      # uses the GTK 4 runtime already present in the GNOME platform snap.
+      - 7zip
+      - cabextract
+      - curl
+      - unzip
+      - zenity
+    override-pull: |
+      set -eux
+
+      craftctl default
+
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          url="https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.4/Heroic-2.22.4-linux-amd64.deb"
+          sha256="46aa36778f16d98a86823fc42fcb7ef47efab346ff19380165201aa373ebf70a"
+          ;;
+        arm64)
+          url="https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.22.4/Heroic-2.22.4-linux-arm64.deb"
+          sha256="b6f7348a9ccc656a88009ae018fff1628afc64dd3b6326e6b6db1d32cdd2ea93"
+          ;;
+        *)
+          echo "unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      curl -fL --retry 3 --retry-delay 2 -o "$CRAFT_PART_SRC/heroic.deb" "$url"
+      echo "$sha256  $CRAFT_PART_SRC/heroic.deb" | sha256sum -c -
+
+      # The deb version is the upstream release version (2.22.4); adopt-info
+      # turns it into the snap version.
+      craftctl set version="$(dpkg-deb -f "$CRAFT_PART_SRC/heroic.deb" Version)"
+    override-build: |
+      set -eux
+
+      craftctl default
+
+      dpkg-deb -x "$CRAFT_PART_SRC/heroic.deb" "$CRAFT_PART_INSTALL"
+
+      # The upstream postinst would make chrome-sandbox setuid root when
+      # unprivileged user namespaces are unavailable. A strict snap cannot use
+      # that path, and the launcher passes --no-sandbox (see the description),
+      # so ship no sandbox helper at all. electron-builder's own strict-snap
+      # target does the same.
+      rm -f "$CRAFT_PART_INSTALL/opt/Heroic/chrome-sandbox"
+
+      # The deb installs an AppArmor profile that grants userns to an
+      # unconfined /opt/Heroic/heroic. Snapd owns the confinement of this
+      # build and the file is never read, so drop it instead of shipping a
+      # misleading policy.
+      rm -f "$CRAFT_PART_INSTALL/opt/Heroic/resources/apparmor-profile"
+
+      # Point the exported desktop entry at the snap command and at the icon
+      # snapcraft installs as meta/gui/heroic.png. snapd cannot register the
+      # heroic:// scheme, so drop the MimeType declaration.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/heroic.desktop"
+      sed -i \
+        -e 's|^Exec=.*|Exec=heroic %U|' \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/heroic.png|' \
+        -e '/^MimeType=/d' \
+        "$desktop"
+
+      chmod -R u+rwX,go+rX,go-w "$CRAFT_PART_INSTALL"
+    prime:
+      # The themed icons duplicate snap/gui/heroic.png, which snapcraft
+      # installs as meta/gui and the desktop entry points at.
+      - -usr/share/icons
+      # Removed in the build as well; the exclusions guard against a future
+      # deb reintroducing either file.
+      - -opt/Heroic/chrome-sandbox
+      - -opt/Heroic/resources/apparmor-profile
