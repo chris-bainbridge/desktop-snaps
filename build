@@ -185,7 +185,7 @@ if ((dry_run)); then
             "$overlay_repo" "${overlay_commit:-default branch}" "$overlay_to"
     fi
     [[ -z "$prepare" ]] || printf 'prepare:    %s\n' "$prepare"
-    printf 'snapcraft:  snapcraft --use-lxd'
+    printf 'snapcraft:  snapcraft pack --use-lxd'
     ((${#snapcraft_args[@]})) && printf ' %s' "${snapcraft_args[@]}"
     printf '\n'
     exit 0
@@ -239,8 +239,8 @@ if [[ -n "$prepare" ]]; then
     (cd "$ws" && bash -c "$prepare")
 fi
 
-info "building $snap with snapcraft --use-lxd"
-(cd "$ws" && snapcraft --use-lxd "${snapcraft_args[@]+"${snapcraft_args[@]}"}")
+info "building $snap with snapcraft pack --use-lxd"
+(cd "$ws" && snapcraft pack --use-lxd "${snapcraft_args[@]+"${snapcraft_args[@]}"}")
 
 artifact=""
 while IFS= read -r candidate; do

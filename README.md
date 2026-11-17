@@ -60,8 +60,8 @@ gnome-logs/
 Builds happen **out of tree**, in `${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>`,
 so the repository never accumulates `parts/`, `stage/`, `prime/` or `*.snap`.
 The built `.snap` is moved to `<workspace>/artifacts/`, the workspace is
-removed on success (unless `--keep`) and kept on failure. snapcraft is
-invoked with `--use-lxd`.
+removed on success (unless `--keep`) and kept on failure. The build runs
+`snapcraft pack --use-lxd`.
 
 Requirements: `bash`, `git`, `rsync`, `python3` with PyYAML, `snapcraft`,
 and a working LXD.
