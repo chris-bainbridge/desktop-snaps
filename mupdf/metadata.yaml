@@ -1,0 +1,6 @@
+snap: mupdf
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://mupdf.com/ (1.28.6)
+imported: '2026-11-17'

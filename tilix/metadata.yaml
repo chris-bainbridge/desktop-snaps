@@ -1,0 +1,6 @@
+snap: tilix
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/gnunn1/tilix (1.9.6)
+imported: '2026-11-17'

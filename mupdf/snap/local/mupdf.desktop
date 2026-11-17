@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=MuPDF
+GenericName=Document Viewer
+Comment=View PDF, XPS, EPUB, comic book and image files
+Exec=mupdf-gl %f
+Icon=mupdf
+Terminal=false
+Categories=Office;Viewer;
+Keywords=pdf;xps;epub;cbz;comic;document;viewer;
+MimeType=application/pdf;application/x-pdf;application/x-xps;application/vnd.ms-xpsdocument;application/epub+zip;application/x-mobipocket-ebook;application/x-fictionbook+xml;application/vnd.comicbook+zip;application/x-cbz;image/svg+xml;image/png;image/jpeg;image/tiff;image/bmp;image/gif;image/jp2;image/jpx;
+StartupNotify=true

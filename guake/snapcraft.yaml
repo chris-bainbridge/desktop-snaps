@@ -1,0 +1,224 @@
+name: guake
+version: '3.10.1'
+summary: Drop-down terminal for GNOME
+description: |
+  Guake is a drop-down terminal for the GNOME desktop: press a hotkey to pull
+  it down over the current window and press it again to hide it. It supports
+  tabs, split panes, profiles, custom colours, transparency and per-directory
+  .guake.yml configuration files.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. Terminal emulators feel this more than other applications:
+  the shell Guake starts runs inside the snap, so it sees the snap's
+  filesystem and the snap's private HOME rather than the host's dotfiles and
+  tools.
+
+  - $HOME in a terminal tab is the snap's per-user directory
+    (~/snap/guake/<revision>), not your real home. Only the non-hidden entries
+    of your real home directory are reachable (through the home interface);
+    top-level dotfiles and dot-directories such as ~/.bashrc, ~/.ssh and
+    ~/.config are not accessible at all, so neither your shell configuration
+    nor the configuration of host-installed tools is read.
+  - The root filesystem is the snap's core26 base, not the host's. Programs
+    installed on the host (distribution packages, /usr/local/bin, ...) do not
+    exist in the snap and are not on PATH; only what the snap ships is.
+  - /tmp is a private tmpfs, so files written there are not shared with the
+    host and vice versa.
+  - Guake's "start at login" preference cannot create an autostart entry in
+    the host session and does nothing in the snap; use the desktop's own
+    autostart mechanism instead.
+  - The global show/hide hotkey is grabbed with Keybinder on the X11 root
+    window. It works in X11 sessions; on Wayland, bind a desktop custom
+    shortcut to "snap run guake.guake-toggle" instead.
+  - Login records are not written: libutempter is not shipped, so shells
+    started by Guake do not appear in who(1) or w(1) on the host.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything Guake needs beyond the GNOME runtime
+# is staged from the 26.04 archive; no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://guake.github.io/
+source-code: https://github.com/Guake/guake
+issues: https://github.com/Guake/guake/issues
+
+icon: snap/local/guake.png
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Guake owns this well-known name on the session bus to implement
+  # single-instance behaviour and the remote control API used by guake-toggle
+  # (guake/dbusiface.py). The slot lets the strict snap bind the name.
+  remote-control:
+    interface: dbus
+    bus: session
+    name: org.guake3.RemoteControl
+
+apps:
+  guake:
+    extensions: [gnome]
+    command: bin/guake-launcher
+    desktop: usr/share/applications/guake.desktop
+    common-id: guake.desktop
+    plugs:
+      - gsettings # dconf storage for org.guake.* and the desktop theme
+      - home      # shell sessions and the file chooser in the preferences
+
+  # Upstream's second console script: sends show/hide to the running instance.
+  # Binding it to a desktop shortcut is the Wayland replacement for Guake's
+  # own Keybinder hotkey.
+  guake-toggle:
+    extensions: [gnome]
+    command: bin/guake-toggle-launcher
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/guake-launcher
+      toggle-launcher: bin/guake-toggle-launcher
+      guake.png: usr/share/icons/hicolor/128x128/apps/guake.png
+    # Only the launchers and the icon belong in the snap; paths.py is a source
+    # file for the guake part below, not a runtime file of its own.
+    prime:
+      - bin/guake-launcher
+      - bin/guake-toggle-launcher
+      - usr/share/icons/hicolor/128x128/apps/guake.png
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, dbus-python and the GTK 3, VTE,
+      # libnotify and AppIndicator typelibs. These are the modules and
+      # typelibs it does not ship, and guake/main.py refuses to start when
+      # the Keybinder typelib is missing:
+      - python3-yaml         # guake/utils.py imports yaml at module load
+      - gir1.2-keybinder-3.0 # the global show/hide hotkey
+      - gir1.2-wnck-3.0      # workspace and window list handling
+      # libwnck links against startup-notification, which the platform lacks
+      # (it has libXRes); without it the libwnck library cannot be loaded.
+      - libstartup-notification0
+    # Stage only the runtime files. An explicit list keeps the interpreter and
+    # its standard library out of the snap (python3-yaml depends on python3);
+    # the gnome/cleanup part of the extension removes anything the platform
+    # already ships, so libyaml (used by the yaml extension module) is not
+    # listed here.
+    stage:
+      - usr/lib/python3/dist-packages/yaml
+      - usr/lib/python3/dist-packages/pyyaml-*.dist-info
+      - usr/lib/girepository-1.0/Keybinder-3.0.typelib
+      - usr/lib/*/girepository-1.0/Wnck-3.0.typelib
+      - usr/lib/*/libkeybinder-3.0.so.*
+      - usr/lib/*/libwnck-3.so.*
+      - usr/lib/*/libstartup-notification-1.so.*
+
+  guake:
+    source: https://github.com/Guake/guake.git
+    source-type: git
+    source-tag: '3.10.1'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - gettext # msgfmt, used for the translations and the desktop entry
+      - python3
+      - python3-setuptools
+      - python3-setuptools-scm # setup.py uses use_scm_version
+    override-build: |
+      set -eux
+
+      # Upstream writes paths.py from paths.py.in with the install prefix baked
+      # in. Replace it with the variant that resolves the data, locale and
+      # schema directories against $SNAP at runtime.
+      cp "${CRAFT_PROJECT_DIR}/snap/local/paths.py" guake/paths.py
+
+      # The "generate-desktop" Makefile target: fill the translations of the
+      # desktop entry in from po/ (it is a template without Name[] fields).
+      msgfmt --desktop --template=guake/data/guake.template.desktop \
+        -d po -o guake/data/guake.desktop
+
+      # The tag is pinned, but a shallow clone has no reachable history for
+      # setuptools_scm to describe, so give it the version directly.
+      export SETUPTOOLS_SCM_PRETEND_VERSION=3.10.1
+      # The gnome extension puts the SDK snap first in PATH, so call the build
+      # environment's interpreter explicitly.
+      /usr/bin/python3 setup.py build
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr/share \
+        --single-version-externally-managed \
+        --record=install-files.txt
+
+      share="$CRAFT_PART_INSTALL/usr/share"
+      # The data layout of upstream's Makefile: glade files, pixmaps, the
+      # schema and the autostart template in /usr/share/guake.
+      install -d "$share/guake/pixmaps" "$share/applications" "$share/metainfo"
+      install -m644 guake/data/*.glade "$share/guake/"
+      install -m644 guake/data/org.guake.gschema.xml "$share/guake/"
+      install -m644 guake/data/autostart-guake.desktop "$share/guake/"
+      # Upstream's install-schemas target: the PNG and SVG pixmaps, not the
+      # documentation screenshots stored next to them.
+      install -m644 guake/data/pixmaps/*.png guake/data/pixmaps/*.svg \
+        "$share/guake/pixmaps/"
+      install -m644 guake/data/guake.desktop "$share/applications/guake.desktop"
+      install -m644 guake/data/guake.desktop.metainfo.xml "$share/metainfo/"
+      # guake_app.py loads the schema with
+      # Gio.SettingsSchemaSource.new_from_directory(), which needs the compiled
+      # form next to the XML. The snap is read-only, so compile it here.
+      glib-compile-schemas "$share/guake"
+
+      # locale.bindtextdomain("guake", LOCALE_DIR) expects
+      # $SNAP/usr/share/locale/<lang>/LC_MESSAGES/guake.mo.
+      for po in po/*.po; do
+        lang="${po#po/}"
+        lang="${lang%.po}"
+        install -d "$share/locale/$lang/LC_MESSAGES"
+        msgfmt "$po" -o "$share/locale/$lang/LC_MESSAGES/guake.mo"
+      done
+
+      # The data files are installed above; drop the copy setup.py may have
+      # put in the package directory, plus the tests, the byte-code cache of
+      # the build interpreter and the egg metadata.
+      packages="$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages"
+      rm -rf "$packages/guake/data" "$packages/guake/tests"
+      rm -rf "$packages"/guake-*.egg-info
+      find "$packages" -name __pycache__ -type d -prune -exec rm -rf {} +
+
+      # TryExec is resolved on the host, where /snap/bin may be missing from
+      # PATH; a failed check makes desktops hide the entry. Match the window to
+      # the launcher: GLib.set_prgname("guake") in guake/guake_app.py.
+      desktop="$share/applications/guake.desktop"
+      sed -i \
+        -e '/^TryExec=/d' \
+        -e '/^StartupNotify=/a StartupWMClass=guake' \
+        "$desktop"
+
+      # The console scripts setup.py writes are easy_install wrappers that
+      # resolve the entry point through the distribution metadata, which is
+      # not installed here. Write the equivalents out instead. core26 has no
+      # /usr/bin/python3: the launchers run the platform interpreter
+      # explicitly and direct invocation uses env(1).
+      cat >"$CRAFT_PART_INSTALL/usr/bin/guake" <<'EOF'
+      #!/usr/bin/env python3
+      from guake.main import exec_main
+
+      exec_main()
+      EOF
+      cat >"$CRAFT_PART_INSTALL/usr/bin/guake-toggle" <<'EOF'
+      #!/usr/bin/env python3
+      from guake.guake_toggle import toggle_guake_by_dbus
+
+      toggle_guake_by_dbus()
+      EOF
+      chmod 755 \
+        "$CRAFT_PART_INSTALL/usr/bin/guake" \
+        "$CRAFT_PART_INSTALL/usr/bin/guake-toggle"

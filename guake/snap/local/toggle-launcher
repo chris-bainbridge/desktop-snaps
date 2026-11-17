@@ -1,0 +1,9 @@
+#!/bin/sh
+# guake-toggle sends a show/hide message to the running Guake instance over
+# the session bus (org.guake3.RemoteControl). It is installed as its own app
+# so that the desktop can bind a shortcut to it, which is the only way to get
+# a global hotkey on Wayland: Keybinder grabs the key on the X11 root window.
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export GI_TYPELIB_PATH="$SNAP/usr/lib/girepository-1.0${SNAP_LAUNCHER_ARCH_TRIPLET:+:$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET/girepository-1.0}${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/guake-toggle" "$@"

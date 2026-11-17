@@ -1,0 +1,156 @@
+name: mupdf
+version: '1.28.6'
+summary: Document viewer for PDF, XPS, EPUB and comic books
+description: |
+  MuPDF is a lightweight document viewer and toolkit for PDF, XPS, OpenXPS,
+  EPUB, FictionBook, comic book (CBZ) and image files. This snap packages the
+  OpenGL viewer (mupdf-gl) and the mutool command-line tools, built from the
+  official MuPDF release source.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - MuPDF can only open and save files in your home directory (non-hidden
+    paths) and, when the removable-media interface is connected, on removable
+    drives. Files in system directories, in hidden directories such as
+    ~/.cache, or in another application's private data are not visible.
+  - Settings, history and temporary files live in the snap's private per-user
+    area (~/snap/mupdf/...) instead of ~/.config, ~/.cache and ~/.mupdf.history,
+    and are not shared with a distribution-packaged MuPDF.
+  - mupdf-gl uses GLUT and OpenGL and is therefore X11-only. It runs through
+    XWayland on a Wayland desktop; there is no native Wayland backend.
+  - The OpenGL drivers come from the mesa-2604 content snap that the gpu
+    extension connects. The snap does not ship its own Mesa stack.
+  - Remote URLs are not supported: the build disables cURL, so documents must
+    be local files. Links inside a document are passed to the host's URL
+    handler through xdg-open and snapctl user-open (desktop interface).
+  - Printing is not available; MuPDF has no print command. MuPDF also cannot
+    use DRM-protected documents, and JavaScript form support is limited to what
+    MuPDF's embedded MuJS interpreter implements.
+  - Files are opened read-only by the viewer. Use mutool from a terminal for
+    conversion, text extraction, cleaning and the other command-line tools.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything MuPDF needs beyond the core26 base is
+# either built from the bundled third-party sources or staged from the 26.04
+# archive; no prebuilt MuPDF binaries are embedded.
+#
+# MuPDF is not a GTK application: mupdf-gl draws through GLUT and OpenGL. The
+# [gnome] extension would pull in the 498 MB gnome-core26 platform snap and its
+# SDK for GTK and GLib, neither of which MuPDF links. Use snapcraft's [gpu]
+# extension instead, which is the core26 integration point for the mesa-2604
+# content snap and its provider wrapper, and declare the desktop interfaces by
+# hand:
+#   * desktop        - xdg-open/snapctl user-open for links in documents
+#   * desktop-legacy - the legacy desktop paths X11 clients expect
+#   * opengl         - /dev/dri and the rest of the GL device access
+#   * x11            - the X11 socket and XAUTHORITY (mupdf-gl is X11-only)
+#   * wayland is not declared: GLUT has no Wayland backend, so the viewer runs
+#     under XWayland. gsettings is not declared either: MuPDF does not use GLib
+#     or GSettings.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: AGPL-3.0-or-later
+website: https://mupdf.com/
+source-code: https://github.com/ArtifexSoftware/mupdf
+
+icon: snap/local/mupdf.svg
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  mupdf:
+    extensions: [gpu]
+    command: usr/bin/mupdf-gl
+    desktop: usr/share/applications/mupdf.desktop
+    plugs:
+      - desktop        # hand links in a document to the host URL handler
+      - desktop-legacy # legacy desktop paths used by X11 clients
+      - opengl         # GPU device access for mupdf-gl
+      - x11            # mupdf-gl is an X11/GLUT application
+      - home           # open and save documents in the user's home
+      - removable-media # documents on USB sticks and other removable media
+  mutool:
+    # The command-line tools do not need X11 or OpenGL, so they do not use the
+    # gpu extension and work even when mesa-2604 is not connected.
+    command: usr/bin/mutool
+    plugs:
+      - home            # read and write documents in the user's home
+      - removable-media # documents on USB sticks and other removable media
+
+parts:
+  mupdf:
+    # Release tarball from https://mupdf.com/releases; the gzip source tarball
+    # contains the pinned third-party sources that the Makefile builds.
+    source: https://mupdf.com/downloads/archive/mupdf-1.28.6-source.tar.gz
+    source-checksum: sha256/dc85000640a45d90ca9b77b061f6ca67cce0c4d4fbecf8819647baf573eef101
+    plugin: nil
+    build-packages:
+      # The core26 build environment has no compiler or make for plugin: nil;
+      # MuPDF's build is a plain GNU Makefile.
+      - build-essential
+      - pkg-config
+      # Headers for the X11/OpenGL backend that bundled freeglut links against.
+      # libglu1-mesa-dev supplies GL/glu.h, which freeglut_std.h includes even
+      # though MuPDF does not call GLU itself.
+      - libgl-dev
+      - libglu1-mesa-dev
+      - libx11-dev
+      - libxext-dev
+      - libxrandr-dev
+      # OpenSSL is the only system library MuPDF links for document encryption
+      # and signatures; core26 provides libcrypto.so.3 at runtime.
+      - libssl-dev
+    override-build: |
+      set -eux
+      # Build from the release tarball with the bundled third-party libraries.
+      # USE_SYSTEM_LIBS=no keeps the freetype, harfbuzz, jpeg, openjpeg,
+      # jbig2dec, lcms2, mujs, extract and zlib versions that MuPDF tests
+      # against. cURL is disabled: a strictly confined viewer cannot open
+      # remote documents without a network plug, and mupdf-gl does not use it.
+      make -j"${CRAFT_PARALLEL_BUILD_COUNT:-2}" \
+        build=release \
+        HAVE_GLUT=yes \
+        HAVE_X11=yes \
+        HAVE_LIBCRYPTO=yes \
+        USE_SYSTEM_LIBS=no \
+        USE_SYSTEM_CURL=no
+      # install-apps installs mutool and the viewers; install-docs adds the
+      # man pages, licence and README. No shared library or header is installed.
+      make \
+        build=release \
+        HAVE_GLUT=yes \
+        HAVE_X11=yes \
+        HAVE_LIBCRYPTO=yes \
+        USE_SYSTEM_LIBS=no \
+        USE_SYSTEM_CURL=no \
+        prefix=/usr \
+        DESTDIR="$CRAFT_PART_INSTALL" \
+        install-apps install-docs
+      # The GL viewer is the only GUI app declared above; do not ship a
+      # second, unused X11 viewer binary.
+      rm -f "$CRAFT_PART_INSTALL/usr/bin/mupdf-x11"
+      # Snapcraft mediates the Exec line and replaces the icon name with the
+      # store icon staged under meta/gui.
+      install -D -m 0644 \
+        "$CRAFT_PROJECT_DIR/snap/local/mupdf.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/mupdf.desktop"
+    prime:
+      - -usr/share/doc/mupdf/examples
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # Bundled freeglut links libXrandr directly. The mesa-2604 content snap
+      # provides libGL, libX11, libXext, libxcb, libXau and libXdmcp, but not
+      # libXrandr; libxrandr2 pulls libXrender1 and the rest of its dependencies.
+      - libxrandr2
+      - libxrender1
+    # Stage only the runtime libraries that the gpu content snap does not
+    # provide. The gpu/cleanup part removes any duplicates of mesa-2604.
+    stage:
+      - usr/lib/*/libXrandr.so.*
+      - usr/lib/*/libXrender.so.*

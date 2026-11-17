@@ -1,0 +1,137 @@
+name: bluefish
+version: '2.4.2'
+summary: Code and text editor with many web and software development extras
+description: |
+  Bluefish is a powerful editor for programmers and web developers. It
+  supports syntax highlighting for many languages, including languages
+  embedded in others (JavaScript, CSS and PHP inside HTML), auto-completion,
+  projects, snippets, bookmarks, a multi-file regular-expression search and
+  replace engine, in-line spell checking, an Emmet/Zen Coding plugin and a
+  Unicode character map.
+
+  It focuses on editing dynamic and interactive websites, but works for any
+  kind of source file.
+
+  This snap runs under strict confinement, as required by Core Desktop.
+  Files are reachable through the home and removable-media interfaces and
+  through the desktop document portal used by GTK's file dialogs; remote
+  files over FTP, SFTP or WebDAV are not available because gvfs is not
+  included. User settings live in the snap's private XDG directories, not in
+  the host's ~/.bluefish.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://bluefish.openoffice.nl/
+source-code: https://sourceforge.net/p/bluefish/code/HEAD/tree/
+issues: https://sourceforge.net/p/bluefish/tickets/
+
+platforms:
+  amd64:
+  arm64:
+
+# Bluefish is developed in a Subversion repository on SourceForge and does
+# not publish release tags; the official release artifacts are the tarballs
+# in the SourceForge "files" area. Pin the latest stable release (2.4.2) by
+# tarball URL and SHA-256 below.
+#
+# Strict-confinement notes (Core Desktop has no classic snaps):
+#   * /home is the snap's private writable directory. The real home is
+#     reachable through the home interface, except top-level hidden entries;
+#     removable media mounted under /media, /mnt and /run/media are reachable
+#     through removable-media. The built-in file browser cannot use the
+#     document portal, so it only browses those locations.
+#   * Settings, sessions and the user snippets/templates are stored under the
+#     snap's private XDG directories (XDG_CONFIG_HOME is $SNAP_USER_DATA/.config)
+#     and are not imported from an existing ~/.bluefish.
+#   * Remote files (ftp://, sftp://, webdav://) go through GIO and need a gvfs
+#     backend. gvfs is neither in gnome-core26 nor in this snap, so the network
+#     plug is deliberately not declared.
+#   * Printing uses GTK's print dialog and the CUPS socket (cups-control).
+#     Direct printer device access is not available.
+#   * Spell checking uses the enchant-2 runtime and the en_US dictionary from
+#     gnome-core26; no other dictionaries are staged.
+#   * External programs configured as tools (weblint, tidy, make, ...) must
+#     exist inside the snap; none are bundled, so those integrations are
+#     unavailable.
+
+apps:
+  bluefish:
+    extensions: [gnome]
+    command: usr/bin/bluefish
+    desktop: usr/share/applications/bluefish.desktop
+    common-id: bluefish.desktop
+    plugs:
+      # GTK reads the host theme, fonts and accessibility settings through it
+      - gsettings
+      # open and save files in the user's home directory
+      - home
+      # websites and source trees on USB sticks and SD cards
+      - removable-media
+      # File > Print sends the document to the CUPS socket
+      - cups-control
+
+parts:
+  bluefish:
+    source: https://downloads.sourceforge.net/project/bluefish/bluefish/2.4.2/bluefish-2.4.2.tar.gz
+    source-checksum: sha256/badde937df029d267ad6302a3379273b45368c46adc052ad75b37e0eda4f7d82
+    plugin: autotools
+    autotools-configure-parameters:
+      # Bluefish compiles PKGDATADIR, PKGLIBDIR and LOCALEDIR into the binary
+      # and has no environment override for them, so use the runtime mount
+      # path; organize moves the tree back under usr/ in the snap.
+      - --prefix=/snap/bluefish/current/usr
+      # The character map plugin is optional; build it against the gucharmap
+      # runtime that gnome-core26 already provides.
+      - --with-charmap
+      # Do not run update-desktop-database/update-mime-database on the part's
+      # partial install tree; the desktop runtime builds the user caches on
+      # first start instead.
+      - --disable-update-databases
+      # There is no system XML catalog at $prefix/etc/xml/catalog, but make
+      # the intent explicit (upstream uses this in DISTCHECK_CONFIGURE_FLAGS).
+      - --disable-xml-catalog-update
+    build-packages:
+      # GTK3, GLib, gdk-pixbuf, libxml2, Python 3 embedding headers, gettext,
+      # pkg-config, gdk-pixbuf-csource and glib-compile-resources come from
+      # gnome-core26-sdk; its libgspell-1-dev pulls in the enchant-2
+      # development files. Only gucharmap's development files are missing
+      # from the SDK, while its runtime library is in gnome-core26.
+      - libgucharmap-2-90-dev
+    organize:
+      snap/bluefish/current/usr: usr
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=bluefish$|Icon=${SNAP}/meta/gui/bluefish.svg|' \
+        "$CRAFT_PART_INSTALL/snap/bluefish/current/usr/share/applications/bluefish.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/images/bluefish-icon.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/bluefish.svg"
+    prime:
+      # libtool archives are not needed at run time
+      - -usr/lib/bluefish/*.la
+      - -usr/share/doc
+
+  libraries:
+    after: [bluefish]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships GTK3, GLib, gdk-pixbuf, enchant-2, libpython3.14
+      # and libgucharmap_2_90, but not libxml2, which Bluefish requires for
+      # its XML/XHTML support. The 26.04 archive has libxml2 2.15.2 as
+      # libxml2-16.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes primed libraries that also
+      # exist in gnome-core26-sdk, and libxml2 is part of the SDK. Keep the
+      # copy outside the SDK's path layout; the ELF patcher records
+      # $ORIGIN/../lib for usr/bin/bluefish, so the library is found at run
+      # time without relying on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.16*

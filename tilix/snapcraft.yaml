@@ -1,0 +1,153 @@
+name: tilix
+version: '1.9.6'
+summary: Tiling terminal emulator for GNOME
+description: |
+  Tilix is a terminal emulator that arranges terminals in a tiled grid. It
+  supports splitting horizontally and vertically, tabs, drag and drop of
+  terminals within and between windows, saved sessions and layouts, input
+  synchronisation, custom hyperlinks, notifications and configurable colour
+  schemes.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences, in particular for a terminal
+  emulator:
+
+  - The shell runs inside the snap. It sees the snap's filesystem and the
+    snap's private home directory (~/snap/tilix/...), not the host's /usr,
+    /etc or system tools. Host commands such as python, gcc, docker or sudo
+    are not on PATH, and host dotfiles (~/.bashrc, ~/.profile, ~/.gitconfig,
+    ~/.ssh) are not readable.
+  - The home interface grants access to non-hidden files under the real home
+    directory, so files can be opened from and saved to ~/Documents and
+    similar, but hidden directories (including ~/.config and ~/.ssh) remain
+    inaccessible.
+  - Settings, sessions, colour schemes and shell history are kept in the
+    snap's private home and are not shared with a distribution-packaged
+    Tilix. A shell started by the snap does not read the host's shell startup
+    files.
+  - Terminal child processes inherit the snap's confinement. They can use the
+    utilities provided by the base and the GNOME platform, and the network,
+    but they cannot manage or inspect the host system.
+  - The Nautilus "Open in Tilix" extension is not shipped: a Nautilus running
+    on the host cannot load an extension from inside a snap.
+  - Tilix's password dialog uses the Secret Service. The snap does not declare
+    the password-manager-service interface, so storing passwords in the
+    host's keyring is not available by default.
+
+  These limitations are accepted because Core Desktop has no classic snaps.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: MPL-2.0
+website: https://gnunn1.github.io/tilix-web/
+source-code: https://github.com/gnunn1/tilix
+issues: https://github.com/gnunn1/tilix/issues
+
+icon: snap/local/tilix.png
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Tilix is a Gtk.Application with the id com.gexperts.Tilix (APPLICATION_ID
+  # in source/gx/tilix/constants.d). The slot lets the strict snap own that
+  # name on the session bus, so a second launch activates the running window.
+  tilix:
+    interface: dbus
+    bus: session
+    name: com.gexperts.Tilix
+
+apps:
+  tilix:
+    extensions: [gnome]
+    command: usr/bin/tilix
+    desktop: usr/share/applications/com.gexperts.Tilix.desktop
+    common-id: com.gexperts.Tilix.desktop
+    plugs:
+      - gsettings       # GTK reads the desktop's theme, fonts and settings
+      - home            # open files and directories in the user's home
+      - network         # ssh, git, curl and other networked commands
+      - process-control # send SIGHUP to a terminal's process group on close
+      - system-observe  # read /proc entries for the running-process list
+
+# Tilix is written in D and builds with Meson. The gnome-core26 SDK provides
+# Meson, Ninja, GTK 3 and VTE, but no D compiler and no GtkD bindings. LDC and
+# the GtkD/VteD 3.11.0 bindings therefore come from the 26.04 archive as
+# build-packages, and their matching shared libraries are staged. There is no
+# dub build: 1.9.6's Meson build links through the pkg-config files shipped by
+# libgtkd-3-dev and libvted-3-dev. GtkD is not built from source because the
+# archive already has 3.11.0, the version Tilix 1.9.6 needs after the GtkAlign
+# fix below, built against the same GTK 3.24/VTE 0.84 ABI and the same LDC
+# 1.41 runtime.
+parts:
+  tilix:
+    source: https://github.com/gnunn1/tilix.git
+    source-type: git
+    source-tag: '1.9.6'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    build-packages:
+      # appstreamcli is mandatory in data/meson.build (it merges NEWS into the
+      # metainfo file) and is not part of the GNOME SDK.
+      - appstream
+      # The SDK has no D toolchain. LDC is required rather than GDC because
+      # the archive's GtkD/VteD shared libraries are built with LDC and depend
+      # on libphobos2-ldc-shared.so.111; mixing GDC's runtime into the same
+      # process would load two D runtimes.
+      - ldc
+      - libgtkd-3-dev # GtkD 3.11.0 D bindings and pkg-config file
+      - libvted-3-dev # VteD 3.11.0 D bindings and pkg-config file
+      - libunwind-dev # Tilix links libunwind for its stack traces
+    override-pull: |
+      set -eux
+      craftctl default
+      # Tilix 1.9.6 predates GtkD 3.11.0, which added vte.c.types.Align and
+      # made the unqualified Align used throughout 1.9.6 ambiguous. Apply the
+      # upstream fix (commit 7ef763d, shipped after 1.9.6) so the pinned
+      # release tag builds against the archive's GtkD 3.11.0.
+      patch -p1 --forward < "$CRAFT_PROJECT_DIR/patches/0001-update-to-gtkd-3.11.patch"
+    override-build: |
+      set -eux
+      craftctl default
+      # A Nautilus running on the host cannot load this extension from inside
+      # the snap, and its helper calls the host's tilix executable.
+      rm -rf "$CRAFT_PART_INSTALL/usr/share/nautilus-python"
+      # The session-bus slot in this recipe makes snapd activate the snap;
+      # drop upstream's service file, whose Exec points at /usr/bin/tilix.
+      rm -f "$CRAFT_PART_INSTALL/usr/share/dbus-1/services/com.gexperts.Tilix.service"
+      # Point the launcher at the icon shipped in the snap instead of relying
+      # on the host icon theme.
+      sed -i -e 's|^Icon=com\.gexperts\.Tilix$|Icon=${SNAP}/meta/gui/com.gexperts.Tilix.svg|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/com.gexperts.Tilix.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/com.gexperts.Tilix.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  runtime:
+    after: [tilix]
+    plugin: nil
+    stage-packages:
+      # GtkD and VteD are D shared libraries, and Meson links Tilix with
+      # -link-defaultlib-shared, so the bindings and the D runtime must both
+      # be present at runtime. gnome-core26 ships none of them. The archive's
+      # GtkD 3.11.0 is built with the same LDC 1.41 runtime (soname 111) used
+      # for the build, so no GtkD source build is needed.
+      - libgtkd-3-0
+      - libvted-3-0
+      - libphobos2-ldc-shared111
+      # libX11 comes from mesa-2604, and GTK/VTE/libsecret from gnome-core26,
+      # but neither content snap nor the core26 base ships libunwind.
+      - libunwind8
+    stage:
+      # Keep only what the platform lacks. The explicit list also keeps the
+      # GTK/VTE runtime stack that libgtkd-3-0 depends on out of the snap;
+      # the gnome extension's cleanup would remove those duplicates anyway.
+      - usr/lib/*/libgtkd-3.so*
+      - usr/lib/*/libvted-3.so*
+      - usr/lib/*/libphobos2-ldc-shared.so*
+      - usr/lib/*/libdruntime-ldc-shared.so*
+      - usr/lib/*/libunwind.so*
