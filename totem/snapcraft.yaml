@@ -74,6 +74,10 @@ apps:
       - audio-playback
       - network
       - screen-inhibit-control
+    environment:
+      # The staged libpeas typelib lives under $SNAP/usr/lib/girepository-1.0,
+      # outside the platform interpreter's default search path.
+      GI_TYPELIB_PATH: $SNAP/usr/lib/girepository-1.0:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0
 
 parts:
   totem:

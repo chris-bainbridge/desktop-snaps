@@ -13,6 +13,9 @@ export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH
 # both belong to the base snap at runtime, so point it at the copy shipped in
 # mpl-data instead. Set MATPLOTLIBRC yourself to override this.
 export MATPLOTLIBRC="${MATPLOTLIBRC:-$SNAP/usr/lib/python3/dist-packages/matplotlib/mpl-data/matplotlibrc}"
+# The staged GES/GstTranscoder/libpeas typelibs live under
+# $SNAP/usr/lib/girepository-1.0, outside the platform's default search path.
+export GI_TYPELIB_PATH="$SNAP/usr/lib/girepository-1.0${SNAP_LAUNCHER_ARCH_TRIPLET:+:$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET/girepository-1.0}${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
 
 # core26 has no /usr/bin/python3, so run the platform interpreter explicitly.
 # bash's `exec -a` names the process "pitivi": GTK derives the window WM_CLASS
