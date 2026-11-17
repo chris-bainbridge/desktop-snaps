@@ -1,0 +1,16 @@
+#!/bin/sh
+#
+# LibreWolf's launcher for the strictly confined snap.
+#
+# HOME is $SNAP_USER_COMMON (set in the app environment) and MOZ_LEGACY_HOME
+# is set, so LibreWolf keeps its profile in $HOME/.librewolf, i.e.
+# ~/snap/librewolf/common/.librewolf. That directory survives refreshes and is
+# not copied into every revision, unlike the revision-specific SNAP_USER_DATA.
+#
+# Arguments (URLs, file names, --private-window, ...) are forwarded unchanged.
+# A second launch hands the request to the running browser through Gecko's
+# remoting socket and exits; MOZ_APP_REMOTINGNAME in the app environment keeps
+# that name stable.
+set -eu
+
+exec "$SNAP/opt/librewolf/librewolf" "$@"

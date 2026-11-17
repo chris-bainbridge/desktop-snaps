@@ -1,0 +1,61 @@
+#!/bin/sh
+# Launcher for the strictly confined pgAdmin 4 snap.
+#
+# The GNOME platform supplies Python 3.14, the GTK/GLib runtime and the
+# desktop environment integration.  pgAdmin's Python dependencies, PyQt6,
+# Qt 6 and the QtWebEngine runtime are staged inside this snap.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+# The platform interpreter only searches its own dist-packages.  Add the
+# application tree and the staged Python modules (Flask and its dependencies,
+# PyQt6, psycopg, gssapi).
+export PYTHONPATH="$SNAP/usr/share/pgadmin4/web:$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
+
+# snapd puts only $SNAP/lib on LD_LIBRARY_PATH.  Add the staged multiarch
+# directory with Qt, QtWebEngine, libpq and the PostgreSQL client libraries,
+# keeping the entries the gnome/gpu wrappers prepared for the platform.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Qt was built with /usr as its prefix, which is the core26 base inside the
+# snap.  Point its plugin lookup at the staged tree; the gnome wrapper has
+# already set the XDG data directories, fonts and the XKB data path.
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+
+# Core Desktop is Wayland-first; fall back to xcb on an X11 session or when no
+# compositor is reachable (XWayland included).
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# QtWebEngine looks for its helper process, resource packs and Chromium locale
+# data under the compiled-in /usr paths, which are the base inside the snap.
+# Point it at the staged copies.  QTWEBENGINEPROCESS_PATH is the documented
+# override in Qt's web_engine_library_info.cpp.
+export QTWEBENGINEPROCESS_PATH="$SNAP/usr/lib/qt6/libexec/QtWebEngineProcess"
+export QTWEBENGINE_RESOURCES_PATH="$SNAP/usr/share/qt6/resources"
+export QTWEBENGINE_LOCALES_PATH="$SNAP/usr/share/qt6/translations/qtwebengine_locales"
+
+# Chromium's namespace sandbox needs unprivileged user namespaces.  AppArmor
+# denies those to a strictly confined snap, and snapd denies the allow-sandbox
+# attribute of browser-support to every snap without a store-granted
+# declaration.  QtWebEngine therefore runs its renderer processes under the
+# snap's confinement only.  See the description for the consequences.
+export QTWEBENGINE_DISABLE_SANDBOX=1
+
+# pgAdmin invokes pg_dump, pg_restore and psql by name.  Put the staged
+# PostgreSQL 18 client first; the base has no PostgreSQL utilities.
+export PATH="$SNAP/usr/bin${PATH:+:$PATH}"
+
+export XDG_DATA_DIRS="$SNAP/usr/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" -s \
+    "$SNAP/usr/share/pgadmin4/pgadmin4-desktop.py" "$@"

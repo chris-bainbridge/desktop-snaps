@@ -1,0 +1,65 @@
+#!/bin/sh
+# Runtime environment for the strictly confined Calligra snap.
+#
+# The gpu extension's wrapper (snap/command-chain/gpu-2604-wrapper) runs
+# before this script and has already added the mesa-2604 content snap and the
+# base paths to the environment. This script adds the rest of the staged
+# tree.
+set -eu
+
+# snapd puts the host's GL libraries on the library path, but not the staged
+# multiarch directory that holds Qt, KF6 and the Calligra libraries.
+plugins=
+for libdir in "$SNAP"/usr/lib/*-linux-gnu; do
+    [ -d "$libdir" ] || continue
+    LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    # KIO 6 normally finds its worker process (kioworker) relative to
+    # libKF6KIOCore, which resolves into the staged libexec/kf6 directory.
+    # Keep that directory on PATH as a fallback for the name-based lookup.
+    if [ -d "$libdir/libexec/kf6" ]; then
+        PATH="$libdir/libexec/kf6${PATH:+:$PATH}"
+    fi
+    # QCA looks for its crypto plugins below the multiarch directory, at a
+    # path that is not derived from the application prefix.
+    if [ -d "$libdir/qca-qt6/crypto" ]; then
+        QCA_PLUGIN_PATH="$libdir/qca-qt6/crypto${QCA_PLUGIN_PATH:+:$QCA_PLUGIN_PATH}"
+    fi
+    plugins="$libdir/qt6/plugins"
+done
+export LD_LIBRARY_PATH PATH QCA_PLUGIN_PATH
+
+# Qt's compiled-in plugin directory is /usr/lib/<triplet>/qt6/plugins, which
+# inside the snap is the base, not the staged copy. qt.conf next to the
+# binaries covers the applications; these variables also cover helper
+# processes such as kioworker and kbuildsycoca6, which run from other
+# directories and do not read that qt.conf.
+if [ -n "$plugins" ]; then
+    export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+    export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms${QT_QPA_PLATFORM_PLUGIN_PATH:+:$QT_QPA_PLATFORM_PLUGIN_PATH}"
+fi
+
+# Calligra finds its templates, part and filter plugins, icons, translations
+# and the shared MIME database through the XDG data directories. The base's
+# /usr/share stays in the search path for the pieces the base provides.
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# kdeglobals selects the staged Breeze icon theme: the host's KDE
+# configuration is not visible, and its icon theme name (Adwaita on GNOME)
+# does not exist inside the snap.
+export XDG_CONFIG_DIRS="$SNAP/etc/xdg${XDG_CONFIG_DIRS:+:$XDG_CONFIG_DIRS}"
+
+# Printing goes through the CUPS snap when the cups interface is connected.
+# Its socket is mounted at /var/cups/cups.sock, which is not libcups's default
+# location. Leave it unset otherwise so print-to-file and PDF export work.
+if snapctl is-connected cups 2>/dev/null; then
+    export CUPS_SERVER=/var/cups/cups.sock
+fi
+
+# Core Desktop is Wayland-first; fall back to xcb on an X11 session or when no
+# compositor socket is reachable. The converter overrides this with offscreen
+# in its app definition.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+exec "$@"

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Hand URLs to the host's default handler.
+#
+# A strictly confined snap has its own mount namespace and PATH, so the host's
+# browser cannot be started from inside it. snapd's user-open API is the
+# supported way to ask the desktop to open a URL, and the desktop interface
+# grants it. Fall back to the base's xdg-open for schemes snapctl does not
+# handle.
+set -u
+
+url=${1:-}
+case "$url" in
+    http://*|https://*|mailto:*|file://*)
+        if snapctl user-open "$url"; then
+            exit 0
+        fi
+        ;;
+esac
+
+if [ -x /usr/bin/xdg-open ]; then
+    exec /usr/bin/xdg-open "$@"
+fi
+exit 1

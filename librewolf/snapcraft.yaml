@@ -1,0 +1,280 @@
+name: librewolf
+title: LibreWolf
+version: '160.0-1'
+summary: Privacy-focused web browser based on Firefox
+description: |
+  LibreWolf is a community fork of Firefox focused on privacy, security and
+  freedom. It removes telemetry and sponsored content, enables strict
+  tracking protection, ships uBlock Origin, and turns off DRM, WebRTC leaks
+  and AI integrations by default.
+
+  This snap packages the official LibreWolf Linux binary release. It is
+  strictly confined, as required on Core Desktop, which has no classic snaps.
+  That has visible consequences:
+
+  - The profile lives in ~/snap/librewolf/common/.librewolf, not in
+    ~/.librewolf, ~/.config/librewolf or ~/.mozilla/firefox. Existing
+    LibreWolf and Firefox profiles in those hidden directories cannot be
+    imported by the snap: the home interface hides top-level dotfiles and
+    dot-directories, and this recipe deliberately declares no personal-files
+    plug for them. To migrate, copy the contents of ~/.librewolf or
+    ~/.config/librewolf/librewolf into ~/snap/librewolf/common/.librewolf on
+    the host before the first start; a Firefox profile can be copied the same
+    way when it comes from the same major version, but absolute paths in
+    profiles.ini may need updating.
+  - Only non-hidden paths in the real home directory are visible. Top-level
+    hidden entries such as ~/.config, ~/.local, ~/.ssh, ~/.mozilla and
+    ~/.librewolf are not reachable, apart from a few desktop-specific files
+    that the desktop interfaces expose (GTK bookmarks, user-dirs, dconf and
+    fonts), so the browser cannot read host profiles, native-messaging
+    manifests or files kept in hidden directories. Files in Documents,
+    Downloads, Pictures and other visible paths can be opened and saved.
+  - The default download directory is the snap's private
+    ~/snap/librewolf/common/Downloads. Set a real path such as
+    /home/<user>/Downloads in Settings > General > Files and Applications to
+    save into the host home directory.
+  - Files on USB drives and other removable media need the removable-media
+    interface:
+      sudo snap connect librewolf:removable-media
+  - The snap cannot make itself the default browser. LibreWolf's "Set as
+    default" button writes ~/.config/mimeapps.list, which is outside the
+    sandbox. Select LibreWolf in the desktop's Settings > Default
+    Applications instead; the exported desktop entry registers http and
+    https links.
+  - The Gecko content sandbox cannot use its user-namespace layer. AppArmor
+    does not grant unprivileged user namespaces to a strictly confined snap,
+    and snapd's base declaration denies the allow-sandbox attribute of
+    browser-support to snaps without a store-granted declaration. The snap's
+    seccomp filter and AppArmor profile still contain the whole process tree,
+    but the user-namespace layer is missing; about:support reports
+    "User Namespaces: false". Keep the snap up to date.
+  - DRM-protected media does not work. LibreWolf disables EME and Widevine in
+    its shipped defaults (media.eme.enabled=false,
+    media.gmp-widevinecdm.enabled=false), and no Widevine CDM is included.
+    Netflix, Spotify, Amazon Prime Video and other services that require a
+    proprietary CDM cannot play. ClearKey is disabled as well.
+  - OpenH264 is disabled in LibreWolf's defaults, and the Cisco plugin is not
+    bundled. WebRTC works with the bundled VP8/VP9 codecs, but H.264 WebRTC or
+    screen sharing that needs OpenH264 is unavailable.
+  - H.264, AAC, MP3, VP8, VP9, AV1, Opus, Vorbis, Theora and HEVC decoding
+    work through the bundled ffvpx codecs and the FFmpeg 8 libraries staged
+    from the 26.04 archive. Hardware-accelerated decoding depends on the GPU
+    and driver; software decoding is used as a fallback. No proprietary
+    codecs or CDMs are shipped.
+  - Printing is not available: the cups-control interface is not declared, so
+    no printers are visible. Print to PDF works.
+  - Audio playback works through the audio-playback interface, but the
+    microphone and camera are not granted. WebRTC calls can receive media but
+    cannot capture from the local camera or microphone.
+  - Security keys and smartcards are not available: the u2f-devices and pcscd
+    interfaces are not declared. WebAuthn with a hardware key and smartcard
+    client certificates do not work.
+  - The host Secret Service is not visible because password-manager-service is
+    not declared. Firefox's built-in password manager still works, with its
+    encrypted store inside the profile.
+  - Native messaging is limited to helpers shipped inside the snap. Browser
+    extensions that need a host application, such as KeePassXC or a password
+    manager companion, cannot launch it, because host executables and their
+    manifests in hidden directories are outside the sandbox.
+  - Web pages, extensions and updates use the network interface. Extensions
+    install from addons.mozilla.org; LibreWolf's policy allows dictionaries,
+    extensions, site permissions and themes. Spell-check dictionaries are not
+    bundled; install them as add-ons.
+  - LibreWolf's own updater is disabled by its policies
+    (DisableAppUpdate=true). Updates come from the snap store: use
+    "snap refresh librewolf".
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. There is no classic fallback and none is
+# proposed.
+#
+# Build versus package: LibreWolf is Firefox plus the patch set, settings and
+# branding in librewolf/source, assembled by the bsys6 build system. Building
+# it means running Mozilla's mach build (hours per architecture, with a
+# toolchain the core26 build environment does not provide), which is exactly
+# what bsys6 does in its own containers. The project publishes that build as
+# the official Linux -package.tar.xz, the raw binary tree consumed by Flathub
+# and Arch, so this recipe repackages that artifact. The .deb, .rpm and
+# AppImage are wrappers around the same tree with package-manager or FUSE
+# runtime dependencies that a snap does not need. The tarball is MPL-2.0, so
+# redistribution is allowed. It is downloaded at build time and verified
+# against the per-architecture SHA-256 below; no upstream binary is committed.
+#
+# Provenance: the canonical repositories are librewolf/source (patches,
+# settings, build scripts) and librewolf/bsys6 (the build system) on
+# https://librewolf.dev. The old GitLab group librewolf-community/browser now
+# says development moved to Codeberg, and the GitHub browser-linux repository
+# is archived; Codeberg mirrors librewolf.dev. 160.0-1 is the latest published
+# stable bsys6 release (2026-11-11). The source tree has a 160.0.1-1 version
+# bump dated 2026-11-17, but no 160.0.1 artifacts had been published when this
+# recipe was written, so 160.0-1 is pinned.
+#
+# Runtime dependency audit (26.04 platform), from readelf -d on every ELF in
+# the tarball:
+#   - bundled and loaded from $SNAP/opt/librewolf: libxul, libmoz*, NSS/NSPR,
+#     libmozsqlite3, libmozsandbox, libgkcodecs, libmozavcodec/avutil,
+#     libonnxruntime (amd64 only) and gmp-clearkey;
+#   - core26 and gnome-core26: glibc, libstdc++, libgcc, GLib/GIO/GObject,
+#     GTK3, GDK3, pango, cairo, gdk-pixbuf, atk, fontconfig, freetype,
+#     libdbus-1, libasound, libXcomposite, libXcursor, libXi, libXrandr,
+#     libXrender; libpulse and libnotify are dlopened by Firefox and are also
+#     in gnome-core26;
+#   - mesa-2604: libX11, libX11-xcb, libxcb, libxcb-shm, libXext, libXfixes,
+#     libXdamage, libdrm, libgbm, libEGL, libGL, libva and libwayland-client;
+#   - staged from the 26.04 archive: FFmpeg 8 libavcodec62/libavutil60/
+#     libswresample6 and the codec libraries gnome-core26 does not ship, for
+#     H.264, AAC and HEVC decoding (Firefox dlopens libavcodec at runtime);
+#   - LibreWolf 160 ships no libnssckbi.so. The trust store is embedded in
+#     libxul.so (the tarball has no separate NSS root module), so no NSS root
+#     module needs staging.
+grade: stable
+confinement: strict
+base: core26
+license: MPL-2.0
+website: https://librewolf.net/
+source-code: https://librewolf.dev/librewolf/source
+issues: https://librewolf.dev/librewolf/issues
+
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
+  arm64:
+    build-on: [arm64]
+    build-for: [arm64]
+
+apps:
+  librewolf:
+    extensions: [gnome]
+    command: bin/librewolf
+    desktop: usr/share/applications/librewolf.desktop
+    common-id: librewolf.desktop
+    environment:
+      # Keep the profile and the cache in the common area, which survives
+      # refreshes; SNAP_USER_DATA is copied to the next revision and a
+      # browser profile would be duplicated at every update.
+      HOME: $SNAP_USER_COMMON
+      MOZ_LEGACY_HOME: '1'
+      MOZ_APP_REMOTINGNAME: librewolf
+      # Route the file chooser and other desktop integration through the
+      # xdg-desktop-portal, as the Firefox snap does.
+      GTK_USE_PORTAL: '1'
+      ALSA_CONFIG_PATH: $SNAP/gnome-platform/usr/share/alsa/alsa.conf
+      PIPEWIRE_CONFIG_NAME: client.conf
+    # The gnome extension supplies desktop, desktop-legacy, opengl, wayland
+    # and x11. They are listed here as well to make the display and GPU
+    # requirements explicit. gsettings is not added by the core26 extension.
+    plugs:
+      - audio-playback   # HTML5 audio and video through PipeWire/PulseAudio
+      - browser-support  # shared memory, oom_score_adj and udev data
+      - desktop          # portals, notifications, xdg-open, file chooser
+      - gsettings        # GTK theme, fonts and desktop settings
+      - home             # downloads, uploads and the file chooser
+      - network          # pages, extensions, updates and add-on installs
+      - opengl           # GPU through the mesa-2604 content snap
+      - removable-media  # downloads and uploads on removable drives
+      - wayland          # native Wayland session
+      - x11              # XWayland session
+
+parts:
+  librewolf:
+    # The tarball URL and checksum differ per architecture, so it is fetched in
+    # override-pull instead of through source:. Both checksums below match the
+    # .sha256sum files published next to the tarballs and sha256sums.txt.
+    plugin: nil
+    build-packages:
+      - curl      # download the pinned release tarball
+      - xz-utils  # unpack the .tar.xz; core26 has no xz binary
+    override-pull: |
+      set -eu
+
+      version="$SNAPCRAFT_PROJECT_VERSION"
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          release_arch=linux-x86_64
+          checksum=7c751d4d279f05a2514298599ad3c43d4e85dd011ad2ecc07319c5a8c34a72e5
+          ;;
+        arm64)
+          release_arch=linux-arm64
+          checksum=c39d851d930a5b2039ec39e9ebbbd36450261f6456867d50eff0bce1bb4a3a08
+          ;;
+        *)
+          echo "librewolf: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      url="https://dl.librewolf.net/librewolf/${version}/librewolf-${version}-${release_arch}-package.tar.xz"
+      tarball="$CRAFT_PART_SRC/librewolf.tar.xz"
+
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "$tarball" "$url"
+
+      # Verify from inside the source directory so that the checksum line does
+      # not have to quote a workspace path.
+      cd "$CRAFT_PART_SRC"
+      printf '%s  librewolf.tar.xz\n' "$checksum" | sha256sum --check --strict -
+
+      tar --extract --xz --file librewolf.tar.xz --strip-components=1
+      rm -f librewolf.tar.xz
+
+    override-build: |
+      set -eu
+
+      # Keep the Firefox/XUL tree out of $SNAP/usr: the gnome extension's
+      # cleanup part deletes staged shared objects whose paths also exist in
+      # the SDK, and keeping the tarball under opt/ also makes it obvious that
+      # these libraries belong to the application, not to the platform.
+      install -d "$CRAFT_PART_INSTALL/opt/librewolf"
+      cp -a "$CRAFT_PART_SRC/." "$CRAFT_PART_INSTALL/opt/librewolf/"
+
+      # The launcher forwards URLs and file arguments to LibreWolf and sets
+      # the profile and desktop environment that strict confinement needs.
+      install -D -m 0755 "$CRAFT_PROJECT_DIR/snap/local/librewolf" \
+        "$CRAFT_PART_INSTALL/bin/librewolf"
+
+      # snapd expands ${SNAP} in the exported desktop entry; the matching
+      # meta/gui icon is installed below. The hicolor copy is for the GTK
+      # dialog and for applications that look up icons inside the snap.
+      install -D -m 0644 "$CRAFT_PROJECT_DIR/snap/local/librewolf.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/librewolf.desktop"
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/browser/chrome/icons/default/default128.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/librewolf.png"
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/browser/chrome/icons/default/default128.png" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/librewolf.png"
+
+  ffmpeg:
+    # Firefox dlopens libavcodec at runtime for H.264 and AAC; the bundled
+    # libmozavcodec only contains ffvpx (VP8/VP9/AV1/Opus/Vorbis/...). Stage
+    # FFmpeg 8 from the 26.04 archive for the missing decoders.
+    #
+    # The prime list keeps only the libraries that gnome-core26 does not
+    # already provide. In particular it does not ship glib, cairo, rsvg,
+    # x265, vpx, aom or jxl, which are in the GNOME platform, so no library
+    # is loaded twice. libvpl2 is amd64-only; its glob is empty on arm64.
+    #
+    # libavcodec62 is LGPL-2.1-or-later, with GPL-2.0-or-later codec
+    # libraries (x264, xvid) enabled by the Ubuntu build; these are
+    # redistributed under their own licences alongside MPL-2.0 LibreWolf.
+    plugin: nil
+    stage-packages:
+      - libavcodec62
+    prime:
+      - usr/lib/*/libavcodec.so.*
+      - usr/lib/*/libavutil.so.*
+      - usr/lib/*/libswresample.so.*
+      - usr/lib/*/libOpenCL.so.*   # libavutil's OpenCL hwcontext
+      - usr/lib/*/libsoxr.so.*     # libswresample's resampler
+      - usr/lib/*/libcodec2.so.*
+      - usr/lib/*/libdav1d.so.*
+      - usr/lib/*/libgsm.so.*
+      - usr/lib/*/librav1e.so.*
+      - usr/lib/*/libshine.so.*
+      - usr/lib/*/libsnappy.so.*
+      - usr/lib/*/libSvtAv1Enc.so.*
+      - usr/lib/*/libx264.so.*
+      - usr/lib/*/libxvidcore.so.*
+      - usr/lib/*/libzvbi.so.*
+      - usr/lib/*/libvpl.so.*

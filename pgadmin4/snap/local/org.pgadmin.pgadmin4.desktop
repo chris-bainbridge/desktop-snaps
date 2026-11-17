@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=pgAdmin 4
+GenericName=PostgreSQL Administration
+Comment=Management and development tools for PostgreSQL
+Exec=pgadmin4
+Icon=pgadmin4
+Terminal=false
+Categories=Development;Database;
+Keywords=postgresql;postgres;database;sql;query;administration;
+StartupNotify=true
+StartupWMClass=pgadmin4

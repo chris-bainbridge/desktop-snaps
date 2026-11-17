@@ -1,0 +1,31 @@
+From: Ubuntu Desktop snaps packaging <desktop-snaps@lists.ubuntu.com>
+Date: Tue, 17 Nov 2026 00:00:00 +0000
+Subject: Skip the Calligra Launcher
+
+The launcher/ directory builds a Kirigami/QML start centre for the whole
+suite. This snap ships the Words, Sheets and Stage desktop entries directly
+and does not stage Qt Quick, Kirigami or Kirigami Addons, so building the
+QML module would only produce an unused binary and require extra build
+dependencies. Upstream guards the equivalent extras/calligra start centre
+with APP_CALLIGRA, but launcher/ is added unconditionally.
+
+Forwarded: not-needed
+---
+ CMakeLists.txt | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -988,7 +988,11 @@
+ add_subdirectory(extras)
+ add_subdirectory(filters)
+ add_subdirectory(data)
+-add_subdirectory(launcher)
++# The snap ships the three application entries directly; the launcher is a
++# Kirigami/QML start centre that would require Qt Quick, Kirigami and
++# Kirigami Addons at build and run time. Keep it out of this build.
++#
++#add_subdirectory(launcher)
+ 
+ feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES FATAL_ON_MISSING_REQUIRED_PACKAGES)
+ 

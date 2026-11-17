@@ -1,0 +1,10 @@
+# Defaults for the Calligra snap. The user's own settings in
+# ~/snap/calligra/<revision>/.config/kdeglobals override these values.
+#
+# The snap ships the Breeze icon theme from the 26.04 archive. Select it
+# explicitly: on a host desktop QIcon::themeName() may name a theme that only
+# exists outside the snap, which would leave toolbar, menu and window icons
+# blank. No KDE platform theme is staged, so Qt uses its Fusion widget style
+# and the colour scheme that comes with it.
+[Icons]
+Theme=breeze

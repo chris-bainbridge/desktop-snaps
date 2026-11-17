@@ -1,0 +1,337 @@
+name: pgadmin4
+version: '9.19'
+summary: PostgreSQL administration and development platform
+description: |
+  pgAdmin 4 is the most popular open source administration and development
+  platform for PostgreSQL. It provides a browser-based interface for managing
+  servers, databases, schemas, tables and functions; a query tool with a
+  results grid, charting and explain plans; backup, restore and maintenance
+  wizards; a PSQL terminal; ERD and schema-diff tools; and support for
+  PostgreSQL 14 through 18, EDB Advanced Server and cloud PostgreSQL
+  services.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. pgAdmin's current desktop runtime (9.19) is Electron 44,
+  not the old QtWebEngine runtime. Shipping Electron would mean
+  downloading a prebuilt Electron/Chromium binary (no vendor binaries are
+  embedded in this repository) and disabling its sandbox, which snapd denies
+  to a strictly confined snap. This snap therefore packages pgAdmin's Flask
+  backend and renders it in a small QtWebEngine shell, the same approach as
+  the qutebrowser snap. The shell starts the server in desktop mode on a
+  random loopback port with a random access key, exactly as the Electron
+  runtime does, and opens a normal pgAdmin window. Expect these limitations:
+
+  - Configuration, the SQLite settings database, saved server definitions,
+    sessions, storage, logs and the QtWebEngine cache live in the snap's
+    private per-user area, under
+    ~/snap/pgadmin4/current/.pgadmin. They are not shared with a
+    distribution-packaged pgAdmin or with pgAdmin on another machine. An
+    existing ~/.pgadmin can be copied there by hand before the first start.
+    The snap is single-user desktop mode: it is not a multi-user pgAdmin
+    server, and the local web server listens on 127.0.0.1 only.
+  - Only non-hidden paths in your real home directory are visible through the
+    home interface. Top-level dotfiles and dot-directories such as ~/.config,
+    ~/.local and ~/.ssh are not reachable. The file chooser, backup and
+    restore dialogs can use ~/Documents, ~/Downloads and other non-hidden
+    directories; type /home/<user> or add a bookmark to reach the real home.
+    Downloads from the query tool are written to the snap's private
+    ~/Downloads, not the real one.
+  - The root filesystem is the snap's core26 base, the GNOME runtime and the
+    snap's own staged tree, not the host's. Host-installed programs are not
+    on PATH and cannot be started. PostgreSQL's client utilities are staged:
+    pg_dump, pg_dumpall, pg_restore and psql come from PostgreSQL 18.6 inside
+    the snap, and Backup/Restore are preconfigured to use them. Host copies of
+    those tools are not visible. The snap does not include a PostgreSQL
+    server; install one separately.
+  - A local PostgreSQL server is reachable over TCP only. Unix domain sockets
+    such as /var/run/postgresql/.s.PGSQL.5432 and /run/postgresql are outside
+    the sandbox. Create the server connection with host 127.0.0.1, not the
+    literal localhost, which libpq may resolve to a Unix socket. Ensure
+    postgresql.conf has listen_addresses = 'localhost' and a TCP pg_hba.conf
+    entry for 127.0.0.1/32 (for example scram-sha-256), and enter a password.
+    The snap cannot read a ~/.pgpass file: it is a hidden file and the home
+    interface excludes it. Peer authentication over a Unix socket cannot
+    work. Local peer authentication is unavailable even though the server is
+    on the same machine.
+  - SSH tunnels use the bundled Paramiko/sshtunnel stack. The host's ssh-agent
+    and ~/.ssh directory are not visible, so an identity file must be in a
+    non-hidden directory that the home interface exposes, and a passphrase
+    must be entered in pgAdmin. Agent-based authentication is not available.
+    Host ssh_config aliases and ProxyJump settings are not read.
+  - Kerberos authentication is not usable: the host's /etc/krb5.conf, keytab
+    and credential cache are not visible, and the snap has no way to acquire
+    a ticket. LDAP authentication works over the network when the LDAP server
+    is reachable. OAuth2 redirects are handled inside the snap's QtWebEngine
+    window; provider flows that open the system browser use the desktop
+    interface, and their loopback callback is allowed by network-bind.
+  - The host keyring and Secret Service are not available. pgAdmin's saved
+    database passwords are encrypted in its own SQLite database with its
+    master password, not stored in the desktop keyring. A pgAdmin master
+    password is therefore required to save passwords.
+  - QtWebEngine's Chromium sandbox is disabled. AppArmor does not grant
+    unprivileged user namespaces to a strictly confined snap, and snapd
+    denies the allow-sandbox attribute of browser-support to snaps without a
+    store-granted declaration. Renderer processes are contained only by the
+    snap's confinement. Keep the snap up to date.
+  - QtWebEngine uses its own Chromium network stack. Host proxy settings and
+    host CA certificates added outside the base are not used; configure a
+    proxy in pgAdmin or in the desktop environment's schema if needed.
+    Hardware video decoding is not enabled and DRM-protected media is not
+    supported. PDFs are downloaded and can be opened with the host viewer
+    through the desktop interface.
+  - Printing from the embedded browser is not wired to the host's CUPS.
+    Query results can be exported to CSV, JSON or XML, and the host browser
+    can print a saved page. The cups-control interface is not declared.
+  - Removable drives need the removable-media interface, which is not
+    connected automatically:
+      sudo snap connect pgadmin4:removable-media
+    Without it, backups and restores cannot use /media or /mnt.
+  - The snap cannot change the host's default applications or MIME
+    associations; those writes are outside the sandbox. It can open mailto:
+    links through the desktop interface.
+  - The snap updates through the Snap Store. pgAdmin's Electron auto-updater
+    is not present, and a running instance is not restarted automatically
+    after a refresh.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. pgAdmin 4 is built from the pinned upstream
+# release tarball; Qt, QtWebEngine, PyQt6, the PostgreSQL client and the Python
+# dependencies are staged or built from the 26.04 archive and PyPI at build
+# time. No prebuilt pgAdmin or Electron binaries are embedded.
+#
+# Desktop-versus-web choice:
+#   * Upstream 9.19's desktop runtime (runtime/) is Electron 44.7.0 with
+#     electron-store and electron-context-menu. The old C++/QtWebEngine
+#     runtime is gone; the premise that desktop mode is QtWebEngine is out of
+#     date.
+#   * Packaging Electron would require downloading the official prebuilt
+#     Electron zip (a vendor binary), shipping it in the snap, and starting
+#     Chromium with --no-sandbox. It would also add another ~250 MB and a
+#     second Chromium next to the one QtWebEngine embeds.
+#   * Server/web mode alone would leave the snap without a window and with no
+#     way to stop the local server when the user closes a browser tab.
+#   * This recipe keeps the upstream Flask application and its desktop-mode
+#     auto-login, but replaces only the Electron window with a ~250-line
+#     QtWebEngine shell in snap/local. That shell is the same rendering
+#     technology as the qutebrowser snap and keeps a normal application
+#     window and process lifetime.
+#
+# Web assets: pgAdmin's React client is not shipped prebuilt in the source
+# tarball. The build runs the pinned Yarn 4.15.0 and webpack from web/ to
+# produce pgadmin/static/js/generated, as upstream's own packages do. Node,
+# Yarn and the JavaScript dependencies are build-time only.
+#
+# Python dependencies: pip installs the pinned upstream requirements into the
+# snap at build time, excluding psycopg[c] and gssapi, which are taken from
+# the 26.04 archive instead (3.3.2 and 1.10.1; upstream asks for 3.3.6 and
+# 1.12, and both are API-compatible for pgAdmin's use). The GNOME platform
+# supplies Python 3.14, its standard library, GTK/GLib, the fonts and the
+# desktop integration; the snap does not ship a second interpreter.
+#
+# Qt approach: snapcraft 9.2.1 has no KDE/Qt extension for core26, and pgAdmin
+# needs no KDE Frameworks. Qt 6.10.2, PyQt6 6.10.2, PyQt6-WebEngine 6.10.0 and
+# the QtWebEngine runtime are staged from the 26.04 archive because the GNOME
+# platform does not include them. QtWebEngine is the largest part of the snap:
+# libQt6WebEngineCore is about 200 MB installed, its resource and Chromium
+# locale data another 52 MB, the helper process about 18 MB, and PyQt6 and the
+# Qt libraries add roughly 75 MB, for about 400 MB installed in total. The
+# WebDriver server (webenginedriver, about 17 MB) is excluded because it is
+# only used by Qt's test suite.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: PostgreSQL
+website: https://www.pgadmin.org/
+source-code: https://github.com/pgadmin-org/pgadmin4
+issues: https://github.com/pgadmin-org/pgadmin4/issues
+
+icon: snap/local/pgadmin4.png
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  pgadmin4:
+    extensions: [gnome]
+    command: bin/pgadmin4-launcher
+    desktop: usr/share/applications/org.pgadmin.pgadmin4.desktop
+    common-id: org.pgadmin.pgadmin4
+    # The gnome extension supplies desktop, desktop-legacy, opengl, wayland
+    # and x11. These are the plugs it does not add for core26.
+    plugs:
+      - browser-support # shared memory and udev data for QtWebEngine
+      - gsettings       # Qt theme, fonts and desktop settings
+      - home            # backups, restores, uploads and the file chooser
+      - network         # PostgreSQL, LDAP, OAuth2 and cloud APIs
+      - network-bind    # the local pgAdmin server on 127.0.0.1
+      - removable-media # backups and restores on removable drives, manual
+
+parts:
+  pgadmin4:
+    # 9.19 is the latest stable upstream release (2026-10-29); the tag
+    # REL-9_19 points at commit 062099ae5b927fc2bb6f1c1f198712e1f8bd04e6.
+    # The official source tarball has the same contents as the GitHub tag
+    # archive and is published next to its detached PGP signature.
+    source: https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v9.19/source/pgadmin4-9.19.tar.gz
+    source-checksum: sha256/7b1183a8b6a620e6d92814c97fb56b351f26ef7b0b59b82865a5aa54fe01c607
+    plugin: nil
+    build-packages:
+      - build-essential
+      - git
+      - nodejs
+      - npm
+      - python3
+      - python3-dev
+      - python3-pip
+      - pkg-config
+      - libffi-dev
+      - libssl-dev
+      - zlib1g-dev
+      - libjpeg-dev
+      # Fallbacks if PyPI has no wheel for this architecture/Python version.
+      - rustc
+      - cargo
+    override-build: |
+      set -eux
+
+      # Build pgAdmin's React client bundle with the Yarn version pinned in
+      # web/package.json. The bundle is generated output, not a vendor binary.
+      npm install --global --silent yarn@4.15.0
+      cd web
+      yarn install --immutable
+      NODE_ENV=production NODE_OPTIONS=--max-old-space-size=3072 \
+        yarn run webpacker
+      cd .. && test -d web/pgadmin/static/js/generated
+
+      # psycopg[c] and gssapi are staged from the archive instead of built
+      # here, so pip does not need PostgreSQL or Kerberos headers.
+      grep -vE '^(gssapi|psycopg\[c\])' requirements.txt \
+        > requirements-snap.txt
+      target="$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages"
+      install -d "$target"
+      /usr/bin/python3 -m pip install \
+        --no-cache-dir --disable-pip-version-check --no-warn-script-location \
+        --target "$target" -r requirements-snap.txt
+      rm -rf "$target/bin"
+      # Upstream's own pruner removes the ~100 MB Google discovery cache and
+      # the unused CLDR locales (about 128 MB in total) from the packages.
+      /usr/bin/python3 pkg/prune_site_packages.py "$target"
+      find "$target" -type d \
+        \( -name test -o -name tests -o -name __pycache__ \) \
+        -prune -exec rm -rf {} +
+      find "$target" -name '*.pyc' -delete
+
+      # Assemble the application tree. node_modules, the Yarn cache and the
+      # regression suite are build-only.
+      install -d "$CRAFT_PART_INSTALL/usr/share/pgadmin4"
+      tar -C . -cf - \
+        --exclude='web/node_modules' \
+        --exclude='web/.yarn' \
+        --exclude='web/regression' \
+        web | tar -C "$CRAFT_PART_INSTALL/usr/share/pgadmin4" -xf -
+
+      cd "$CRAFT_PART_INSTALL/usr/share/pgadmin4/web"
+      rm -rf .yarn .yarnrc.yml package.json yarn.lock \
+        webpack.config.js webpack.shim.js jest.config.js babel.config.js \
+        .eslintrc.js .eslintignore .editorconfig
+      find . -type d \( -name tests -o -name __pycache__ \) \
+        -prune -exec rm -rf {} +
+      find . -name '*.pyc' -delete
+      # The compiled .mo catalogues are used at run time; the .po sources,
+      # source maps and test data are not.
+      find . -name '*.po' -delete
+      find . -name '*.map' -delete
+      test -f pgadmin/static/js/generated/pgadmin_commons.js
+
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+
+  runtime:
+    # Everything the core26 base and the gnome-core26 platform do not provide.
+    after: [pgadmin4]
+    plugin: nil
+    stage-packages:
+      # pgAdmin's PostgreSQL 3.x driver and Kerberos support. The archive
+      # builds are used instead of pip so the C extensions link the staged
+      # libpq and MIT Kerberos libraries.
+      - python3-gssapi
+      - python3-psycopg
+      - python3-psycopg-c
+      - libgssapi-krb5-2
+      - libpq5
+      # The client utilities used by Backup, Restore, Maintenance and the
+      # PSQL tool. config_distro.py points pgAdmin at the real binaries.
+      - postgresql-client
+      # PyQt6 and the QtWebEngine runtime.
+      - python3-pyqt6
+      - python3-pyqt6.qtqml
+      - python3-pyqt6.qtquick
+      - python3-pyqt6.qtwebchannel
+      - python3-pyqt6.qtwebengine
+      - libqt6webenginecore6
+      - libqt6webenginecore6-bin  # QtWebEngineProcess
+      - libqt6webengine6-data     # resource packs and Chromium locales
+      - libqt6webenginequick6
+      - libqt6webenginewidgets6
+      - libqt6sql6-sqlite         # QSQLITE for QtWebEngine's storage
+      - libqt6waylandclient6      # the libqwayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell and friends
+      - qt6-svg-plugins           # SVG icons in the UI
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # The platform supplies Python 3.14 and its standard library. Do not
+      # ship a second interpreter or stdlib from the PyQt6 dependency chain.
+      - -usr/bin
+      - -usr/lib/python3.14
+      - -usr/lib/*/libpython3.14.so*
+      # Qt's WebDriver server is only used by Qt's own test suite (~17 MB).
+      - -usr/lib/qt6/libexec/webenginedriver
+      # Fonts and fontconfig come from the GNOME platform; the packages are
+      # only pulled in as dependencies.
+      - -etc/fonts
+      - -usr/share/fontconfig
+      - -usr/share/fonts
+
+  local:
+    after: [pgadmin4, runtime]
+    plugin: dump
+    source: snap/local
+    organize:
+      pgadmin4-launcher: bin/pgadmin4-launcher
+      pgadmin4-desktop.py: usr/share/pgadmin4/pgadmin4-desktop.py
+      config_distro.py: usr/share/pgadmin4/web/config_distro.py
+      org.pgadmin.pgadmin4.desktop: usr/share/applications/org.pgadmin.pgadmin4.desktop
+      pgadmin4.png: usr/share/icons/hicolor/256x256/apps/pgadmin4.png
+
+  cleanup:
+    # Staged dependency trees can contain copies of libraries that the core26
+    # base already ships (libstdc++, GLib, OpenSSL, zlib, ...). Loading two
+    # copies in one process is not safe, so drop every primed shared library
+    # whose path also exists in the base, as the other core26 recipes do.
+    after: [pgadmin4, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

@@ -1,0 +1,576 @@
+name: calligra
+version: '26.08.3'
+summary: Office and document suite with Words, Sheets, Stage and a converter
+description: |
+  Calligra Suite is a set of office and document applications built on a
+  common KDE Frameworks platform. This snap provides the three productivity
+  applications and the command-line converter:
+
+  - Calligra Words is a word processor for ODF text documents. It imports
+    DOC, DOCX, WordPerfect, Microsoft Works, RTF and plain text, and exports
+    DOCX, EPUB2, Mobi, HTML, wiki and plain text.
+  - Calligra Sheets is a spreadsheet with formula editing, charts, cell
+    styles and the GSL solver. It imports XLS/XLSX, CSV, Gnumeric,
+    OpenDocument, Applix, dBASE and Quattro Pro files and exports XLS, CSV,
+    Gnumeric, OpenDocument, HTML and LaTeX.
+  - Calligra Stage is a presentation program with master slides, layouts,
+    animations and page effects. It imports ODP, PPT/PPTX, Apple Keynote and
+    KPresenter files and exports PDF.
+  - calligraconverter (run it as "snap run calligra.convert") converts
+    documents between every format the three applications support and
+    exports PDF in batch mode.
+
+  Documents use the OpenDocument formats natively. The snap includes the
+  shared Calligra libraries, the text, picture, vector, path, formula, chart,
+  artistic-text, plugin-shape, variable and stencil plugins, the dockers and
+  text-editing plugins, and the import/export filters listed above.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - HOME is the snap's private per-user directory (~/snap/calligra/<revision>),
+    not your real home. Configuration, recent documents, autosave files,
+    user templates and spell-check settings live there and are not shared
+    with a distribution-packaged Calligra. Files in non-hidden paths of the
+    real home are reachable through the home interface, but top-level hidden
+    entries such as ~/.config, ~/.local, ~/.ssh and ~/.fonts are not. The
+    file dialog starts in the private home; type /home/<user> or add a
+    bookmark to reach the real one.
+  - Only the bundled fonts are available: DejaVu, Liberation, Carlito,
+    Caladea and the LyX fonts. Host fonts are not visible, so documents that
+    use other fonts are rendered with a substitute. Additional fonts can be
+    copied to ~/snap/calligra/current/.local/share/fonts.
+  - Spell checking uses Sonnet with Hunspell and a US English dictionary
+    only. Other dictionaries and the WordNet thesaurus are not shipped.
+  - Sheets' external data sources use Qt SQL with the SQLite driver only.
+    The PostgreSQL, MySQL/MariaDB and ODBC drivers are not staged.
+  - Printing to a physical printer needs the cups interface, which is not
+    connected automatically:
+        sudo snap connect calligra:cups
+    It routes print jobs to the CUPS snap. Without it, File > Print to File
+    and PDF export still work.
+  - USB drives, camera cards and other removable media need the
+    removable-media interface:
+        sudo snap connect calligra:removable-media
+  - Stored passwords for encrypted documents need the desktop keyring, which
+    is only reachable when the password-manager-service interface is
+    connected:
+        sudo snap connect calligra:password-manager-service
+    Without it, encrypted ODF documents still open after typing the password.
+  - Local documents are read and written directly, without a helper process.
+    Remote KIO URLs use the staged kioworker for http, https, webdav and ftp;
+    protocols provided by kio-extras (smb, sftp, nfs) are not available, and
+    the trash:// browser sees only the snap's private trash.
+  - Programs installed on the host are not visible. Help > Calligra Handbook
+    needs khelpcenter, which is not part of the snap, and the handbooks
+    themselves are not built, so there is no offline help. Links opened with
+    Qt's desktop services are handed to the host's browser through the
+    desktop interface. External editors and other helper programs cannot be
+    started from inside the snap.
+  - The host's MIME database is not extended by the snap. The three desktop
+    entries are exported, so associations work for file types the host
+    already knows; otherwise open the document from the application's file
+    dialog.
+  - Qt 6.10.2 and KDE Frameworks 6.24.0 are staged from the 26.04 archive.
+    The host's Qt/KDE theme and settings are not visible: the snap ships the
+    Breeze icon theme and uses Qt's Fusion widget style, and it does not
+    follow the GNOME theme or its accent colours.
+  - Audio and video clips embedded in presentations are not played. Phonon
+    and its VLC backend are not staged, so the video shape plugin is not
+    built.
+  - RDF metadata and the contact, event and location semantic-item plugins
+    are not built: Soprano has no Qt 6 port.
+  - The Karbon vector editor, Braindump, Gemini, the Calligra Launcher start
+    centre, the Okular generators and the file-manager thumbnailer,
+    properties-dialog, quick-print and "Create new" template plugins are not
+    shipped. Each of the three applications is started from its own desktop
+    entry.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. No prebuilt Calligra binaries are embedded: the
+# suite is built from the official 26.08.3 release tarball, and Qt, KF6 and
+# every other library are staged from the 26.04 archive.
+#
+# Qt/KDE approach: stage Qt 6.10.2 and KF6 6.24.0 from the 26.04 archive.
+#   * snapcraft 9.2.1 ships kde-neon, kde-neon-6 and kde-neon-qt6 for core22
+#     and core24 only; their get_supported_bases() rejects core26, and there
+#     is no KDE/Qt extension for core26.
+#   * KDE publishes kde-qt6-core26 (Qt 6.11.3, 915 MB), kf6-core26 (KF 6.31.0,
+#     1.9 GB) and matching SDK snaps, but the content snaps are amd64-only in
+#     the store (checked 2026-11-17) while this recipe also targets arm64.
+#     Wiring a content interface by hand is not supported by snapcraft, and
+#     the build would need the SDK snaps on the build architecture.
+#   * The archive's Qt/KF6 packages are built for Ubuntu 26.04, the same
+#     release as the core26 base, so the staged libraries match its libc,
+#     libstdc++, GLib and OpenSSL. Calligra 26.08.3 requires Qt 6.5 and KF6
+#     6.0; the archive versions are newer.
+#   * KDE installs its plugins below the Qt plugin directory when the CMake
+#     install prefix matches Qt's /usr prefix. KDE_INSTALL_USE_QT_SYS_PATHS
+#     is set explicitly so Calligra's parts, filters and plugins end up in
+#     usr/lib/<triplet>/qt6/plugins, where qt.conf and QT_PLUGIN_PATH find
+#     them.
+#
+# Scope: the WORDS, SHEETS and STAGE product sets plus the command-line
+# converter and the lcms2 colour engine plugin. The sets pull in the text,
+# picture, vector, path, formula, chart, artistic-text, plugin-shape, variable
+# and stencil plugins, the dockers and text-editing plugins, and every
+# import/export filter whose external libraries are staged (librevenge,
+# libodfgen, libwpd, libwpg, libwps, libetonyek, KChart, GSL). The colour
+# engine is not part of any application set (only the default ALL set builds
+# it), but CMYK and EXR colour spaces need it.
+#
+# Disabled, and why:
+#   * KARBON: a vector-graphics editor, outside the office-document scope; it
+#     also needs Poppler's Qt 6 bindings for PDF import.
+#   * BRAINDUMP: unmaintained, and its web shape requires Qt WebEngine.
+#   * GEMINI: unmaintained touch-oriented UI; upstream already drops it in
+#     release builds.
+#   * OKULAR: generators for the host's Okular; a strict snap cannot install
+#     plugins into another application.
+#   * FILEMANAGER: the properties dialog, thumbnailer, quick-print menu and
+#     "Create new" templates; the host's Dolphin/KIO cannot load or run them.
+#     The product set still builds them and they are removed at prime time.
+#   * PLUGIN_VIDEOSHAPE/Phonon: no Phonon package is staged, and the VLC
+#     backend would add a second multimedia stack; clips embedded in
+#     presentations are not played.
+#   * FEATURE_RDF/PLUGIN_SEMANTICITEMS: Soprano has no Qt 6 port, so RDF
+#     metadata and the contact, event and location semantic items are absent.
+#   * RELEASE_BUILD=TRUE keeps the suite in its release configuration and
+#     drops the unmaintained components.
+#
+# The launcher/ start centre is patched out (patches/0001-skip-the-calligra-
+# launcher.patch): it is a Kirigami/QML application that would need Qt Quick,
+# Kirigami and Kirigami Addons at build and run time solely to offer shortcuts
+# to the three applications, which have their own desktop entries.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: LGPL-2.0-or-later AND GPL-2.0-or-later
+website: https://calligra.org/
+source-code: https://invent.kde.org/office/calligra
+issues: https://bugs.kde.org/enter_bug.cgi?product=calligra
+
+icon: snap/local/calligra.png
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig configuration, fonts, hunspell dictionaries and X11
+# keyboard/locale data have to appear at the absolute paths their libraries
+# were built with; /usr and /etc inside the snap are the core26 base. The
+# bind targets already exist in the base, or snapd creates them; the binds
+# replace their contents with the staged copies.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+  /usr/share/hunspell:
+    bind: $SNAP/usr/share/hunspell
+
+# KoApplication registers KDBusService in Multiple mode, which binds
+# org.kde.<applicationName>-<pid> (applicationName is "calligrawords",
+# "calligrasheets" or "calligrastage", from KAboutData) and exits if the
+# registration is denied. The slots make snapd allow those names; the
+# common-id of each app matches its desktop file so the exported entry and the
+# desktop integration stay correct.
+slots:
+  words:
+    interface: dbus
+    bus: session
+    name: org.kde.calligrawords
+  sheets:
+    interface: dbus
+    bus: session
+    name: org.kde.calligrasheets
+  stage:
+    interface: dbus
+    bus: session
+    name: org.kde.calligrastage
+
+apps:
+  words:
+    extensions: [gpu]
+    command: usr/bin/calligrawords
+    command-chain: [snap/command-chain/calligra-launch]
+    desktop: usr/share/applications/org.kde.calligra.words.desktop
+    common-id: org.kde.calligra.words.desktop
+    plugs:
+      - cups              # printing through the CUPS snap, manual connection
+      - desktop           # desktop integration and snapctl user-open
+      - desktop-legacy    # legacy desktop paths used by Qt's X11 backend
+      - home              # documents in the user's home directory
+      - network           # remote documents and help links
+      - opengl            # GPU access for Qt and the mesa-2604 content snap
+      - password-manager-service # encrypted-document passwords, manual
+      - removable-media   # documents on USB drives and cards, manual
+      - wayland           # native Wayland session on Core Desktop
+      - x11               # X11 sessions and XWayland as a fallback
+  sheets:
+    extensions: [gpu]
+    command: usr/bin/calligrasheets
+    command-chain: [snap/command-chain/calligra-launch]
+    desktop: usr/share/applications/org.kde.calligra.sheets.desktop
+    common-id: org.kde.calligra.sheets.desktop
+    plugs:
+      - cups
+      - desktop
+      - desktop-legacy
+      - home
+      - network
+      - opengl
+      - password-manager-service
+      - removable-media
+      - wayland
+      - x11
+  stage:
+    extensions: [gpu]
+    command: usr/bin/calligrastage
+    command-chain: [snap/command-chain/calligra-launch]
+    desktop: usr/share/applications/org.kde.calligra.stage.desktop
+    common-id: org.kde.calligra.stage.desktop
+    plugs:
+      - cups
+      - desktop
+      - desktop-legacy
+      - home
+      - network
+      - opengl
+      - password-manager-service
+      - removable-media
+      - wayland
+      - x11
+  convert:
+    # calligraconverter is a QApplication: the offscreen plugin keeps it off
+    # the display server. Use --batch to suppress the progress dialogs.
+    command: usr/bin/calligraconverter
+    command-chain: [snap/command-chain/calligra-launch]
+    environment:
+      QT_QPA_PLATFORM: offscreen
+    plugs:
+      - home            # input and output files
+      - network         # remote input and output URLs
+      - removable-media # files on USB drives and cards, manual connection
+
+# No gsettings plug: Calligra is a Qt/KDE application and stores its settings
+# with KConfig below the private ~/.config. It does not use GSettings, and no
+# GLib schemas or GTK platform theme are staged for it to read.
+
+parts:
+  local:
+    # Launcher, URL handler, KDE defaults and the snap icon. calligra.png is
+    # the suite logo from the upstream source tree.
+    plugin: dump
+    source: snap/local
+    organize:
+      calligra-launch: snap/command-chain/calligra-launch
+      kdeglobals: etc/xdg/kdeglobals
+      xdg-open: usr/bin/xdg-open
+    prime:
+      # The PNG only feeds the top-level icon key, which snapcraft reads from
+      # the project directory and installs as meta/gui/icon.png.
+      - -calligra.png
+
+  calligra:
+    # 26.08.3 is the latest stable release from the KDE release service
+    # (2026-11-03); v26.11.80 is the pre-release of the next branch. The
+    # tarball is the official release artifact from download.kde.org, whose
+    # canonical source is invent.kde.org/office/calligra; tag v26.08.3 is
+    # commit 6b018e8473a2d6bd08dd2fa27f32c9698a285fdd. The checksum below is
+    # the published SHA-256 of that file.
+    source: https://download.kde.org/stable/release-service/26.08.3/src/calligra-26.08.3.tar.xz
+    source-checksum: sha256/4338a27722d23be7f96cb0cb6fbc0fd523510597cbf28897b47ecfa81e944ab4
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      # Words, Sheets, Stage, the command-line converter and the lcms2 colour
+      # engine plugin. The colour engines are not part of any application
+      # product set (the default ALL set builds them), but CMYK and EXR
+      # colour spaces are needed for print-oriented documents. The product
+      # sets are a space-separated list; CMake splits it with
+      # separate_arguments().
+      - "-DPRODUCTSET=WORDS SHEETS STAGE PLUGIN_COLORENGINES APP_CONVERTER"
+      # Release configuration: no unmaintained or experimental components.
+      - -DRELEASE_BUILD=TRUE
+      # Put plugins below the Qt plugin directory, so qt.conf and
+      # QT_PLUGIN_PATH find the Calligra parts, filters and shape plugins.
+      - -DKDE_INSTALL_USE_QT_SYS_PATHS=ON
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, Qt, KF6 or document-filter headers.
+      - build-essential
+      - cmake
+      - ninja-build
+      - pkgconf
+      - patch
+      - perl              # find_package(Perl REQUIRED)
+      - gettext           # msgfmt, used by ki18n_install(po)
+      # CMake needs ECM 6.0 or newer; the archive has KF6 6.24's ECM.
+      - extra-cmake-modules
+      # Required by the core libraries, Stage and Sheets.
+      - libboost-dev
+      - libeigen3-dev     # Sheets is dropped without Eigen3
+      - zlib1g-dev
+      - libssl-dev        # find_package(OpenSSL REQUIRED)
+      - libfontconfig-dev # exact font metrics
+      - libfreetype-dev
+      # Optional features that are built: colour management, EXR images,
+      # encrypted documents, the keyring, the GSL solver and charts.
+      - liblcms2-dev
+      - libimath-dev
+      - libqca-qt6-dev
+      - qtkeychain-qt6-dev
+      - libgsl-dev
+      - libkchart-dev
+      # Import/export filters. libwpg is required by the WordPerfect filter,
+      # libwps by the Works filter, libetonyek by the Keynote filter; the
+      # others back the OpenDocument export filters.
+      - librevenge-dev
+      - libodfgen-dev
+      - libwpd-dev
+      - libwpg-dev
+      - libwps-dev
+      - libetonyek-dev
+      # Qt 6.10.2. Qt Quick and QuickControls2 are found unconditionally by
+      # the top-level CMakeLists, hence qt6-declarative-dev.
+      - qt6-base-dev
+      - qt6-declarative-dev
+      - qt6-svg-dev
+      # KDE Frameworks 6.24.0 development files for the components that
+      # CMakeLists.txt requires.
+      - libkf6archive-dev
+      - libkf6completion-dev
+      - libkf6config-dev
+      - libkf6configwidgets-dev
+      - libkf6coreaddons-dev
+      - libkf6crash-dev
+      - libkf6dbusaddons-dev
+      - libkf6guiaddons-dev
+      - libkf6i18n-dev
+      - libkf6iconthemes-dev
+      - libkf6itemviews-dev
+      - libkf6jobwidgets-dev
+      - libkf6kcmutils-dev
+      - libkf6kio-dev
+      - libkf6notifications-dev
+      - libkf6notifyconfig-dev
+      - libkf6sonnet-dev
+      - libkf6textwidgets-dev
+      - libkf6widgetsaddons-dev
+      - libkf6windowsystem-dev
+      - libkf6xmlgui-dev
+      # The SharedMimeInfo CMake config and update-mime-database, which
+      # registers the svm and wiki MIME definitions installed by Calligra.
+      - shared-mime-info
+    override-pull: |
+      craftctl default
+      # Do not build the Kirigami/QML start centre; see the patch header.
+      patch -p1 --batch < "$CRAFT_PROJECT_DIR/patches/0001-skip-the-calligra-launcher.patch"
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in prefix is /usr, which inside the snap is the core26
+      # base. A qt.conf next to the binaries relocates Qt's data, plugin and
+      # translation paths into the staged tree. Prefix is relative to usr/bin,
+      # so Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/qt6/translations
+      EOF
+    prime:
+      - -usr/include
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # File-manager integration is built by the FILEMANAGER product in the
+      # application sets, but the host's Dolphin/KIO cannot load a thumbnailer
+      # or properties page from inside the snap, and the host's "Create new"
+      # menu is outside the sandbox.
+      - -usr/share/kio/servicemenus
+      - -usr/share/templates
+      - -usr/lib/*/qt6/plugins/kf6/thumbcreator
+      - -usr/lib/*/qt6/plugins/kf6/propertiesdialog
+      # Translations for applications and plugins that are not shipped.
+      - -usr/share/locale/*/LC_MESSAGES/braindump.mo
+      - -usr/share/locale/*/LC_MESSAGES/karbon.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligralauncher.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligra_semanticitem_*.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligra_shape_comment.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligra_shape_template.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligra_shape_threed.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligra_shape_video.mo
+      - -usr/share/locale/*/LC_MESSAGES/calligra_shape_webshape.mo
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out packages already in the base's chisel manifest, so the
+    # base's libc, libstdc++, OpenSSL, zlib, GLib and X11 core libraries are
+    # not duplicated here.
+    after: [calligra]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive. libqt6gui6 also ships the xcb,
+      # minimal and offscreen platform plugins; the Wayland plugin comes from
+      # libqt6waylandclient6 below.
+      - libqt6core6t64
+      - libqt6gui6
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6dbus6
+      - libqt6printsupport6
+      - libqt6svg6
+      - libqt6xml6
+      - libqt6sql6
+      - libqt6sql6-sqlite  # Sheets' SQLite data source
+      - libqt6opengl6      # Stage's OpenGL page effects
+      - libqt6waylandclient6      # libqwayland platform plugin
+      - libqt6wlshellintegration6 # xdg-shell and friends
+      - qt6-image-formats-plugins # JPEG, TIFF and WebP through QImage
+      - qt6-svg-plugins           # SVG image and icon engine plugins
+      - qt6-translations-l10n     # Qt's own dialog translations
+      # KDE Frameworks 6.24.0. The list mirrors what Calligra links directly;
+      # apt pulls the rest of the KF6 dependencies (bookmarks, service,
+      # solid, wallet, kded, ...) transitively.
+      - libkf6archive6
+      - libkf6colorscheme6
+      - libkf6completion6
+      - libkf6configcore6
+      - libkf6configgui6
+      - libkf6configwidgets6
+      - libkf6coreaddons6
+      - libkf6crash6
+      - libkf6dbusaddons6
+      - libkf6guiaddons6
+      - libkf6i18n6
+      - libkf6iconthemes6
+      - libkf6iconwidgets6
+      - libkf6itemviews6
+      - libkf6jobwidgets6
+      - libkf6kcmutils6
+      - libkf6kiocore6
+      - libkf6kiogui6
+      - libkf6kiowidgets6
+      - libkf6kiofilewidgets6
+      - libkf6notifications6
+      - libkf6notifyconfig6
+      - libkf6sonnetcore6
+      - libkf6sonnetui6
+      - libkf6textwidgets6
+      - libkf6widgetsaddons6
+      - libkf6windowsystem6
+      - libkf6xmlgui6
+      # kioworker and the http, https, webdav, ftp and file worker plugins.
+      # Local documents do not need them; remote KIO URLs do.
+      - kio6
+      # kbuildsycoca6 maintains the KService database used by the KDE service
+      # lookups. kio6 already depends on it; it is listed explicitly because
+      # the cache is built on first start inside the private home.
+      - libkf6service-bin
+      # Sonnet's Hunspell backend and the only dictionary that is shipped.
+      - sonnet6-plugins
+      - libhunspell-1.7-0
+      - hunspell-en-us
+      # KChart for the chart shape; Imath for EXR images; lcms2 for colour
+      # management.
+      - libkchart6-3
+      - libimath-3-1-29t64
+      - liblcms2-2
+      # QCA supplies the encrypted-ODF crypto; the plugins include the
+      # OpenSSL provider. QtKeychain stores document passwords.
+      - libqca-qt6-2
+      - libqca-qt6-plugins
+      - libqt6keychain1
+      # The import/export filter libraries.
+      - librevenge-0.0-0
+      - libodfgen-0.1-1
+      - libwpd-0.10-10
+      - libwpg-0.3-3
+      - libwps-0.4-4
+      - libetonyek-0.1-1
+      # The GSL solver plugin in Sheets.
+      - libgsl28
+      # The base has no fontconfig configuration and only the Plymouth font.
+      # The layout above exposes the staged fonts and configuration.
+      - fontconfig
+      - libfontconfig1
+      - libfreetype6
+      - fonts-dejavu-core
+      - fonts-liberation
+      - fonts-crosextra-carlito  # metric-compatible with Arial
+      - fonts-crosextra-caladea  # metric-compatible with Times New Roman
+      - fonts-lyx                # the formula shape's math fonts
+      # Icons for menus, toolbars and the window; the icon theme is selected
+      # by etc/xdg/kdeglobals.
+      - kf6-breeze-icon-theme
+      # QMimeDatabase needs the shared MIME database; the cleanup part builds
+      # mime.cache after the Calligra MIME definitions are in the prime tree.
+      - shared-mime-info
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      # kio6 installs desktop entries and D-Bus service files for its daemons.
+      # snapd does not export D-Bus service files from a snap, and the kiod6
+      # entry is not a Calligra application.
+      - -usr/share/applications
+      - -usr/share/dbus-1/services
+      - -usr/bin/ktrash6
+      - -usr/bin/ktelnetservice6
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty usr/share/X11 and break the layout bind. Fetch
+    # the data packages directly; they contain no binaries.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  cleanup:
+    # The staged Qt, KF6 and library trees contain copies of libraries that
+    # the core26 base already ships (libstdc++, libssl, zlib, ...). Loading
+    # two copies in one process is not safe, so drop every primed shared
+    # library whose path also exists in the base, exactly as the other core26
+    # recipes do. The GNOME/KDE extension's gpu/cleanup part then removes the
+    # Mesa copies left by the Qt stage-packages.
+    after: [local, calligra, runtime, x11-data]
+    plugin: nil
+    build-packages:
+      - shared-mime-info # update-mime-database
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      # shared-mime-info ships only the XML sources in the archive package;
+      # the maintainer script that normally builds mime.cache does not run for
+      # a staged package. Generate the cache here, after every part has been
+      # primed, so it also covers the Calligra MIME definitions.
+      update-mime-database "$CRAFT_PRIME/usr/share/mime"
+
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

@@ -1,0 +1,6 @@
+snap: pgadmin4
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/pgadmin-org/pgadmin4 (REL-9_19)
+imported: '2026-11-17'
