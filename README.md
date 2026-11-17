@@ -5,12 +5,12 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 39 repackage snaps: the 13
-migrated to `core26` in the 2026-11 migration, plus 26 packaging recipes
+one-repository-per-snap setup. It contains 41 repackage snaps: the 13
+migrated to `core26` in the 2026-11 migration, plus 28 packaging recipes
 imported from other `~desktop-snappers` repositories on 2026-11-17.
 
-All 39 are published by Canonical or by Canonical desktop-team members. The
-26 imports still use their original bases (23 `core24`, one `core22`, two
+All 41 are published by Canonical or by Canonical desktop-team members. The
+28 imports still use their original bases (25 `core24`, one `core22`, two
 `core20`) and have not been migrated.
 
 Projects that develop their own source code and keep their snap recipe in
@@ -131,19 +131,19 @@ Recipe provenance, per package, also lives in
 `gnome-logs`, `evince`, `cheese`, `simple-scan`, `gnome-text-editor`,
 `gnome-calendar`, `gedit`, `gnome-clocks`, `thunderbird`.
 
-### Imported 2026-11-17, migration pending (26)
+### Imported 2026-11-17, migration pending (28)
 
 Published by Canonical:
 
-`gnome-boxes`, `shotwell`, `gnome-system-monitor`, `gnome-sudoku`.
+`gnome-boxes`, `shotwell`, `gnome-system-monitor`, `gnome-sudoku`, `loupe`.
 
 Published by Canonical desktop staff:
 
 `epiphany`, `drawing`, `glade`, `gnome-2048`, `gnome-chess`,
-`gnome-font-viewer`, `gnome-klotski`, `gnome-weather`, `gnome-mahjongg`,
-`gnome-mines`, `gnome-nibbles`, `gnome-recipes`, `gnome-robots`,
-`gnome-taquin`, `gnome-tetravex`, `iagno`, `lightsoff`, `swell-foop`,
-`tali`, `five-or-more`, `fractal`, `gnome-terminal`.
+`gnome-font-viewer`, `gnome-hitori`, `gnome-klotski`, `gnome-weather`,
+`gnome-mahjongg`, `gnome-mines`, `gnome-nibbles`, `gnome-recipes`,
+`gnome-robots`, `gnome-taquin`, `gnome-tetravex`, `iagno`, `lightsoff`,
+`swell-foop`, `tali`, `five-or-more`, `fractal`, `gnome-terminal`.
 
 All of them repackage another upstream project: nearly all are GNOME
 applications whose source lives at gitlab.gnome.org; thunderbird is Mozilla
@@ -180,7 +180,7 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 26 imported packages; they still build on their
+- `core26` migration of the 28 imported packages; they still build on their
   original `core24`/`core22`/`core20` bases.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

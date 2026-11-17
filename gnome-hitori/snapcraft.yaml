@@ -1,0 +1,53 @@
+name: gnome-hitori
+adopt-info: gnome-hitori
+summary: Play the Hitori puzzle game
+description: |
+  Hitori is a logic game similar to the popular game of Sudoku.
+
+  You play the game against the clock, aiming to eliminate all the duplicate
+  numbers in each row and column in the fastest time.
+  Multiple sizes of game board are supported, and you can place markers on
+  cells to help work out the solution.
+  If you get stuck, the game can give you a hint.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core24
+
+slots:
+  # for GtkApplication registration
+  gnome-hitori:
+    interface: dbus
+    bus: session
+    name: org.gnome.Hitori
+
+layout:
+  /usr/share/help:
+    symlink: $SNAP/usr/share/help
+
+apps:
+  gnome-hitori:
+    command: usr/bin/hitori
+    extensions: [ gnome ]
+    common-id: org.gnome.Hitori
+    desktop: usr/share/applications/org.gnome.Hitori.desktop
+
+parts:
+  gnome-hitori:
+    source: https://gitlab.gnome.org/GNOME/hitori.git
+    source-type: git
+    source-tag: '44.0'
+    source-depth: 1
+# ext:updatesnap
+#   version-format:
+#     lower-than: '46'
+#     no-9x-revisions: true
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Hitori.appdata.xml]
+    meson-parameters:
+      - --prefix=/usr
+    override-build: |
+      sed -i.bak -e 's|=org.gnome.Hitori$|=${SNAP}/meta/gui/org.gnome.Hitori.svg|g' $CRAFT_PART_SRC/data/org.gnome.Hitori.desktop.in
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/scalable/org.gnome.Hitori.svg $CRAFT_PART_INSTALL/meta/gui/

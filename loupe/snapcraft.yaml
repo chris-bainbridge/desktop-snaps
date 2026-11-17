@@ -1,0 +1,107 @@
+name: loupe
+base: core24
+adopt-info: loupe
+grade: stable
+confinement: strict
+compression: lzo
+
+layout:
+  /usr/share/loupe:
+    symlink: $SNAP/usr/share/loupe
+  /usr/libexec/glycin-loaders:
+    bind: $SNAP/usr/libexec/glycin-loaders
+
+parts:
+  heif:
+    source: https://github.com/strukturag/libheif.git
+    source-tag: 'v1.17.6'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -Doptimization=3
+      - -Ddebug=false
+      - -DWITH_EXAMPLES=false
+  glycin-loaders:
+    after: [heif]
+    plugin: meson
+    source: https://gitlab.gnome.org/sophie-h/glycin.git
+    source-tag: '1.0.1'
+# ext:updatesnap
+#   version-format:
+#     ignore: true
+    build-environment:
+      - RUSTUP_HOME: $CRAFT_STAGE/usr/share/rust
+      - CARGO_HOME: $CRAFT_STAGE/usr/share/rust
+      - CARGO_BUILD_JOBS: $CRAFT_PARALLEL_BUILD_COUNT
+    meson-parameters:
+      - --prefix=/usr
+      - -Dloaders=glycin-heif,glycin-image-rs,glycin-svg
+    build-packages:
+      - libclang-18-dev
+    build-snaps:
+      - rustup
+    override-build: |
+      rustup default stable
+      craftctl default
+
+  loupe:
+    after: [heif]
+    plugin: meson
+    source: https://gitlab.gnome.org/GNOME/loupe.git
+    source-tag: '46.2'
+    source-depth: 1
+# ext:updatesnap
+#   version-format:
+#     lower-than: 47.0
+    build-environment:
+      - RUSTUP_HOME: $CRAFT_STAGE/usr/share/rust
+      - CARGO_HOME: $CRAFT_STAGE/usr/share/rust
+      - CARGO_BUILD_JOBS: $CRAFT_PARALLEL_BUILD_COUNT
+    build-packages:
+      - libyaml-dev
+      - libxmlb-dev
+    build-snaps:
+      - rustup
+    meson-parameters:
+      - --prefix=/usr
+      - -Doptimization=3
+      - -Ddisable-glycin-sandbox=true
+    parse-info: [ usr/share/metainfo/org.gnome.Loupe.metainfo.xml ]
+    override-pull: |
+      craftctl default
+      patch -p1 < $CRAFT_PROJECT_DIR/patches/gtk417.patch
+    override-build: |
+      rustup default stable
+      craftctl default
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      - libx265-199
+      - libde265-0
+      - libdav1d7
+      - libaom3
+      - libnuma1
+    prime:
+      - usr/lib/*/lib*265.so.*
+      - usr/lib/*/libdav1d.so.*
+      - usr/lib/*/libaom.so.*
+      - usr/lib/*/libnuma.so.*
+
+slots:
+  loupe:
+    interface: dbus
+    bus: session
+    name: org.gnome.Loupe
+
+apps:
+  loupe:
+    command: usr/bin/loupe
+    desktop: usr/share/applications/org.gnome.Loupe.desktop
+    extensions: [ gnome ]
+    common-id: org.gnome.Loupe
+    plugs:
+      # Required for Next/Previous Image to work
+      - home
+      - removable-media

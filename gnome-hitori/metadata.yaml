@@ -1,0 +1,10 @@
+# Build metadata for gnome-hitori (imported 2026-11-17; core26 migration pending).
+snap: gnome-hitori
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/hitori (snap)
+recipe-commit: 7924e150d81c8e8ba45a86854b4267028e49c6bb
+imported: '2026-11-17'
+store:
+  publisher: Jeremy Bicha (jbicha)
+  verified: false

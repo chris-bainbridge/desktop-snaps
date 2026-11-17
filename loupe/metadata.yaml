@@ -1,0 +1,10 @@
+# Build metadata for loupe (imported 2026-11-17; core26 migration pending).
+snap: loupe
+base: core24
+mode: vendored
+upstream: https://git.launchpad.net/~desktop-snappers/gnome-loupe (stable)
+recipe-commit: 768eed33f1ad3a16cbdf44fa07766a4321dc98e4
+imported: '2026-11-17'
+store:
+  publisher: Canonical
+  verified: true
