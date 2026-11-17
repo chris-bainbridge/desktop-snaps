@@ -1,0 +1,43 @@
+Description: Render SVG rasters without rsvg_handle_get_pixbuf
+ gnome-core26-sdk builds librsvg with -Dpixbuf=disabled, so
+ rsvg_handle_get_pixbuf() is not built into the library. libabiword is linked
+ with -no-undefined, so the build fails against the SDK. Render the SVG into
+ a cairo image surface and convert that with gdk_pixbuf_get_from_surface(),
+ which is available in GDK 3.
+Author: AbiWord snap packaging
+Last-Update: 2026-11-17
+---
+--- a/src/af/gr/gtk/gr_CairoImage.cpp
++++ b/src/af/gr/gtk/gr_CairoImage.cpp
+@@ -26,6 +26,7 @@
+ #include "gr_CairoGraphics.h"
+ 
+ #include <stdlib.h>
++#include <gdk/gdkpixbuf.h>
+ 
+ GR_RSVGVectorImage::GR_RSVGVectorImage(const char* name) 
+ 	: GR_CairoVectorImage(), 
+@@ -170,8 +171,21 @@
+ 	UT_String name;
+ 	getName(name);
+ 	DELETEP(m_rasterImage);
+-	m_rasterImage = new GR_UnixImage(name.c_str(), rsvg_handle_get_pixbuf(m_svg));
+-	m_rasterImage->scale(getDisplayWidth(), getDisplayHeight());
++	// librsvg can be built with -Dpixbuf=disabled (as gnome-core26-sdk does),
++	// in which case rsvg_handle_get_pixbuf() is not available. Render into a
++	// cairo image surface and convert that to a pixbuf instead.
++	cairo_surface_t *raster = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
++	                                                     getDisplayWidth(),
++	                                                     getDisplayHeight());
++	cairo_t *raster_cr = cairo_create(raster);
++	cairo_scale(raster_cr, m_scaleX, m_scaleY);
++	rsvg_handle_render_cairo(m_svg, raster_cr);
++	cairo_destroy(raster_cr);
++	GdkPixbuf *pixbuf = gdk_pixbuf_get_from_surface(raster, 0, 0,
++	                                                getDisplayWidth(),
++	                                                getDisplayHeight());
++	cairo_surface_destroy(raster);
++	m_rasterImage = new GR_UnixImage(name.c_str(), pixbuf);
+ 	cairo_destroy(cr);
+ }
+ 

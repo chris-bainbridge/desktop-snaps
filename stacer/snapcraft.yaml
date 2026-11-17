@@ -1,0 +1,253 @@
+name: stacer
+version: '1.1.0'
+summary: Linux system optimizer and monitoring
+description: |
+  Stacer is a graphical system optimizer and monitor. Its dashboard and
+  resources pages show CPU, memory, disk and network usage, the processes
+  page lists running processes and can signal them, and further pages offer
+  system cleaning, service management, startup applications, package
+  removal, APT source editing, a file search and a hosts-file editor.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. Stacer was written for an unconfined, root-capable desktop,
+  so several of its pages cannot work here:
+
+  - System-wide cleaning needs root. A strictly confined snap cannot elevate
+    privileges (there is no polkit or sudo inside the sandbox), so the System
+    Cleaner cannot inspect or empty the host's APT cache, crash reports or
+    logs; inside the snap those paths belong to the core26 base, not to the
+    host. The Clean action also calls pkexec, which is not available, so no
+    selected file is removed. Only the Trash item is deleted directly, and
+    it refers to the snap's private trash, not the desktop trash.
+  - The home interface hides top-level hidden directories of the real home.
+    Stacer's $HOME is the snap's private ~/snap/stacer/current, so its cache
+    and trash scans cover that private area; ~/.cache and
+    ~/.local/share/Trash of the real home are not visible. The real home is
+    reachable at /home/<user>. The Search page can find and delete files in
+    visible home paths, but files it moves to the trash go to the snap's
+    private trash.
+  - The Uninstaller cannot see or remove host packages: apt and dpkg are
+    not in the base, and the snap CLI cannot reach the host's snapd. Package
+    caches found by the cleaner are likewise the base's.
+  - The Services page cannot reach the host's systemd. systemctl is present
+    in the base, but the host's system bus and private socket are not
+    exposed to a strict snap, and the base's unit files are not the host's.
+    Enabling or starting a service is not possible.
+  - The Hosts and APT Sources pages read and write the base's /etc, not the
+    host's /etc/hosts, /etc/apt/sources.list and /etc/apt/sources.list.d.
+    The host files are not visible and cannot be edited.
+  - Startup Apps reads and writes the snap's private
+    ~/snap/stacer/current/.config/autostart, which the desktop session does
+    not read; the real ~/.config/autostart is hidden by the home interface.
+  - Monitoring the whole system needs the privileged interfaces that are not
+    connected automatically:
+      sudo snap connect stacer:system-observe
+      sudo snap connect stacer:hardware-observe
+      sudo snap connect stacer:mount-observe
+      sudo snap connect stacer:process-control
+    Without them the process list lacks command lines and detailed
+    per-process data, disk and network counters and parts of the CPU
+    information are missing, no filesystems are listed, and Stacer cannot
+    signal other processes.
+  - With mount-observe, the disk readout covers the mounts visible in the
+    snap's namespace: the read-only core26 base (the default root volume),
+    the snap itself and the user's home. Host filesystems that are not
+    mounted into the snap, such as /var or /boot, are never listed. Select
+    the home filesystem in Settings to see the writable storage.
+  - Settings, the log file and the language choice are stored under
+    ~/snap/stacer/current and are not shared with a distribution package.
+  - The system information panel reports the core26 base (Ubuntu Core 26)
+    for the distribution, because /etc/os-release is the base's file; the
+    kernel version is the host's.
+  - The update check and the feedback dialog call curl, which is not bundled,
+    so they are unavailable (upstream made no release after 1.1.0).
+  - The tray icon uses the XEmbed protocol and is not shown by GNOME Shell.
+  - Qt 5 is staged from the 26.04 archive. Host Qt/KDE themes are not
+    visible; Stacer's own theme and the built-in Fusion style are used.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Stacer is built from the pinned upstream source
+# and everything else is staged from the 26.04 archive; no prebuilt Stacer
+# binaries are embedded.
+#
+# Qt approach: stage Qt 5 from the 26.04 archive.
+#   * Stacer 1.1.0 is a Qt 5 application (Core, Gui, Widgets, Network,
+#     Charts, Svg and Concurrent) built with CMake. Upstream was abandoned in
+#     2023 and there is no Qt 6 port.
+#   * snapcraft 9.2.1 ships kde-neon (Qt 5), kde-neon-6 and kde-neon-qt6, but
+#     all three declare support for core22 and core24 only, so none of them
+#     can be used on core26.
+#   * KDE's core26 content snaps (kde-qt6-core26 and kf6-core26) are Qt 6
+#     only and have no snapcraft extension; they cannot provide Qt 5.
+#   * The 26.04 archive carries Qt 5.15.18, built for the same Ubuntu release
+#     as the core26 base. Qt is therefore staged and a qt.conf next to the
+#     binary relocates its plugin and translation paths into the snap. Only
+#     the Qt modules Stacer links are staged; no KDE Frameworks are needed.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libGL/libEGL and the DRI drivers that Qt's xcb and
+# Wayland platform plugins link against, and its cleanup part removes the Mesa
+# copies that the Qt stage-packages would otherwise leave in the snap.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-only
+website: https://github.com/oguzhaninan/Stacer
+source-code: https://github.com/oguzhaninan/Stacer
+issues: https://github.com/oguzhaninan/Stacer/issues
+
+icon: snap/local/stacer.png
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig configuration, fonts, keyboard data and X11 locale
+# data have to appear at the absolute paths their libraries were built with;
+# /usr and /etc inside the snap are the core26 base. All three bind targets
+# already exist in the base; the binds replace their contents with the
+# staged copies.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+
+apps:
+  stacer:
+    extensions: [gpu]
+    command: usr/bin/stacer
+    desktop: usr/share/applications/stacer.desktop
+    common-id: stacer.desktop
+    environment:
+      # Qt 5 defaults to xcb. Try the staged Wayland plugin first and fall
+      # back to X11/XWayland when no compositor socket is available.
+      QT_QPA_PLATFORM: "wayland;xcb"
+    plugs:
+      - desktop        # desktop integration and snapctl user-open
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - hardware-observe # /sys/block and /sys/class/net counters; not automatic
+      - home           # Search and file operations in the user's home
+      - mount-observe  # QStorageInfo reads /proc/self/mountinfo; not automatic
+      - opengl         # /dev/dri access for the mesa-2604 content snap
+      - process-control # signalling the user's other processes; not automatic
+      - system-observe # ps command lines and process details; not automatic
+      - wayland        # native Wayland session
+      - x11            # X11 session, and XWayland on Wayland desktops
+
+parts:
+  stacer:
+    # 1.1.0 is the last upstream tag (2019); the repository was abandoned in
+    # 2023 with no further release. The tag pins exactly this source.
+    source: https://github.com/oguzhaninan/Stacer.git
+    source-type: git
+    source-tag: 'v1.1.0'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # The upstream CMakeLists asks for cmake_minimum_required(3.1), which
+      # CMake 4 in the core26 build environment rejects. The project only
+      # uses features available in 3.5.
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+    build-packages:
+      # The cmake plugin provides cmake and gcc but not make or a C++
+      # compiler.
+      - build-essential
+      # Qt 5.15 development files. Qt5LinguistTools (and therefore the
+      # unconditional qt5_create_translation call) comes from qttools5-dev;
+      # lupdate and lrelease come from qttools5-dev-tools.
+      - qtbase5-dev
+      - libqt5charts5-dev
+      - libqt5svg5-dev
+      - qttools5-dev
+      - qttools5-dev-tools
+    override-build: |
+      # Upstream forgets the ${} around the translation list variable, so the
+      # call passes the literal name "stacer_translations" instead of the .ts
+      # files and no .qm catalog is ever built, although the application
+      # expects stacer_<language>.qm next to the binary. Fix the expansion so
+      # the Settings language selector has an effect.
+      sed -i \
+        's|qt5_create_translation(QM_FILES  ${PROJECT_NAME}_translations|qt5_create_translation(QM_FILES  ${${PROJECT_NAME}_translations}|' \
+        "$CRAFT_PART_SRC/stacer/CMakeLists.txt"
+
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates the plugin and
+      # translation paths to the staged tree. Prefix is relative to usr/bin.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt5/plugins
+      Translations = share/qt5/translations
+      EOF
+
+      # The application loads stacer_<language>.qm from
+      # <applicationDirPath>/translations, so install the catalogs there.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/bin/translations"
+      cp "$CRAFT_PART_BUILD"/stacer/*.qm \
+        "$CRAFT_PART_INSTALL/usr/bin/translations/"
+
+  lscpu:
+    # Stacer runs lscpu for the CPU model and clock fields. The core26 base
+    # ships /usr/bin/lscpu, but snapd's default AppArmor policy does not allow
+    # executing it, whereas binaries inside the snap are executable. Stage a
+    # copy under $SNAP/usr/bin; libsmartcols comes from the base.
+    plugin: nil
+    stage-packages:
+      - util-linux
+    stage:
+      - usr/bin/lscpu
+
+  runtime:
+    # Stage the Qt 5 runtime and the data the core26 base lacks. craft-parts
+    # filters out packages already in the base's chisel manifest, so the
+    # base's libc, libstdc++, GLib, OpenSSL and libxkbcommon are not
+    # duplicated here. The cleanup part below removes the remaining
+    # duplicates pulled in as dependencies of Qt.
+    after: [stacer]
+    plugin: nil
+    stage-packages:
+      # Qt 5.15.18 from the 26.04 archive.
+      - libqt5core5t64
+      - libqt5gui5t64 # also ships the xcb, minimal and offscreen plugins
+      - libqt5widgets5t64
+      - libqt5network5t64
+      - libqt5concurrent5t64
+      - libqt5charts5
+      - libqt5svg5  # Qt5Svg plus the svg image and icon-engine plugins
+      # Qt 5 has no Wayland platform plugin in qtbase; qtwayland5 supplies
+      # it and libqt5waylandclient5 for the native Wayland session.
+      - qtwayland5
+      # Translations for Qt's own dialogs (file chooser, message boxes).
+      - qttranslations5-l10n
+      # The base has only the Plymouth font and no fontconfig configuration.
+      # fontconfig also provides /etc/fonts/fonts.conf, exposed by the layout
+      # above.
+      - fontconfig
+      - fonts-dejavu-core
+      # libxkbcommon needs the keyboard layout database and libX11 its locale
+      # data, both of which the base lacks under /usr/share/X11.
+      - xkb-data
+      - libx11-data
+
+  cleanup:
+    # The staged Qt dependency tree contains copies of libraries that the
+    # core26 base already ships (GLib, OpenSSL, libstdc++, freetype, ...).
+    # Loading two copies in one process is not safe, so drop every primed
+    # shared library whose path also exists in the base, exactly as the other
+    # core26 recipes do.
+    after: [stacer, lscpu, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

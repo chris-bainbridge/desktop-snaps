@@ -1,0 +1,254 @@
+name: abiword
+version: '3.0.8'
+summary: Efficient, full-featured word processor
+description: |
+  AbiWord is a word processor with tables, styles, images, charts, spell
+  checking, mail merge and LaTeX equations. It reads and writes its native
+  .abw format as well as .doc, .docx, .odt, .rtf, .html, .wpd, .wps, .wpg,
+  LaTeX, ePub and a large set of legacy formats.
+
+  This snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has consequences:
+
+  - Files can be opened and saved under the user's home directory and, with
+    the removable-media interface connected, on removable drives. System
+    locations such as /srv or /opt and other applications' private data are
+    not visible. The GTK file dialog can also use the desktop document portal
+    where the desktop provides it.
+  - Configuration and preferences live in the snap's private per-user area
+    (~/snap/abiword/...) instead of ~/.config/AbiSuite or ~/.AbiSuite. They
+    are not shared with, and not imported from, a distribution-packaged
+    AbiWord.
+  - Only the fonts shipped by the gnome-core26 content snap (DejaVu and Noto)
+    are available. Fonts installed on the host are not visible, so documents
+    using other fonts are displayed with a substitute.
+  - Spell checking uses enchant 2 and the en_US Hunspell dictionary from
+    gnome-core26. Other dictionaries are not visible. The link-grammar
+    grammar checker and the Aiksaurus thesaurus are not built.
+  - There is no network interface: the Wikipedia, Google, dictionary-lookup
+    and collaboration plugins are not built, and remote gvfs locations (SMB,
+    SFTP, WebDAV) cannot be opened because gvfs is not shipped.
+  - Printing to a physical printer is not available because the cups-control
+    interface is deliberately not requested; File > Print > Print to File
+    (PDF or PostScript) works.
+  - Semantic-web features are disabled: RDF metadata, and the calendar,
+    Evolution address book and map integrations, need redland, libical,
+    Evolution Data Server and libchamplain, which are not staged.
+  - The PDF import and GIMP export plugins are not built because they launch
+    pdftoppm and gimp, and WMF image import is left out because libwmf needs a
+    15 MB Type1 font set at a compiled-in path for a legacy format.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://gitlab.gnome.org/World/AbiWord
+source-code: https://gitlab.gnome.org/World/AbiWord
+issues: https://gitlab.gnome.org/World/AbiWord/-/issues
+
+icon: snap/local/abiword.png
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # libots loads its summariser dictionaries from a compiled-in
+  # /usr/share/ots and has no environment override. Point that at the copy
+  # staged inside the snap.
+  /usr/share/ots:
+    symlink: $SNAP/usr/share/ots
+
+apps:
+  abiword:
+    extensions: [gnome]
+    command: usr/bin/abiword
+    desktop: usr/share/applications/com.abisource.AbiWord.desktop
+    common-id: com.abisource.AbiWord.desktop
+    plugs:
+      # GTK stores its settings through GSettings/dconf
+      - gsettings
+      # open and save documents in the user's home directory
+      - home
+      # documents and images on USB sticks / SD cards
+      - removable-media
+
+parts:
+  goffice:
+    # AbiWord embeds charts through libgoffice. gnome-core26 does not ship
+    # goffice, and the library has no environment override for its plugin
+    # directory (it is compiled in as $libdir/goffice/0.10.62/plugins), so
+    # build the matching release with the snap's runtime prefix, as the
+    # gnumeric recipe does. The tarball is generated from the upstream tag
+    # GOFFICE_0_10_62.
+    source: https://download.gnome.org/sources/goffice/0.10/goffice-0.10.62.tar.xz
+    source-checksum: sha256/500eaff50628faa75adb3cd560236a4db498d9e7c52c036b78fa9a57f21805b3
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/snap/abiword/current/usr
+      - --disable-static
+      - --disable-introspection
+      - --disable-gtk-doc
+      # lasem (EMF/WMF vector import) is not packaged in 26.04; librsvg, which
+      # gnome-core26 provides, is used for SVG instead.
+      - --with-lasem=no
+    organize:
+      snap/abiword/current/usr: usr
+    build-packages:
+      # GTK3, GLib, libxml2, librsvg, fribidi and zlib development files come
+      # from the gnome-core26-sdk build snap. These three are not part of it.
+      - intltool
+      - libgsf-1-dev
+      - libxslt1-dev
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*.la
+      - -usr/lib/goffice/**/*.la
+      - -usr/lib/goffice/**/*.a
+      - -usr/share/doc
+      - -usr/share/gtk-doc
+
+  abiword:
+    after: [goffice]
+    # SourceForge's abiword project stopped publishing source releases after
+    # the 2.x series (its newest file is abiword-sdk 2.1.0 from 2004) and the
+    # old abisource.com download site no longer resolves. Since the move to
+    # GNOME, the official source is the GitLab repository, and the official
+    # release artifact is the archive generated from the signed release-3.0.8
+    # tag; Debian watches the same URL. Upstream development is sporadic and
+    # the project is largely unmaintained: 3.0.8 (2026-02-17) is the newest
+    # tag, and Ubuntu 26.04 packages the same release.
+    source: https://gitlab.gnome.org/World/AbiWord/-/archive/release-3.0.8/AbiWord-release-3.0.8.tar.gz
+    source-checksum: sha256/7c490e46f0a6143f84d5c7e3fed246f34486ad70cd55f162c792827607cd7e9a
+    plugin: autotools
+    autotools-configure-parameters:
+      # AbiWord compiles its data and plugin directories into the binary and
+      # only honours ABIWORD_DATADIR for the former, so use the runtime mount
+      # path; organize moves the tree back under usr/ in the snap.
+      - --prefix=/snap/abiword/current/usr
+      - --enable-shared
+      - --disable-static
+      - --with-gio
+      # Charts: link against the goffice built in the part above.
+      - --with-goffice
+      # Clean up multipart HTML before importing it.
+      - --with-libtidy
+      # RDF metadata, calendar, Evolution address book and map integration
+      # need libraries that are neither in gnome-core26 nor staged here.
+      - --without-redland
+      - --without-evolution-data-server
+      - --without-libical
+      - --without-champlain
+      - --disable-introspection
+      # A curated plugin set. The collaboration plugin needs the obsolete
+      # libsoup 2 stack and a dead service; aiksaurus, grammar, gda, mathview
+      # and psion need libraries that are not packaged or not worth the
+      # dependency; gdict, pdf and gimp launch external programs; wmf needs
+      # the URW Type1 fonts at a compiled-in path, a 15 MB addition for a
+      # legacy image format; the network tools are useless without the
+      # network interface.
+      - --enable-plugins="applix bmp clarisworks docbook eml epub garble hancom hrtext iscii kword latex loadbindings mht mif mswrite opendocument openwriter openxml opml ots paint passepartout pdb presentation s5 sdw t602 wml wordperfect wpg xslfo goffice"
+    organize:
+      snap/abiword/current/usr: usr
+    build-environment:
+      # Build against the staged goffice, not any host copy. The staged .pc is
+      # rewritten in override-build below; the resulting library keeps the
+      # /snap/abiword/current/usr prefix it needs at runtime.
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig:$CRAFT_STAGE/usr/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    build-packages:
+      # GTK3, GLib, cairo, librsvg, libxml2, enchant-2, libgcrypt, libjpeg,
+      # libpng, zlib, X11 and the base build tools come from the
+      # gnome-core26-sdk build snap. These are the dependencies it lacks.
+      - autoconf-archive # AX_CXX_COMPILE_STDCXX_11, AX_CHECK_COMPILE_FLAG
+      - bison
+      - flex
+      - libboost-dev # AX_BOOST_BASE; boost headers are a hard build dependency
+      - libgsf-1-dev
+      - libots-dev
+      - libtidy-dev
+      - libwpd-dev
+      - libwpg-dev
+      - libwps-dev
+      - libwv-dev
+      - libxslt1-dev
+      - patch
+    override-pull: |
+      craftctl default
+      # libgcrypt >= 1.11 no longer ships libgcrypt-config, which the bundled
+      # copy of libgcrypt.m4 requires. Delete it so autoreconf picks up the
+      # libgcrypt 1.12 macro from the SDK, as Debian does.
+      rm -f libgcrypt.m4
+      for patch_file in "$CRAFT_PROJECT_DIR"/patches/*.patch; do
+        patch -p1 --batch < "$patch_file"
+      done
+    override-build: |
+      # The staged goffice .pc points at the runtime prefix
+      # (/snap/abiword/current/usr). Point its prefix at the staging area for
+      # the duration of the build; the library itself keeps the runtime prefix
+      # in its compiled-in constants.
+      sed -i "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+        "$CRAFT_STAGE/usr/lib/pkgconfig/libgoffice-0.10.pc"
+      craftctl default
+      # Upstream installs the desktop file and AppStream data under names that
+      # disagree with the component ID used by the AppStream file. Rename them
+      # to the reverse-DNS ID so that desktop and AppStream metadata match.
+      appdir="$CRAFT_PART_INSTALL/snap/abiword/current/usr/share"
+      mv "$appdir/applications/abiword.desktop" \
+        "$appdir/applications/com.abisource.AbiWord.desktop"
+      mkdir -p "$appdir/metainfo"
+      mv "$appdir/appdata/abiword.appdata.xml" \
+        "$appdir/metainfo/com.abisource.AbiWord.appdata.xml"
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*.la
+      - -usr/lib/abiword-3.0/plugins/*.la
+      - -usr/lib/*.a
+      - -usr/lib/abiword-3.0/**/*.a
+      - -usr/share/doc
+
+  libraries:
+    after: [abiword]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships GTK3, GLib, cairo, pango, librsvg and the
+      # spell-check stack, but none of the libraries below. Stage them from
+      # the 26.04 archive; the gnome extension's cleanup part removes the
+      # dependency copies that the base or content snap already provides.
+      - libgsf-1-114
+      - libots0
+      - libtidy58
+      - libwpd-0.10-10
+      - libwpg-0.3-3
+      - libwps-0.4-4
+      - librevenge-0.0-0
+      - libwv-1.2-4t64
+      # libgsf, libwv and libots need libxml2. gnome-core26 does not ship it
+      # but the SDK does, and both gnome/cleanup and the gpu extension's
+      # cleanup remove it from the multiarch path in the prime tree, so stage
+      # it and move it out of that path layout below.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every staged *.so that also exists in
+      # gnome-core26-sdk, and the gpu cleanup removes the copy under the
+      # multiarch directory too, but the gnome-core26 content snap does not
+      # ship libxml2. Keep it outside those path layouts; the core26 base puts
+      # $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* \
+        $CRAFT_PART_INSTALL/usr/lib/
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*.la
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian

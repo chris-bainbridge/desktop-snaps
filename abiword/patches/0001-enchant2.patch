@@ -1,0 +1,54 @@
+From: Laurent Bigonville <bigon@debian.org>
+Date: Sun, 5 Jun 2020 00:00:00 +0200
+Subject: Build against enchant-2
+
+Upstream still looks for the enchant 1.x pkg-config name and calls four
+functions that enchant 2 renamed or removed. gnome-core26 ships enchant 2, so
+apply Debian's patch to build the spell checker against it.
+
+Bug-Debian: https://bugs.debian.org/956710
+---
+ configure.ac                      | 2 +-
+ src/af/xap/xp/enchant_checker.cpp | 8 ++++----
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -94,7 +94,7 @@
+ "
+ 
+ # optional deps
+-enchant_req='enchant >= 1.2.0'
++enchant_req='enchant-2 >= 1.2.0'
+ gio_req='gio-2.0'
+ goffice_req='libgoffice-0.10 >= 0.10.0'
+ 
+--- a/src/af/xap/xp/enchant_checker.cpp
++++ b/src/af/xap/xp/enchant_checker.cpp
+@@ -127,7 +127,7 @@
+ 				pvSugg->addItem (ucszSugg);
+ 		}
+ 
+-		enchant_dict_free_suggestions (m_dict, suggestions);
++		enchant_dict_free_string_list (m_dict, suggestions);
+ 	}
+ 
+ 	return pvSugg;
+@@ -139,7 +139,7 @@
+ 
+ 	if (word && len) {
+ 		UT_UTF8String utf8 (word, len);
+-		enchant_dict_add_to_personal (m_dict, utf8.utf8_str(), utf8.byteLength());
++		enchant_dict_add (m_dict, utf8.utf8_str(), utf8.byteLength());
+ 		return true;
+ 	}
+ 	return false;
+@@ -150,7 +150,7 @@
+ 	UT_return_val_if_fail (m_dict, false);
+ 
+ 	UT_UTF8String ignore (toCorrect, toCorrectLen);
+-	return enchant_dict_is_in_session (m_dict, ignore.utf8_str(), ignore.byteLength()) != 0;
++	return enchant_dict_is_added (m_dict, ignore.utf8_str(), ignore.byteLength()) != 0;
+ }
+ 
+ void EnchantChecker::ignoreWord (const UT_UCSChar *toCorrect, size_t toCorrectLen)

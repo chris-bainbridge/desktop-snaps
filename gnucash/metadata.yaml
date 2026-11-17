@@ -1,0 +1,6 @@
+snap: gnucash
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/Gnucash/gnucash (5.17)
+imported: '2026-11-17'

@@ -1,0 +1,164 @@
+name: resources
+version: '1.10.2'
+summary: Monitor system resources, processes and hardware
+description: |
+  Resources shows live usage of the CPU, memory, GPUs, NPUs, network
+  interfaces, block devices and batteries, lists the running graphical
+  applications and processes, and can stop, kill, renice or re-pin them.
+
+  The snap is strictly confined, as required by Core Desktop, which has no
+  classic snaps. system-observe, hardware-observe and process-control are
+  not auto-connected; connect them manually, otherwise most readings stay
+  empty and processes owned by other users cannot be controlled:
+    snap connect resources:system-observe
+    snap connect resources:hardware-observe
+    snap connect resources:process-control
+
+  Strict-confinement limitations:
+   * Upstream escalates to pkexec for actions the user may not perform
+     (killing or renicing root's and other users' processes, reading DIMM
+     details through dmidecode, and adjusting processes that need
+     CAP_SYS_NICE). A snap cannot ship a polkit-authenticated helper, and
+     the host's /usr/bin/pkexec is not on the snap's PATH, so those actions
+     fail with "No such file or directory". The polkit action file upstream
+     installs is not shipped: the host's polkit never reads the snap's
+     private /usr/share/polkit-1. Killing and renicing the user's own
+     processes works through the resources-kill and resources-adjust
+     helpers in $SNAP/usr/libexec/resources.
+   * Memory-module (DIMM) details on bare metal are unavailable:
+     dmidecode is not shipped, /sys/firmware/dmi/tables/DMI is mode 0400
+     (hardware-observe satisfies AppArmor, not the file mode) and the pkexec
+     escalation upstream uses for dmidecode has nothing to run. On virtual
+     machines the udevadm path still reports the virtual DIMMs.
+   * NVIDIA GPUs are listed from PCI and sysfs, but their utilisation,
+     VRAM, clocks and temperature readings come from NVML
+     (libnvidia-ml.so.1), which lives in the host's /usr/lib and cannot be
+     loaded by a strictly confined snap. AMD and Intel GPUs use sysfs/hwmon
+     and work with hardware-observe.
+   * Wi-Fi SSID, generation and rate need nl80211 over netlink (granted by
+     hardware-observe); wired link data comes from sysfs.
+   * Applications are detected from the .desktop files reachable inside the
+     snap. Other snaps' exported desktop files are visible through
+     /var/lib/snapd/desktop, but the host's /usr/share/applications is not,
+     so host-installed applications appear as plain processes.
+   * /etc/os-release is the core26 base's file, so the OS name reads
+     "Ubuntu Core 26" instead of the host distribution; the kernel version
+     still comes from /proc/sys/kernel/osrelease.
+   * Settings are the host user's dconf settings: the gnome extension's
+     desktop-launch links the snap's dconf database to ~/.config/dconf/user,
+     and the gsettings interface allows the access, so the snap and host
+     GNOME applications see the same values.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://apps.gnome.org/app/net.nokyan.Resources/
+source-code: https://github.com/nokyan/resources
+issues: https://github.com/nokyan/resources/issues
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Resources reads the pci.ids database and the amdgpu.ids name table from
+  # these absolute paths (src/utils/pci.rs, src/utils/gpu/amd.rs). Neither is
+  # in gnome-core26, so the staged copies are mounted where it looks.
+  /usr/share/hwdata:
+    bind: $SNAP/usr/share/hwdata
+  /usr/share/libdrm:
+    bind: $SNAP/usr/share/libdrm
+
+slots:
+  # for GtkApplication registration: the single-instance GtkApplication
+  # registers net.nokyan.Resources (upstream does not install a D-Bus
+  # activation service file)
+  resources:
+    interface: dbus
+    bus: session
+    name: net.nokyan.Resources
+
+apps:
+  resources:
+    extensions: [gnome]
+    command: usr/bin/resources
+    desktop: usr/share/applications/net.nokyan.Resources.desktop
+    common-id: net.nokyan.Resources
+    plugs:
+      # the snap's net.nokyan.Resources GSettings schema
+      - gsettings
+      # /sys/class/{hwmon,thermal,drm,power_supply,net}, /sys/block,
+      # /sys/bus/pci and the nl80211 netlink socket for Wi-Fi details
+      - hardware-observe
+      # /proc counters plus per-process data for processes the app does not
+      # own (cmdline, stat, status, io, fdinfo, cgroup, exe)
+      - system-observe
+      # signals, nice values and CPU affinity for the user's own processes
+      - process-control
+
+# Resources 1.10.2 is a Rust + GTK4/libadwaita application written against
+# Rust 1.85 (edition 2024). Its Meson build drives cargo itself: src/meson.build
+# runs `cargo build` on the upstream Cargo.lock. The Meson default profile is
+# "development", which switches the app ID to net.nokyan.Resources.Devel and
+# builds a debug binary, so -Dprofile=default is required.
+#
+# cargo and rustc are not part of gnome-core26-sdk; the 26.04 archive has
+# rustc/cargo 1.93.1, which satisfies the MSRV. Everything else (GTK 4.24,
+# libadwaita 1.10, cairo, pkg-config, meson, ninja, gcc, gettext) comes from
+# the gnome-core26 SDK/content snaps, so no libraries need to be staged.
+# Cargo downloads the crates pinned in Cargo.lock from crates.io during the
+# build; nothing is vendored in this repository.
+#
+# The prefix is the runtime mount path, not /usr: the paths compiled into the
+# binary point at PKGDATADIR (resources.gresource), LIBEXECDIR (the
+# resources-processes companion, which the app spawns, plus resources-kill and
+# resources-adjust) and LOCALEDIR. A /usr prefix would resolve to the core26
+# base instead of the snap; organize moves the installed tree back under usr/.
+parts:
+  resources:
+    source: https://github.com/nokyan/resources.git
+    source-type: git
+    source-tag: 'v1.10.2'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/resources/current/usr
+      - --buildtype=release
+      - -Dprofile=default
+    organize:
+      snap/resources/current/usr: usr
+    build-packages:
+      - cargo
+    override-pull: |
+      craftctl default
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/net.nokyan.Resources.svg|' \
+        data/net.nokyan.Resources.desktop.in.in
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/net.nokyan.Resources.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/net.nokyan.Resources.svg"
+    prime:
+      # The polkit action is inert under strict confinement (see the
+      # confinement notes above); do not ship a policy the host cannot use.
+      - -usr/share/polkit-1
+
+  device-ids:
+    # gnome-core26 ships neither pci.ids nor amdgpu.ids. Without them the PCI
+    # and AMD GPU pages show numeric IDs instead of device names.
+    after: [resources]
+    plugin: nil
+    stage-packages:
+      - pci.ids       # /usr/share/misc/pci.ids, read through the layout above
+      - libdrm-common # /usr/share/libdrm/amdgpu.ids
+    override-build: |
+      craftctl default
+      # Ubuntu's pci.ids package installs the database at /usr/share/misc,
+      # while Resources opens /usr/share/hwdata/pci.ids (the hwdata path).
+      install -D -m 0644 "$CRAFT_PART_INSTALL/usr/share/misc/pci.ids" \
+        "$CRAFT_PART_INSTALL/usr/share/hwdata/pci.ids"
+    prime:
+      - usr/share/hwdata/pci.ids
+      - usr/share/libdrm/amdgpu.ids

@@ -1,0 +1,291 @@
+name: gnucash
+version: '5.17'
+summary: Personal and small-business financial-accounting software
+description: |
+  GnuCash is a personal and small-business financial-accounting application.
+  It implements double-entry accounting, keeps running and reconciled
+  balances for multiple accounts, tracks stocks, bonds, mutual funds and
+  multi-currency transactions, and produces reports and graphs. Books can be
+  stored as XML or in SQLite, MySQL or PostgreSQL databases. It imports
+  Quicken QIF, OFX/QFX and CSV files.
+
+  This snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has consequences:
+
+  - Books, exports and backups can be opened and saved in the user's home
+    directory (except hidden top-level entries such as ~/.config or ~/.ssh)
+    and, when the removable-media interface is connected, on USB drives and
+    other removable media. Files in system directories, in other
+    applications' private areas and on network shares (there is no gvfs
+    backend) are not reachable.
+  - Preferences, autosave files and caches live in the snap's private
+    per-user directories (~/snap/gnucash/...), not in ~/.config/gnucash or
+    ~/.local/share/gnucash. An existing distribution-packaged configuration
+    and recently-used list are not imported.
+  - Online banking (HBCI/FinTS, EBICS, OFX Direct Connect) is built in with
+    AqBanking and uses the network interface. AqBanking's configuration is
+    kept in the snap's private area (AQBANKING_HOME) instead of
+    ~/.aqbanking, so existing bank access data must be entered again.
+    Chipcard and smartcard readers are not usable because the pcscd socket
+    is not exposed to the snap; PIN/TAN, EBICS and other network-based
+    methods work.
+  - Price quotes are not available. GnuCash retrieves all quotes through the
+    Perl Finance::Quote distribution and this snap does not bundle a Perl
+    module tree (the host's /usr is not visible inside a strict snap).
+  - SQLite books work out of the box. The MySQL and PostgreSQL libdbi
+    drivers are not bundled, so those backends cannot be used.
+  - Help (F1 / Help > Contents) does not open: gnucash-docs and the yelp
+    viewer are not part of the snap and host programs cannot be started from
+    inside the sandbox.
+  - Printing goes through the CUPS socket (cups-control interface). Direct
+    printer device access is not available.
+  - The Python bindings (python3-gnucash) are not built.
+
+  The snap installs both the graphical application and gnucash-cli.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.gnucash.org/
+source-code: https://github.com/Gnucash/gnucash
+issues: https://bugs.gnucash.org/
+
+platforms:
+  amd64:
+  arm64:
+
+# GnuCash is built with the conventional /usr prefix; inside the snap its
+# libraries, data and GSettings schemas live below $SNAP/usr. AqBanking and
+# Gwenhywfar look up their data and plugin directories through paths compiled
+# into the shared libraries (/usr/share/..., /usr/lib/<triplet>/...), which
+# resolve inside the base rather than in the snap. Bind the staged copies over
+# those paths in the snap's mount namespace. The /44 and /79 plugin
+# directories carry the AqBanking and Gwenhywfar plugin ABIs; bump them if the
+# archive packages move to a new ABI.
+layout:
+  /usr/share/aqbanking:
+    bind: $SNAP/usr/share/aqbanking
+  /usr/share/gwenhywfar:
+    bind: $SNAP/usr/share/gwenhywfar
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/aqbanking:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/aqbanking
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gwenhywfar:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gwenhywfar
+  # GnuCash initialises libdbi with the driver directory it found at build
+  # time (/usr/lib/<triplet>/dbd), falling back to <libdir>/dbd only when that
+  # yields no driver. Bind the staged driver directory so the first lookup
+  # succeeds.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/dbd:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/dbd
+
+apps:
+  gnucash:
+    extensions: [gnome]
+    command: usr/bin/gnucash
+    desktop: usr/share/applications/gnucash.desktop
+    common-id: gnucash.desktop
+    plugs:
+      # GTK theme, fonts, icons and the org.gnucash.GnuCash schemas
+      - gsettings
+      # open and save books in the user's home directory
+      - home
+      # online banking (AqBanking) against the bank's servers
+      - network
+      # books and backups on USB sticks / SD cards
+      - removable-media
+      # reports are printed through the GTK print dialog and the CUPS socket
+      - cups-control
+      # libsecret stores book and database passwords in the host keyring.
+      # The interface is deny-auto-connection; connect it manually with
+      #   snap connect gnucash:password-manager-service
+      # without it, GnuCash still works but always asks for the password.
+      - password-manager-service
+    environment:
+      # snapcraft does not add the staged library directories when the gnome
+      # extension already defines LD_LIBRARY_PATH. $SNAP/usr/lib holds the
+      # relocated libxml2, and GnuCash's own libgnc-*.so modules are only
+      # reachable through the libdir/gnucash directory.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnucash
+      # AqBanking writes its configuration below this directory. Without the
+      # override it would use ~/.aqbanking, which the home interface does not
+      # expose (hidden top-level entries are not accessible).
+      AQBANKING_HOME: $SNAP_USER_DATA/aqbanking
+      # libofx looks for its OFX DTDs under a compiled-in /usr/share path.
+      # Point it at the copy staged inside the snap instead.
+      OFX_DTD_PATH: $SNAP/usr/share/libofx7/libofx/dtd
+
+  gnucash-cli:
+    extensions: [gnome]
+    command: usr/bin/gnucash-cli
+    plugs:
+      - gsettings
+      - home
+      - network
+      - removable-media
+    environment:
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnucash
+      AQBANKING_HOME: $SNAP_USER_DATA/aqbanking
+      OFX_DTD_PATH: $SNAP/usr/share/libofx7/libofx/dtd
+
+parts:
+  gnucash:
+    # Release tarball generated by upstream's "make dist", so it carries the
+    # generated gnucash/gnome/gnucash.appdata.xml.in and
+    # libgnucash/core-utils/gnc-vcs-info.h and does not need git. Upstream
+    # publishes it next to the 5.17 tag (2026-09-27); the checksum was
+    # computed from the released file.
+    source: https://github.com/Gnucash/gnucash/releases/download/5.17/gnucash-5.17.tar.bz2
+    source-checksum: sha256/3d18a88f5b8230f01e04c2d2d73bf95e7dcd3bf8d8cee6ffa54bb24dee58b85f
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      # GnuCash resolves its run-time directories with binreloc relative to
+      # the installation prefix. The default sysconfdir (/etc) is outside
+      # /usr, so the generated "$SYSCONFDIR/gnucash/environment" file, which
+      # carries the GUILE_LOAD_PATH without which GnuCash cannot start, would
+      # be looked up in the read-only base. Keep it under the prefix, which
+      # binreloc maps to $SNAP/usr/etc.
+      - -DCMAKE_INSTALL_SYSCONFDIR=/usr/etc
+      - -DCMAKE_BUILD_TYPE=Release
+      # Online banking and OFX import are both available in the 26.04
+      # archive and are enabled explicitly.
+      - -DWITH_AQBANKING=ON
+      - -DWITH_OFX=ON
+      # SQLite (libdbi) books; the mysql/pgsql drivers are not staged.
+      - -DWITH_SQL=ON
+      # The Python bindings are scripts for the host interpreter and would
+      # need the complete Python runtime inside the snap.
+      - -DWITH_PYTHON=OFF
+    build-packages:
+      # gnome-core26-sdk provides GTK 3, GLib/GIO, cairo, pango, gdk-pixbuf,
+      # WebKitGTK 4.1, libsecret, libxml2, zlib, libltdl, gettext, the C/C++
+      # toolchain and CMake. Everything below is either absent from the SDK
+      # or needed as an executable at build time.
+      - guile-3.0-dev          # GnuCash's Scheme engine is mandatory
+      # Boost components requested by CMake for Boost >= 1.89.
+      - libboost-atomic-dev
+      - libboost-charconv-dev
+      - libboost-chrono-dev
+      - libboost-container-dev
+      - libboost-date-time-dev
+      - libboost-filesystem-dev
+      - libboost-locale-dev
+      - libboost-program-options-dev
+      - libboost-regex-dev
+      - libboost-thread-dev
+      - libicu-dev             # not shipped by gnome-core26-sdk
+      # OFX/QFX import.
+      - libofx-dev
+      # Online banking (HBCI/FinTS, EBICS, OFX Direct Connect).
+      - libaqbanking-dev
+      - libgwenhywfar-core-dev
+      - libgwengui-gtk3-dev    # AqBanking's GTK3 dialogs
+      # SQLite books through libdbi.
+      - libdbi-dev
+      # libxslt and its xsltproc tool are not part of the SDK; GnuCash uses
+      # xsltproc to generate two source files and requires libxslt.pc.
+      - libxslt1-dev
+      - xsltproc
+      - swig                   # Guile bindings generator
+      # GoogleTest/GoogleMock are mandatory at configure time; the test
+      # binaries themselves are EXCLUDE_FROM_ALL.
+      - libgtest-dev
+      - libgmock-dev
+      # CMake requires a perl executable and pod2man for the man pages.
+      - perl
+    override-build: |
+      set -eux
+      craftctl default
+      # The host icon theme cannot see icons inside the snap, and upstream
+      # installs gnucash-icon only into the hicolor theme. Ship it under
+      # meta/gui and point the desktop file at that copy.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/gnucash-icon.png" \
+         "$CRAFT_PART_INSTALL/meta/gui/gnucash-icon.png"
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/gnucash.desktop"
+      sed -i -e 's|^Icon=gnucash-icon$|Icon=${SNAP}/meta/gui/gnucash-icon.png|' \
+        "$desktop"
+
+  libraries:
+    after: [gnucash]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 already ships GTK3, GLib/GIO, WebKitGTK 4.1, libsecret,
+      # libxslt, ICU, SQLite and the rest of the GNOME stack. Only the
+      # libraries it lacks are staged here; the gnome extension's cleanup
+      # part drops any staged .so that gnome-core26 provides as well.
+      #
+      # Scheme engine. libguile, its precompiled module cache and the Scheme
+      # sources are all in this package; the standalone guile/guild
+      # executables are build-time tools and are not staged.
+      - guile-3.0-libs
+      # gnome-core26 does not ship libxml2 (gnucash and libaqbanking link it).
+      - libxml2-16
+      # Online banking; the -data packages carry the dialog and exporter
+      # definitions bound into place by the layout above.
+      - libaqbanking44
+      - libaqbanking-data
+      - libgwenhywfar79t64
+      - libgwenhywfar-data
+      - libgwengui-gtk3-79t64
+      # OFX/QFX import.
+      - libofx7t64
+      - libosp5
+      # SQLite books.
+      - libdbi1t64
+      - libdbd-sqlite3
+      # Boost shared libraries used by GnuCash. The build links the complete
+      # ${Boost_LIBRARIES} set into the binary and snapcraft does not pass
+      # -Wl,--as-needed, so every component ends up in DT_NEEDED; stage all
+      # of them instead of guessing which ones survive.
+      - libboost-atomic1.90.0
+      - libboost-charconv1.90.0
+      - libboost-chrono1.90.0
+      - libboost-container1.90.0
+      - libboost-date-time1.90.0
+      - libboost-filesystem1.90.0
+      - libboost-locale1.90.0
+      - libboost-program-options1.90.0
+      - libboost-regex1.90.0
+      - libboost-thread1.90.0
+    # The apt dependency closure of the packages above also brings in base and
+    # GNOME runtime content (dbus, systemd units, fontconfig, Adwaita icons,
+    # the shared MIME database, fonts, ...). Keep only the libraries and the
+    # data trees this snap needs so none of it shadows the base or
+    # gnome-core26.
+    stage:
+      - usr/lib
+      - -usr/lib/systemd
+      - -usr/lib/sysusers.d
+      - -usr/lib/tmpfiles.d
+      - -usr/lib/udev
+      - usr/share/aqbanking
+      - usr/share/gwenhywfar
+      - usr/share/guile
+      - usr/share/libofx7
+      - usr/share/locale/*/LC_MESSAGES/aqbanking.mo
+      - usr/share/locale/*/LC_MESSAGES/gwenhywfar.mo
+    override-build: |
+      set -eux
+      craftctl default
+      # gnome-core26-sdk contains libxml2, so the gnome extension's cleanup
+      # part deletes a staged libxml2 from usr/lib/<triplet> (it assumes the
+      # content snap has it, which is not the case for the current stable
+      # gnome-core26). Keep it in usr/lib instead, which is on the runtime
+      # LD_LIBRARY_PATH, so the library survives the cleanup either way.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+
+  cleanup:
+    after: [gnucash, libraries]
+    plugin: nil
+    override-prime: |
+      set -eux
+      # GnuCash compiles the schemas of gnucash/gschemas during its own
+      # install, but the OFX and AqBanking preference schemas are installed
+      # afterwards by their own subdirectories, so compile the merged set
+      # once more here. Without this the OFX import and online banking
+      # dialogs cannot read their preferences.
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .
