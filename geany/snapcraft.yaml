@@ -1,0 +1,141 @@
+name: geany
+version: '2.1'
+summary: Fast and lightweight IDE
+description: |
+  Geany is a fast and lightweight integrated development environment using
+  GTK+. It provides syntax highlighting for many languages, code folding,
+  symbol lists, tag completion, a project manager, regular expression search
+  across files, an embedded terminal and a plugin interface with a handful of
+  bundled plugins.
+
+  The snap is strictly confined, as required by Core Desktop, which has no
+  classic snaps. That has visible consequences for an IDE:
+
+  * Build commands (Build > Make, Compile, Execute, ...) run inside the
+    snap. Compilers, make and the rest of a development toolchain are not
+    part of the snap (core26 and the GNOME platform only provide a minimal
+    userland and the GTK stack), so build commands fail unless the
+    configured command happens to exist in the snap. Editing, searching,
+    projects, tags and the bundled plugins are unaffected.
+  * The embedded terminal (View > Show Message Window > Terminal) starts the
+    user's shell inside the snap. It sees the snap's filesystem and its
+    private home directory in ~/snap/geany/..., not the host's /usr, /etc or
+    development tools, and it does not read the host's ~/.bashrc,
+    ~/.profile or ~/.ssh.
+  * Settings, sessions, snippets, filetype extensions and plugin preferences
+    live in the snap's private XDG directories
+    (~/snap/geany/current/.config/geany), so an existing ~/.config/geany is
+    not imported and the host's Geany is unaffected.
+  * The home interface exposes non-hidden files in the real home directory;
+    removable media mounted under /media, /mnt and /run/media are reachable
+    through removable-media. GTK file dialogs go through the desktop
+    document portal, so files elsewhere can still be opened and saved from
+    the dialogs, but the file browser sidebar and the command line only see
+    the paths above.
+  * Only the plugins bundled with Geany (Class Builder, Export, File
+    Browser, HTML Characters, Save Actions, Split Window) are shipped. The
+    extra plugins from the separate geany-plugins project are not available.
+  * Printing needs the CUPS socket. cups-control is not declared, so the
+    print dialog lists no printers; printing to a file (PDF, PostScript)
+    still works.
+  * URLs from the Help menu are opened through the desktop portal.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.geany.org/
+source-code: https://github.com/geany/geany
+issues: https://github.com/geany/geany/issues
+
+platforms:
+  amd64:
+  arm64:
+
+# Geany is developed with autotools; the 2.1 release tarball (the GitHub tag
+# is 2.1.0, the tarball and the version in AC_INIT are 2.1) ships a generated
+# configure script, so no autoreconf run is needed. The bundled Scintilla and
+# universal-ctags copies are C++17, which the gnome-core26-sdk compiler
+# supports.
+#
+# Strict-confinement notes (Core Desktop has no classic snaps):
+#   * Everything the build needs except gettext is in gnome-core26-sdk: GTK
+#     3.24, GLib/GIO/GModule/GThread with their headers and .pc files,
+#     pkg-config, the C/C++ toolchain and libtool. gettext is listed
+#     explicitly because Geany's build runs msgfmt on its .desktop file and
+#     on the translation catalogs; the autotools plugin would pull it in
+#     through autopoint anyway.
+#   * VTE is not a build dependency. Geany loads libvte-2.91.so.0 with
+#     g_module_open() at run time for its terminal tab, and gnome-core26
+#     already ships libvte-2.91-0 0.84.0, so no libvte-2.91-dev is needed and
+#     nothing has to be staged for it.
+#   * No other libraries need staging: GTK3, GLib, gdk-pixbuf, Pango, Cairo
+#     and the rest of the runtime come from gnome-core26, whose manifest also
+#     has everything libgeany and the plugins link against.
+#   * Geany bakes its data, documentation, plugin and locale directories
+#     into the binary at configure time (GEANY_DATADIR, GEANY_DOCDIR,
+#     GEANY_LIBDIR, GEANY_LOCALEDIR, GEANY_LIBEXECDIR) and has no
+#     environment-variable override for them, so configure with the runtime
+#     mount path; organize moves the tree back under usr/ in the snap.
+#   * The release tarball ships a prebuilt HTML manual (doc/geany.html) that
+#     configure installs as share/doc/geany/html/index.html even when doc
+#     generation is disabled, so Help > Contents works without docutils.
+#     The PDF, API and gtk-doc targets are disabled so the build does not
+#     depend on rst2pdf, doxygen or gtkdocize being present in the SDK.
+
+apps:
+  geany:
+    extensions: [gnome]
+    command: usr/bin/geany
+    desktop: usr/share/applications/geany.desktop
+    common-id: geany.desktop
+    plugs:
+      # GTK reads the desktop's theme, fonts, icons and accessibility settings
+      - gsettings
+      # open and save files in the user's home directory
+      - home
+      # projects and source trees on USB sticks and SD cards
+      - removable-media
+
+parts:
+  geany:
+    # Official release tarball, pinned by the SHA-256 published in
+    # https://download.geany.org/SHA256SUMS. The GitHub release asset of the
+    # same name is byte-identical.
+    source: https://download.geany.org/geany-2.1.tar.gz
+    source-checksum: sha256/8da944e82f78f3c4c6e6b054b7c562ab64ea37d4a3e7dc8576bed8a8160d3c2a
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/snap/geany/current/usr
+      # The manual is prebuilt in the tarball; skip the generators for the
+      # HTML/PDF/API/gtk-doc outputs (see the notes above).
+      - --disable-html-docs
+      - --disable-pdf-docs
+      - --disable-api-docs
+      - --disable-gtkdoc-header
+    build-packages:
+      # msgfmt translates geany.desktop and the catalogs. Everything else
+      # (GTK3, GLib, pkg-config, gcc/g++, libtool) is in gnome-core26-sdk.
+      - gettext
+    override-build: |
+      craftctl default
+      # Geany is built with autoconf's default "-g -O2" and links Scintilla
+      # and universal-ctags into libgeany, which comes to ~36 MB unstripped.
+      # snapcraft 9 does not strip primed ELF files, so drop the debug symbols
+      # here; the dynamic symbols the plugins resolve are kept.
+      find "$CRAFT_PART_INSTALL" \
+        -type f \( -name geany -o -name '*.so' -o -name '*.so.*' \) \
+        -exec strip --strip-unneeded {} +
+    organize:
+      snap/geany/current/usr: usr
+    prime:
+      # Development files: only the plugins in usr/lib/geany are needed at
+      # run time, the headers and .pc files are not.
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/pkgconfig
+      # libtool archives are not needed at run time
+      - -usr/lib/*.la
+      - -usr/lib/geany/*.la
+      # The generated changelog is 2.4 MB and nothing reads it.
+      - -usr/share/doc/geany/ChangeLog

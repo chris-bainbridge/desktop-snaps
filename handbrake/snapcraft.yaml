@@ -1,0 +1,253 @@
+name: handbrake
+version: '1.11.2'
+summary: Video transcoder with a GTK4 interface and a command-line tool
+description: |
+  HandBrake is a video transcoder. It converts video from most common
+  formats and containers, including DVD and Blu-ray images, into MP4, MKV
+  and WebM files with the H.264, H.265, AV1, VP8/VP9, Theora and MPEG
+  encoders, and provides scaling, cropping, deinterlacing, denoising,
+  subtitle and chapter handling and a queue for batch jobs. This snap
+  contains the graphical application (ghb) and the command-line tool
+  (HandBrakeCLI).
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - HandBrake can open and save files in your home directory (non-hidden
+    paths) and, after "snap connect handbrake:removable-media", on USB
+    drives, camera cards and other removable media. The real home is
+    reachable as /home/<user>; other applications' private data and system
+    directories are not visible. The GTK file chooser uses the desktop
+    portal, so a file picked through it is granted individually.
+  - Optical drives are not exposed to a strictly confined snap, so DVDs and
+    Blu-rays cannot be read from /dev/sr0. Create an ISO image on the host
+    first and open the image in HandBrake: libdvdread and libbluray read
+    unencrypted images. Encrypted commercial discs remain unreadable,
+    because neither libdvdcss nor an AACS implementation is included and
+    the host's drive is not reachable.
+  - Settings, custom presets and the job queue live in the snap's private
+    per-user area (~/snap/handbrake/...), not in ~/.config/ghb, and are not
+    shared with a distribution-packaged HandBrake. Presets can be imported
+    and exported through the GUI.
+  - The "prevent the system from sleeping while encoding" option asks UPower
+    over the system bus. The service is not reachable from the snap, so a
+    long encode can be interrupted by suspend.
+  - No network plug is declared: sources addressed by a URL (HTTP, SMB, NFS,
+    ...) cannot be opened and no network share is mounted inside the
+    sandbox. All input and output is local.
+  - Only the encoders compiled into the snap are available: x264, x265,
+    SVT-AV1, libvpx (VP8/VP9), Theora and the built-in FFmpeg encoders.
+    FDK AAC is not included, so AAC audio uses FFmpeg's encoder. Dolby
+    Vision RPU conversion (libdovi) is not built. Intel Quick Sync (QSV) is
+    not built; NVIDIA NVENC is built and uses the driver libraries that
+    snapd exposes on NVIDIA systems. VAAPI decoding uses the Mesa drivers
+    from the gpu-2604 content snap and depends on the GPU.
+  - The snap ships its own FFmpeg, x264, x265, SVT-AV1, libdvdread,
+    libdvdnav, libbluray, libass and libjpeg-turbo from the 26.04 archive;
+    the GNOME platform snap provides GTK4, GLib and the other desktop
+    libraries.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. HandBrake is built from the pinned upstream
+# source tarball and linked against the 26.04 archive's libraries; no vendor
+# binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-only
+website: https://handbrake.fr/
+source-code: https://github.com/HandBrake/HandBrake
+issues: https://github.com/HandBrake/HandBrake/issues
+
+icon: snap/local/fr.handbrake.ghb.png
+
+platforms:
+  amd64:
+  arm64:
+
+# HandBrake 1.11.2 is the latest stable upstream release (2026-06-07). Its
+# Linux build normally downloads and compiles its own copies of FFmpeg,
+# x264, x265, SVT-AV1, libdvdread, libdvdnav, libbluray, libass and other
+# libraries through the "contrib" framework. That is disabled here (patch
+# 0001) and the libraries come from the 26.04 archive, the same ones
+# Ubuntu's handbrake package links. Patch 0002 adapts the three places where
+# HandBrake uses APIs or fields that only exist in its patched contrib
+# snapshots.
+apps:
+  handbrake:
+    extensions: [gnome]
+    command: usr/bin/ghb
+    desktop: usr/share/applications/fr.handbrake.ghb.desktop
+    common-id: fr.handbrake.ghb.desktop
+    # No audio-playback plug: the preview decodes video only and renders it
+    # through GtkGLArea, and HandBrake does not play audio.
+    plugs:
+      - gsettings       # GTK theme, fonts and accessibility settings
+      - home            # open sources and write encodes in the user's home
+      - removable-media # media on USB drives and camera cards
+
+  handbrake-cli:
+    # The CLI links libhandbrake, which uses libraries from the GNOME
+    # platform and gpu content snaps (jansson, x265, libvpx, theora, vorbis,
+    # libva, ...), so it needs the same extension and command chain.
+    extensions: [gnome]
+    command: usr/bin/HandBrakeCLI
+    plugs:
+      - home            # read sources and write encodes in the user's home
+      - removable-media # process media straight from a removable drive
+
+parts:
+  handbrake:
+    # Official release source tarball; it contains the generated configure
+    # script, version.txt and the contrib build rules.
+    source: https://github.com/HandBrake/HandBrake/releases/download/1.11.2/HandBrake-1.11.2-source.tar.bz2
+    source-checksum: sha256/12b046350f2422dc28783ff94229aff4ba5fe5e683431e057355d36163b2593a
+    plugin: nil
+    build-packages:
+      # gnome-core26-sdk provides GTK4, GLib/GIO, libxml2, zlib, bzip2, xz,
+      # the C/C++ toolchain, meson, ninja, pkg-config, python3, autoconf and
+      # gettext. Its paths are not in the compiler's default search path,
+      # which matters for the probes below. The SDK has only the versioned
+      # automake/aclocal scripts and no libtool, and it lacks patch, nasm,
+      # FFmpeg, x264, x265, SVT-AV1, libdvdread, libdvdnav, libbluray,
+      # libass, libjpeg-turbo, jansson, ogg, theora and vorbis development
+      # files.
+      - patch
+      - nasm # configure aborts without it, even though libhb asm is disabled
+      - automake # configure probes the unversioned 'automake' command
+      - libtool  # configure probes 'libtool' even with no contrib modules
+      # configure checks for zlib, bzip2 and xz with the compiler's default
+      # search paths, which do not include the SDK; give it the archive's
+      # development files so the probes pass and libhb links the system
+      # libraries instead of looking for missing contrib archives.
+      - zlib1g-dev
+      - libbz2-dev
+      - liblzma-dev
+      - libavcodec-dev
+      - libavformat-dev
+      - libavfilter-dev
+      - libavutil-dev
+      - libswscale-dev
+      - libswresample-dev
+      - libx264-dev
+      - libx265-dev
+      - libsvtav1enc-dev
+      - libdvdread-dev
+      - libdvdnav-dev
+      - libbluray-dev
+      - libass-dev
+      - libturbojpeg0-dev # libhb decodes thumbnails with turbojpeg
+      # ghb's Meson build requires the pkg-config files for these. The SDK
+      # ships the runtime libraries but not their .pc files.
+      - libjansson-dev
+      - libogg-dev
+      - libtheora-dev
+      - libvorbis-dev
+      # NVENC availability probing includes ffnvcodec/nvEncodeAPI.h. The
+      # contrib/nvenc module (a header tarball) is removed by patch 0001;
+      # FFmpeg's own NVENC wrappers in libavcodec use the same headers.
+      - libffmpeg-nvenc-dev
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+      # Use the archive's libraries instead of the contrib tree, and adapt
+      # the three call sites that expect HandBrake's patched contrib
+      # versions (FFmpeg 8.0.2, SVT-AV1 4.1.0 and x265 with HandBrake
+      # patches).
+      patch -p1 --batch < "$CRAFT_PROJECT_DIR/snap/local/0001-build-with-system-libraries.patch"
+      patch -p1 --batch < "$CRAFT_PROJECT_DIR/snap/local/0002-archive-library-api-compatibility.patch"
+      # HandBrake generates a Makefile in build/ from the source's make/
+      # includes. --disable-df-fetch/--disable-df-verify make sure the
+      # distfile machinery never attempts a download: every remaining
+      # contrib module is disabled below.
+      ./configure \
+        --prefix=/usr \
+        --disable-df-fetch \
+        --disable-df-verify \
+        --disable-fdk-aac \
+        --disable-libdovi \
+        --disable-numa \
+        --disable-qsv \
+        --enable-nvenc
+      make -C build -j"${CRAFT_PARALLEL_BUILD_COUNT:-$(nproc)}"
+      # DESTDIR must be in the environment as well: Meson's install step
+      # reads it from there, while the CLI install rule uses the make
+      # variable of the same name.
+      DESTDIR="$CRAFT_PART_INSTALL" make -C build install-strip
+      # The host icon theme cannot see icons inside the snap. Point the
+      # desktop file at the copy under meta/gui, which snapd exports.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/fr.handbrake.ghb.desktop"
+      sed -i -e '/^TryExec=/d' \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/fr.handbrake.ghb.svg|' "$desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/fr.handbrake.ghb.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  runtime:
+    after: [handbrake]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides GTK4, GLib/GIO, libvpx, x265, jansson, ogg,
+      # vorbis, theora, lame, opus, speex, freetype, fontconfig, harfbuzz
+      # and libnuma; the core26 base provides the C/C++ runtime and zlib,
+      # bzip2, xz and zstd. The codec stack HandBrake links is not part of
+      # the platform, so stage it from the archive. Dependencies of these
+      # packages (libdav1d, libaom, libzimg, libplacebo, libgnutls,
+      # libwebp, ...) are staged by snapcraft's dependency closure.
+      - libavcodec62
+      - libavformat62
+      - libavfilter11
+      - libavutil60
+      - libswscale9
+      - libswresample6
+      - libx264-165
+      - libsvtav1enc2
+      - libdvdread8t64
+      - libdvdnav4
+      - libbluray3
+      - libass9
+      - libturbojpeg0
+      # ghb and libavformat need libxml2, which gnome-core26 does not ship.
+      - libxml2-16
+      # libavcodec's VAAPI support is linked against libva; gnome-core26
+      # does not ship it either (mesa-2604 does, but that content snap is
+      # not guaranteed to be connected for the CLI).
+      - libva2
+    prime:
+      - -usr/share/doc
+      - -usr/share/lintian
+      - -usr/share/man
+      - -usr/share/fonts # DejaVu fonts come from the GNOME platform snap
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension's cleanup part deletes every staged shared
+      # object whose path also exists in gnome-core26-sdk. The SDK contains
+      # libxml2 and libva, but the gnome-core26 content snap does not, so
+      # move those out of the SDK's multiarch layout; snapd puts
+      # $SNAP/usr/lib in LD_LIBRARY_PATH. The X11, libdrm and libvulkan
+      # copies that the FFmpeg closure stages are left for gnome/cleanup:
+      # they are provided by the gpu-2604 content snap.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for pattern in 'libxml2.so.16*' 'libva.so.2*'; do
+        for file in "$libdir"/$pattern; do
+          [ -e "$file" ] || continue
+          mv "$file" "$CRAFT_PART_INSTALL/usr/lib/"
+        done
+      done
+
+  cleanup:
+    after: [handbrake, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      # Remove the shared objects that the core26 base already provides.
+      # They would only duplicate the base inside the snap; the loader
+      # finds the base's copies anyway.
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

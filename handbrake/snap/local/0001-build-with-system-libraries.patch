@@ -1,0 +1,97 @@
+Build HandBrake against the distribution's libraries instead of contrib.
+
+HandBrake's Linux build normally compiles a fixed set of third-party
+libraries (FFmpeg, x264, x265, SVT-AV1, libdvdread, libdvdnav, libbluray,
+libass, libjpeg-turbo, ...) from tarballs downloaded by its "contrib" build
+system. That is not usable here: the snap must not download and build its own
+copies when the 26.04 archive already ships the same libraries, and several
+contrib modules are only used to produce static archives.
+
+This patch removes the contrib modules that the archive provides and keeps
+the pkg-config based link. The remaining contrib modules (fdk-aac, libdovi,
+amf) are disabled by the configure options in snapcraft.yaml.
+
+  - gtk/meson.build: the contrib include directory does not exist in this
+    build, and Meson rejects include_directories() entries that do not exist.
+  - libhb/module.defs: LIBDAV1D and LIBJPEGTURBO only exist to link the
+    Windows DLL against the contrib static archives; on Linux the libraries
+    come from pkg-config (libhb uses turbojpeg.h directly, which is in the
+    gtk link list, and dav1d only through FFmpeg).
+  - test/module.defs: libhb calls the x265 API directly, so the CLI link
+    line needs -lx265. Upstream gets it from the contrib module.
+  - make/include/main.defs: drop the contrib modules for the libraries that
+    are linked from the archive.
+
+--- a/gtk/meson.build
++++ b/gtk/meson.build
+@@ -20,7 +20,7 @@
+   hb_dir = meson.current_build_dir() / '..'
+ endif
+ 
+-hb_incdirs = include_directories(hb_dir / 'libhb', hb_dir / 'contrib/include')
++hb_incdirs = include_directories(hb_dir / 'libhb')
+ 
+ # External dependencies (required)
+ ghb_deps = [
+--- a/libhb/module.defs
++++ b/libhb/module.defs
+@@ -1,7 +1,7 @@
+ __deps__ := BZIP2 LIBVPX SVT-AV1 FFMPEG FREETYPE LAME LIBASS \
+     LIBDVDREAD LIBDVDNAV LIBICONV LIBTHEORA LIBVORBIS LIBOGG \
+     X264 X265 ZLIB LIBBLURAY FDKAAC LIBVPL LIBGNURX JANSSON \
+-    HARFBUZZ LIBOPUS LIBSPEEX LIBDAV1D LIBJPEGTURBO LIBDOVI
++    HARFBUZZ LIBOPUS LIBSPEEX LIBDOVI
+ 
+ ifeq (,$(filter $(HOST.system),darwin cygwin mingw))
+     __deps__ += FONTCONFIG
+--- a/test/module.defs
++++ b/test/module.defs
+@@ -20,6 +20,10 @@
+ 	dvdread libswscale theoraenc theoradec vorbis vorbisenc ogg x264 libbluray \
+ 	jansson libturbojpeg SvtAv1Enc
+ 
++ifeq (1,$(FEATURE.x265))
++TEST.pkgconfig_libs += x265
++endif
++
+ TEST.pkgconfig_libs += $(foreach m,$(MODULES.NAMES),$($m.OSL.libs))
+ 
+ ifeq (1,$(FEATURE.flatpak))
+--- a/make/include/main.defs
++++ b/make/include/main.defs
+@@ -41,35 +41,10 @@
+     MODULES += contrib/fdk-aac
+ endif
+ 
+-ifeq (1,$(FEATURE.x265))
+-    MODULES += contrib/x265
+-    MODULES += contrib/x265_8bit
+-    MODULES += contrib/x265_10bit
+-    MODULES += contrib/x265_12bit
+-endif
+-
+-MODULES += contrib/libdav1d
+-MODULES += contrib/svt-av1
+-MODULES += contrib/zimg
+-MODULES += contrib/ffmpeg
+-MODULES += contrib/libdvdread
+-MODULES += contrib/libdvdnav
+-MODULES += contrib/libbluray
+-
+-ifeq (1,$(FEATURE.qsv))
+-ifeq (,$(filter $(HOST.system),freebsd))
+-    MODULES += contrib/libvpl
+-endif
+-endif
+-
+ ifeq (1,$(FEATURE.vce))
+     MODULES += contrib/amf
+ endif
+ 
+-ifeq (1,$(FEATURE.nvenc))
+-    MODULES += contrib/nvenc
+-endif
+-
+ ifeq (1,$(FEATURE.libdovi))
+     MODULES += contrib/libdovi
+ endif

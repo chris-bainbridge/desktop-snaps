@@ -1,0 +1,296 @@
+name: qbittorrent
+version: '5.3.0'
+summary: Feature-rich BitTorrent client
+description: |
+  qBittorrent is a BitTorrent client with a Qt 6 interface. It supports
+  magnet links, DHT, PEX, local peer discovery, protocol encryption, IP
+  filtering, RSS feeds with download rules, a search engine, torrent
+  creation, sequential downloading, bandwidth scheduling and a Web UI for
+  remote control.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - The snap's HOME is the private ~/snap/qbittorrent/current, so the default
+    download directory is ~/snap/qbittorrent/current/Downloads, not your real
+    ~/Downloads. Files in non-hidden paths of the real home are reachable and
+    can be selected as the save path (for example /home/<user>/Downloads).
+    Top-level hidden entries such as ~/.config and ~/.ssh are not visible.
+    Removable drives need the removable-media interface:
+      sudo snap connect qbittorrent:removable-media
+    Other system paths, network shares mounted outside /media or /mnt, and
+    other users' files are not accessible.
+  - Settings, the resume database, RSS data, search plugins and caches live
+    under ~/snap/qbittorrent/current/.config/qBittorrent and
+    ~/snap/qbittorrent/current/.local/share and are not shared with a
+    distribution-packaged qBittorrent. Existing configuration can be copied
+    there manually; it is not imported.
+  - Outgoing connections, trackers, DHT, PEX, local peer discovery, RSS,
+    search and the Web UI work. network-bind is connected automatically, so
+    peers can reach the listening port and the Web UI can bind; the router
+    still needs port forwarding or working UPnP/NAT-PMP for incoming peers.
+  - The host's programs cannot be executed. "Run external program" can only
+    start binaries inside the snap or scripts in visible directories using
+    interpreters available in the snap (the base shell and the bundled
+    Python 3). Host tools such as ffmpeg, unrar, 7z or a host Python are not
+    reachable.
+  - Search plugins run with the bundled Python 3.14, so the bundled engines
+    and plugins that only use the standard library work. Plugins that need
+    additional Python modules fail; third-party modules cannot be installed
+    into the snap from the host.
+  - "Open destination folder" is handed to the desktop through snapctl
+    user-open. Selecting the file in the file manager needs
+    org.freedesktop.FileManager1, which strict confinement does not grant.
+  - Desktop notifications work through the desktop interface. The tray icon
+    needs a StatusNotifierItem host; on GNOME Shell that requires the
+    AppIndicator extension. Preventing system sleep while downloading may
+    not work: the GNOME SessionManager and systemd-logind interfaces are not
+    available to the snap.
+  - Qt 6 is staged from the 26.04 archive. Host Qt/KDE themes and the host's
+    system proxy configuration are not visible; qBittorrent uses Qt's Fusion
+    style and its own proxy settings.
+  - .torrent and magnet associations depend on the host's MIME database.
+    snapd exports the desktop entry, but some desktops do not register MIME
+    handlers from snaps. Passing a .torrent file or magnet link to an
+    already running qBittorrent works through its single-instance socket.
+  - Only the GUI application is packaged; qbittorrent-nox is not included.
+    The GUI's Web UI provides remote control while the desktop session runs.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. qBittorrent is built from the pinned upstream
+# release tag; everything else is staged from the 26.04 archive. No prebuilt
+# qBittorrent binaries are embedded.
+#
+# Qt approach: stage Qt 6 from the 26.04 archive.
+#   * snapcraft 9.2.1 ships kde-neon-6 and kde-neon-qt6 for core22 and core24
+#     only (the extension code rejects every other base). KDE does publish
+#     kde-qt6-core26 (Qt 6.11.3) and kf6-core26 content snaps with matching
+#     SDK snaps, but there is no snapcraft extension for them: the recipe
+#     would have to hand-wire the content plug, build against the KDE SDK and
+#     set the multiarch Qt library, plugin and QML paths itself.
+#   * qBittorrent is not a KDE application. It uses Qt Core, Gui, Widgets,
+#     Network, Sql, Xml, DBus, Svg and CorePrivate, but no KDE Frameworks.
+#     The Qt content snap is 915 MB and kf6-core26 is 1.9 GB; staging only the
+#     modules that are linked keeps the snap far smaller.
+#   * The 26.04 archive carries Qt 6.10.2, built for the same Ubuntu release
+#     as the core26 base, so the staged Qt shares the base's libc, libstdc++,
+#     GLib, OpenSSL, freetype, libpng and libxkbcommon. qBittorrent 5.3.0
+#     requires Qt 6.6 or newer; 6.10.2 is supported, and upstream explicitly
+#     handles Qt >= 6.10 by linking Qt6::CorePrivate.
+#   * libtorrent-rasterbar 2.0.12 and Python 3.14 are also staged from the
+#     26.04 archive. libtorrent 2.0.12 satisfies qBittorrent's >= 2.0.10
+#     requirement. The bundled Python makes the standard search engines work
+#     inside the sandbox.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libEGL/libGL/libGLX and the DRI drivers that Qt's
+# xcb and Wayland platform plugins link against, and its cleanup part removes
+# the Mesa copies that the Qt stage-packages would otherwise leave in the snap.
+#
+# Only the GUI binary is packaged. qbittorrent-nox is not: it is a second
+# build of the same sources with GUI=OFF, and the GUI already provides the
+# Web UI for remote control.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://www.qbittorrent.org/
+source-code: https://github.com/qbittorrent/qBittorrent
+issues: https://github.com/qbittorrent/qBittorrent/issues
+
+icon: snap/local/qbittorrent.svg
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig and X11 keyboard/locale data have to appear at the
+# absolute paths their libraries were built with; /usr and /etc inside the
+# snap are the core26 base. The bind targets already exist in the base; the
+# binds replace their contents with the staged copies.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/X11:
+    bind: $SNAP/usr/share/X11
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+
+apps:
+  qbittorrent:
+    extensions: [gpu]
+    command: bin/qbittorrent-launcher
+    desktop: usr/share/applications/org.qbittorrent.qBittorrent.desktop
+    common-id: org.qbittorrent.qBittorrent
+    plugs:
+      - desktop        # desktop integration, notifications and snapctl user-open
+      - desktop-legacy # legacy desktop paths used by Qt's X11 backend
+      - home           # torrents and downloads in the user's home
+      - network        # peers, trackers, DHT, RSS, search and the Web UI
+      - network-bind   # peer listening port and the Web UI port
+      - opengl         # GPU access for Qt and the mesa-2604 content snap
+      - removable-media # torrents and downloads on removable drives
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+
+parts:
+  local:
+    # The launcher fixes up the paths that Qt and Python look up outside the
+    # snap's staged tree. The desktop entry installed by upstream is used
+    # as-is; snapcraft rewrites its Exec and Icon lines.
+    plugin: dump
+    source: snap/local
+    organize:
+      qbittorrent-launcher: bin/qbittorrent-launcher
+    prime:
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -qbittorrent.svg
+
+  qbittorrent:
+    # 5.3.0 is the latest stable upstream release (2026-10-20); the annotated
+    # tag release-5.3.0 points at commit
+    # 9213075dd5f7b352208361c6a84c1c115efc898e. The GitHub archive contains
+    # the bundled Lua, nova3 search and libtorrent helper sources; the
+    # checksum pins exactly the tag.
+    source: https://github.com/qbittorrent/qBittorrent/archive/refs/tags/release-5.3.0.tar.gz
+    source-checksum: sha256/dcb5273496117ebf264fc1fc7936de8707374f07dcee0805228ac5adb403a465
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DGUI=ON
+      - -DWEBUI=ON
+      # The built-in Lua plugin engine is a bundled feature and needs no
+      # external library.
+      - -DPLUGINS=ON
+      - -DTESTING=OFF
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, Qt, libtorrent, Boost, OpenSSL or zlib headers.
+      - build-essential
+      - pkgconf
+      - qt6-base-dev       # Core, Gui, Widgets, Network, Sql, Xml and DBus
+      - qt6-base-private-dev # Qt6CorePrivate, required when Qt >= 6.10
+      - qt6-tools-dev      # Qt6LinguistTools
+      - qt6-l10n-tools     # lrelease, used by qt_add_translation
+      - qt6-svg-dev        # Qt6Svg, for the SVG icon set
+      - libtorrent-rasterbar-dev # libtorrent 2.0.12, requires >= 2.0.10
+      - libboost-dev       # Boost 1.90 headers, requires >= 1.76
+      - libssl-dev         # OpenSSL 3, used for tracker and peer encryption
+      - zlib1g-dev
+      - libxkbcommon-dev   # pulled by qt6-base-private-dev, listed explicitly
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binary relocates Qt's data, plugin and
+      # translation paths to the staged tree. Prefix is relative to usr/bin,
+      # so Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/qt6/translations
+      EOF
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out every package that is already in the base's chisel manifest,
+    # so the base's libc, libstdc++, OpenSSL, libsqlite3 and libxkbcommon are
+    # not duplicated here.
+    after: [qbittorrent]
+    plugin: nil
+    build-packages:
+      # update-mime-database, used below to build the MIME cache.
+      - shared-mime-info
+    stage-packages:
+      # libtorrent 2.0.12 from the 26.04 archive.
+      - libtorrent-rasterbar2.0t64
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6gui6        # also ships the xcb, minimal and offscreen plugins
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6sql6
+      - libqt6sql6-sqlite # QSQLITE driver for the resume database
+      - libqt6xml6
+      - libqt6dbus6       # notifications and power management
+      - libqt6svg6
+      - qt6-svg-plugins   # libqsvgicon / libqsvg image plugins
+      # Qt 6 has no Wayland platform plugin in qtbase; these two provide the
+      # plugin and the xdg-shell integration without the qt6-wayland extras.
+      - libqt6waylandclient6
+      - libqt6wlshellintegration6
+      - qt6-translations-l10n # Qt's own dialog translations
+      # libproxy is a dependency of Qt Network; listed so the staged tree
+      # always has it even if the archive's dependency metadata changes.
+      - libproxy1v5
+      # The base has only the Plymouth font and no fontconfig configuration.
+      # The layout above exposes the staged fonts and configuration; the MIME
+      # cache generated below is found through XDG_DATA_DIRS.
+      - fontconfig
+      - fonts-dejavu-core
+      - shared-mime-info
+      # libxkbcommon needs the keyboard layout database and libX11 its locale
+      # data. Both packages are in the base's chisel manifest (only their
+      # copyright/XErrorDB slices are installed), so craft-parts would filter
+      # them out of stage-packages; the x11-data part below fetches the data
+      # packages directly instead.
+      # The search engine runs nova3 with Python; the base ships a Python
+      # library but no interpreter in PATH. Python 3.14 satisfies the >= 3.13
+      # requirement.
+      - python3
+    override-build: |
+      craftctl default
+
+      # shared-mime-info ships only the XML source in the archive package; the
+      # maintainer script that normally builds mime.cache does not run for a
+      # staged package. Generate it so QMimeDatabase can classify the files
+      # qBittorrent serves and opens. The launcher puts $SNAP/usr/share on
+      # XDG_DATA_DIRS, so the staged database is found without a layout bind.
+      update-mime-database "$CRAFT_PART_INSTALL/usr/share/mime"
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty usr/share/X11 and break the layout bind. Fetch
+    # the data packages directly; they contain no binaries.
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    prime:
+      - -usr/share/doc
+
+  cleanup:
+    # The staged Qt/libtorrent/Python dependency trees contain copies of
+    # libraries that the core26 base already ships (GLib, OpenSSL, libsqlite3,
+    # libstdc++, ...). Loading two copies in one process is not safe, so drop
+    # every primed shared library whose path also exists in the base, exactly
+    # as the other core26 recipes do.
+    after: [qbittorrent, runtime, x11-data]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

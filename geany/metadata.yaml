@@ -1,0 +1,6 @@
+snap: geany
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/geany/geany (2.1.0)
+imported: '2026-11-17'

@@ -1,0 +1,87 @@
+Adapt HandBrake to the 26.04 archive's library versions.
+
+HandBrake 1.11.2 is developed against the exact library snapshots in its
+contrib tree: FFmpeg 8.0.2 with HandBrake's patches, SVT-AV1 4.1.0 and an
+x265 snapshot carrying HandBrake's ambient-viewing patch. The archive ships
+FFmpeg 8.0.1, SVT-AV1 2.3.0 and stock x265 4.1, so three call sites need
+adjusting. This is the same kind of adaptation Ubuntu's own handbrake package
+needs.
+
+  - libhb/decavcodec.c: FFmpeg 8.0.1 has no
+    AV_FRAME_DATA_DOVI_RPU_BUFFER_T35 side-data type (HandBrake's contrib
+    FFmpeg adds it). Keep the standard AV_FRAME_DATA_DOVI_RPU_BUFFER path.
+  - libhb/encsvtav1.c: SVT-AV1 2.3.0 takes an extra application-data
+    argument in svt_av1_enc_init_handle() and has no
+    extended_crf_qindex_offset field in EbSvtAv1EncConfiguration, so the
+    fractional part of the CRF value cannot be passed to the encoder. Drop
+    the corresponding Dolby Vision T35 branch as well (see above).
+  - libhb/encx265.c: the ambientIlluminance/ambientLightX/ambientLightY and
+    bEmitAmbientViewingEnvironment fields come from HandBrake's contrib x265
+    patches, not from stock x265 4.1. The GUI does not offer ambient viewing
+    metadata.
+
+--- a/libhb/decavcodec.c
++++ b/libhb/decavcodec.c
+@@ -1309,12 +1309,6 @@
+             int type = AV_FRAME_DATA_DOVI_RPU_BUFFER;
+             sd = av_frame_get_side_data(pv->frame, type);
+ 
+-            if (sd == NULL)
+-            {
+-                type = AV_FRAME_DATA_DOVI_RPU_BUFFER_T35;
+-                sd = av_frame_get_side_data(pv->frame, type);
+-            }
+-
+             if (sd != NULL && sd->size > 0)
+             {
+                 hb_data_t *rpu = hb_data_init(sd->size);
+--- a/libhb/encsvtav1.c
++++ b/libhb/encsvtav1.c
+@@ -101,7 +101,7 @@
+     EbErrorType svt_ret;
+     int ret;
+ 
+-    svt_ret = svt_av1_enc_init_handle(&pv->svt_handle, &pv->enc_params);
++    svt_ret = svt_av1_enc_init_handle(&pv->svt_handle, NULL, &pv->enc_params);
+     if (svt_ret != EB_ErrorNone)
+     {
+         hb_error("encsvtav1: error initializing encoder handle");
+@@ -126,8 +126,7 @@
+     }
+     else
+     {
+-        param->qp                         = fmin(job->vquality, MAX_QP_VALUE); // truncated 
+-        param->extended_crf_qindex_offset = (job->vquality - param->qp) * 4;
++        param->qp                = fmin(job->vquality, MAX_QP_VALUE);
+         param->rate_control_mode = SVT_AV1_RC_MODE_CQP_OR_CRF;
+         param->force_key_frames = 1;
+     }
+@@ -511,11 +510,6 @@
+                 svt_add_metadata(headerPtr, EB_AV1_METADATA_TYPE_ITUT_T35, payload, playload_size);
+                 av_freep(&payload);
+             }
+-            else if (job->passthru_dynamic_hdr_metadata & HB_HDR_DYNAMIC_METADATA_DOVI &&
+-                     side_data->type == AV_FRAME_DATA_DOVI_RPU_BUFFER_T35)
+-            {
+-                svt_add_metadata(headerPtr, EB_AV1_METADATA_TYPE_ITUT_T35, side_data->data, side_data->size);
+-            }
+ 
+         }
+     }
+--- a/libhb/encx265.c
++++ b/libhb/encx265.c
+@@ -269,14 +269,6 @@
+         }
+     }
+ 
+-    if (job->ambient.ambient_illuminance.num && job->ambient.ambient_illuminance.den)
+-    {
+-        param->ambientIlluminance = hb_rescale_rational(job->ambient.ambient_illuminance, 10000);
+-        param->ambientLightX = hb_rescale_rational(job->ambient.ambient_light_x, 50000);
+-        param->ambientLightY = hb_rescale_rational(job->ambient.ambient_light_y, 50000);
+-        param->bEmitAmbientViewingEnvironment = 1;
+-    }
+-
+     if (job->chroma_location != AVCHROMA_LOC_UNSPECIFIED)
+     {
+         char chromaLocation[256];

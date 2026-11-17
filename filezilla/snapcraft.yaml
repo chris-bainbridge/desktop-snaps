@@ -1,0 +1,312 @@
+name: filezilla
+version: '3.72.1'
+summary: Fast and reliable FTP, FTPS and SFTP client
+description: |
+  FileZilla Client is a graphical FTP, FTP over TLS (FTPS) and SFTP client.
+  It provides a site manager, a transfer queue, drag and drop, synchronized
+  directory browsing, remote file search, filename filters, transfer speed
+  limits, proxy support and more than 40 translations.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Files can be opened and saved in your home directory, except top-level
+    hidden entries such as ~/.ssh, and on USB drives and other removable
+    media after "snap connect filezilla:removable-media". System directories
+    and other applications' private data are not visible. GTK's file
+    chooser can also use the desktop document portal where it is available.
+  - The snap's HOME is ~/snap/filezilla/current. The site manager, settings,
+    transfer queue and trusted certificates live there, not in
+    ~/.config/filezilla, and are not shared with a distribution-packaged
+    FileZilla. Existing XML files can be copied into
+    ~/snap/filezilla/current/.config/filezilla before starting the snap.
+  - SFTP private keys in ~/.ssh are not visible, and the host's ssh-agent
+    socket is not reachable. Store a key in a visible directory (for example
+    under ~/snap/filezilla/current) and select it in the Site Manager.
+  - Editing a remote file with an external editor does not work: FileZilla
+    downloads it to the snap's private temporary directory, and programs on
+    the host cannot be started from inside the sandbox. Uploading a changed
+    local file works normally.
+  - Links and files handed to the desktop go through the base's xdg-open,
+    which calls snapctl user-open and the desktop portal.
+  - Update checks are disabled: snapd updates the snap from the store.
+    Manual update checks are therefore not available in Help > Check for
+    Updates.
+  - The snap uses the core26 base's CA certificates. Certificates added to
+    the host's trust store are not visible inside the snap.
+  - Passive FTP, the default, works through the network interface. Active
+    FTP may fail: the snap has no network-bind interface, so the server
+    cannot connect back to the client's listening port.
+  - GNOME Shell does not display legacy XEmbed tray icons. "Minimize to
+    tray" hides the window without leaving an icon to restore it; use the
+    window list instead.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. FileZilla and its missing dependencies are
+# compiled from the pinned upstream sources; the wxWidgets runtime and the
+# remaining libraries are staged from the 26.04 archive. No prebuilt
+# FileZilla binaries are embedded.
+#
+# wxWidgets approach: use the 26.04 archive's wxWidgets 3.2.9.
+#   * FileZilla 3.72.1 requires wxWidgets 3.2.x (>= 3.2.1) and rejects the
+#     3.3 development series. The archive's 3.2.9 satisfies both, was built
+#     with --enable-printfposparam and GUI support (both checked by
+#     configure), and is ABI-compatible with the 3.2.11 that upstream links
+#     its own binaries against.
+#   * Building wxWidgets from source would add a second large source tree and
+#     another GTK3 build for no functional gain. The archive build does link
+#     libSDL2, libXtst and libXxf86vm, none of which gnome-core26 ships, so
+#     those runtime libraries are staged below.
+#   * libfilezilla 0.59.0 and fzssh 1.5.2 are newer than the 26.04 archive's
+#     libfilezilla 0.54.1, and fzssh is not packaged in 26.04 at all.
+#     FileZilla 3.72.1 requires both, so they are built from source.
+#
+# fzssh, used for SFTP, is AGPL-3.0-or-later WITH AdditionRef-fzssh; the
+# FileZilla program itself is GPL-3.0-or-later and links it as permitted by
+# the GPLv3/AGPLv3 compatibility rules.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://filezilla-project.org/
+source-code: https://filezilla-project.org/sourcecode.php
+issues: https://trac.filezilla-project.org/
+
+icon: snap/local/filezilla.svg
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  filezilla:
+    extensions: [gnome]
+    command: usr/bin/filezilla
+    desktop: usr/share/applications/filezilla.desktop
+    common-id: filezilla.desktop
+    environment:
+      # FileZilla compiles /usr/share/filezilla into the binary and otherwise
+      # has no runtime override; FZ_DATADIR relocates that tree.
+      # Inside the snap /usr is the core26 base, which has no FileZilla data.
+      FZ_DATADIR: $SNAP/usr/share/filezilla
+      # The ELF patcher records the application's own libraries, but making
+      # both snap library directories explicit also covers the transitive
+      # dependencies of the staged wxWidgets/SDL2 stack.
+      LD_LIBRARY_PATH: $SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    plugs:
+      # GTK stores its theme, font, icon and accessibility settings through
+      # GSettings; the core26 gnome extension does not add this plug itself.
+      - gsettings
+      # open and save local files in the user's home directory
+      - home
+      # FTP, FTPS and SFTP connections
+      - network
+      # files on USB drives, SD cards and other removable media
+      - removable-media
+
+parts:
+  libfilezilla:
+    # 0.59.0 is the latest upstream release (2026-11-13) and the minimum
+    # version FileZilla 3.72.1 accepts. The official artifact is
+    # https://download.filezilla-project.org/libfilezilla/libfilezilla-0.59.0.tar.xz
+    # but upstream's download endpoint is deliberately unstable (Trac #13186)
+    # and redirects every request to the homepage, so use Arch Linux's mirror
+    # of the release: it keeps the official tarball byte-for-byte (verified
+    # against the official 0.58.0 tarball and Fedora's lookaside copy of it).
+    source: https://sources.archlinux.org/other/libfilezilla/libfilezilla-0.59.0.tar.xz
+    source-checksum: sha256/90ba8583fc6df8ab7dfc06905e6c12a8e9864190f75aa94c25d1da89145bfda9
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/usr
+      # Keep the snap's own libraries in usr/lib, which is the directory the
+      # ELF patcher adds to the binary's rpath, instead of the multiarch
+      # directory used by the archive packages.
+      - --libdir=/usr/lib
+      - --disable-static
+    build-packages:
+      # The GNOME SDK supplies the compiler toolchain and GTK3 headers, but
+      # libfilezilla only needs its own crypto stack and gettext.
+      - build-essential
+      - gettext
+      - libgmp-dev
+      - libgnutls28-dev
+      - nettle-dev
+      - pkgconf
+    override-build: |
+      craftctl default
+      # The .pc file is generated with absolute /usr paths. Point it at the
+      # staging area while the dependent part builds; the file is not
+      # shipped, so the runtime prefix does not matter in the final snap.
+      sed -i -e "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+             -e "s|^includedir=.*|includedir=$CRAFT_STAGE/usr/include|" \
+             -e "s|^libdir=.*|libdir=$CRAFT_STAGE/usr/lib|" \
+        "$CRAFT_PART_INSTALL/usr/lib/pkgconfig/libfilezilla.pc"
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/pkgconfig
+      - -usr/share/aclocal
+      - -usr/share/doc
+      - -usr/share/pkgconfig
+
+  fzssh:
+    # 1.5.2 is the latest upstream release (2026-11-13) and the minimum
+    # version FileZilla 3.72.1 accepts. It needs libfilezilla >= 0.58.0 and
+    # nettle >= 3.10; the latter is why the archive's 3.10.2 is sufficient.
+    # The official artifact is
+    # https://download.filezilla-project.org/fzssh/fzssh-1.5.2.tar.xz; the
+    # same Arch mirror argument as above applies, and 1.4.0 was verified to
+    # be byte-identical to the official tarball.
+    after: [libfilezilla]
+    source: https://sources.archlinux.org/other/packages/fzssh/fzssh-1.5.2.tar.xz
+    source-checksum: sha256/cd6cb4547124b4477fee0dd4d2726c2a059dd50a4668018445c5d2729ec0a845
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --libdir=lib
+      - --buildtype=release
+    build-environment:
+      # Link against the libfilezilla staged by the previous part, not any
+      # host or SDK copy.
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    build-packages:
+      - build-essential
+      - libargon2-dev
+      - libgmp-dev
+      - meson
+      - nettle-dev
+      - ninja-build
+      - pkgconf
+    override-build: |
+      craftctl default
+      # Point the pkg-config file at the staging area for the dependent
+      # FileZilla part. The .pc file is not shipped.
+      sed -i "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+        "$CRAFT_PART_INSTALL/usr/lib/pkgconfig/libfzssh-client.pc"
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/doc
+      - -usr/share/pkgconfig
+
+  filezilla:
+    # 3.72.1 is the latest stable upstream release (2026-11-16). The official
+    # artifact is
+    # https://download.filezilla-project.org/client/FileZilla_3.72.1_src.tar.xz;
+    # the tarball is mirrored by Arch Linux for the same reason as above, and
+    # 3.71.1 was verified byte-for-byte against the official tarball.
+    after: [fzssh]
+    source: https://sources.archlinux.org/other/filezilla/filezilla-3.72.1.tar.xz
+    source-checksum: sha256/e7116a7ae8f6d3e4c9e337a0b042984b7c5b57fca922666ac3d8fcafba817764
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/usr
+      - --libdir=/usr/lib
+      # snapd, not the application, installs updates. Leaving the upstream
+      # check enabled would make a pointless request and open a browser page
+      # for a version the snap cannot install.
+      - --disable-manualupdatecheck
+      - --disable-autoupdatecheck
+      # The 26.04 archive has pugixml 1.14, which satisfies the >= 1.9
+      # requirement. Do not compile the bundled copy.
+      - --with-pugixml=system
+      # GNOME session manager integration through libdbus, which the base
+      # provides.
+      - --with-dbus
+    build-environment:
+      # Build against the staged libfilezilla and fzssh. wxWidgets, pugixml,
+      # sqlite3, D-Bus and Boost come from the build packages.
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    build-packages:
+      - build-essential
+      - gettext
+      # FileZilla always compiles its regex wrapper against Boost on GCC
+      # because of GCC bug 86164; it defines BOOST_REGEX_STANDALONE, so only
+      # the headers are needed.
+      - libboost-regex-dev
+      - libdbus-1-dev
+      - libgnutls28-dev
+      - libpugixml-dev
+      - libsqlite3-dev
+      - libwxgtk3.2-dev
+      - nettle-dev
+      - pkgconf
+      # wxrc, used by the build, and the xdg-open configure looks for.
+      - wx-common
+      - xdg-utils
+    override-build: |
+      craftctl default
+
+      # Use the icon bundled in the snap instead of relying on the host icon
+      # theme, which cannot see icons inside the snap.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/filezilla.desktop"
+      sed -i -e 's|^Icon=filezilla$|Icon=${SNAP}/meta/gui/filezilla.svg|' "$desktop"
+      install -D -m 0644 "$CRAFT_PROJECT_DIR/snap/local/filezilla.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/filezilla.svg"
+
+      # AppStream metadata belongs in usr/share/metainfo; upstream still
+      # installs it under the obsolete appdata directory.
+      if [ -f "$CRAFT_PART_INSTALL/usr/share/appdata/filezilla.appdata.xml" ]; then
+        install -d "$CRAFT_PART_INSTALL/usr/share/metainfo"
+        mv "$CRAFT_PART_INSTALL/usr/share/appdata/filezilla.appdata.xml" \
+          "$CRAFT_PART_INSTALL/usr/share/metainfo/"
+        rmdir "$CRAFT_PART_INSTALL/usr/share/appdata" 2>/dev/null || true
+      fi
+    prime:
+      - -usr/lib/*.la
+      - -usr/share/doc
+
+  libraries:
+    # gnome-core26 provides GTK3, GLib, gdk-pixbuf, pango, cairo, libnotify,
+    # libSM, D-Bus, SQLite, GnuTLS, nettle, hogweed, gmp and GnuTLS' trust
+    # stack. The core26 base additionally provides the C/C++ runtime and
+    # libxkbcommon. Ship only the runtime libraries that are absent from
+    # both, plus the dependency closure that the 26.04 packages pull in.
+    after: [filezilla]
+    plugin: nil
+    stage-packages:
+      # wxWidgets 3.2.9 runtime. base, core, aui, xrc, adv, xml, html and the
+      # other modules are split between these two packages.
+      - libwxbase3.2-1t64
+      - libwxgtk3.2-1t64
+      # wxGTK links SDL2 and Xxf86vm directly; gnome-core26 has neither the
+      # SDL2 runtime nor its classic-split package. libXtst, libSM and
+      # libnotify are already part of the platform.
+      - libsdl2-2.0-0
+      - libsdl2-classic
+      - libxxf86vm1
+      # FileZilla's system pugixml and fzssh's Argon2.
+      - libpugixml1v5
+      - libargon2-1
+    prime:
+      # Keep the staged libraries (and their subdirectories, such as
+      # sdl2-classic/ and pulseaudio/), but no development or documentation
+      # files. The gnome extension's cleanup part then removes every library
+      # that gnome-core26 already provides.
+      - usr/lib/**
+      - usr/lib/*
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/pkgconfig
+
+  cleanup:
+    # Remove the remaining copies of libraries that the core26 base already
+    # ships, so that a process never loads two different copies of the same
+    # library from the base and the snap.
+    after: [filezilla, libraries]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

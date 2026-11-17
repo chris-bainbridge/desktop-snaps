@@ -1,0 +1,46 @@
+#!/bin/sh
+# Launcher for the strictly confined qBittorrent snap.
+#
+# qBittorrent and Qt were built with the usual /usr prefix, but inside the
+# snap /usr is the core26 base. Point Qt's plugin lookup and the staged
+# library, data and Python directories at $SNAP before exec'ing the binary.
+set -eu
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64|x86_64) triplet=x86_64-linux-gnu ;;
+    arm64|aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+
+# snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
+# LD_LIBRARY_PATH. Add the staged library directories, keeping the entries the
+# gpu-2604 command chain prepared for Mesa.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Core Desktop is Wayland-first. Prefer the staged Wayland plugin and fall
+# back to xcb on an X11 session or when no compositor is reachable.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# Qt looks up icons, desktop files and its own translations through the XDG
+# data directories; the base does not include $SNAP/usr/share. Keep the
+# entries the gpu wrapper has already added (Mesa's drirc and Vulkan data).
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# The base has /usr/bin/xdg-open, a wrapper around snapctl user-open, but no
+# Python interpreter in PATH. Put the staged Python 3 (used by the search
+# engine) first, and keep the normal system path after it.
+export PATH="$SNAP/usr/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+
+# qBittorrent's search engine runs the bundled Python. PYTHONHOME makes the
+# interpreter use the staged standard library if it cannot derive its prefix
+# from the executable path. The search process itself runs with -I, which
+# ignores the environment, but the binary path still resolves to $SNAP/usr.
+export PYTHONHOME="$SNAP/usr"
+
+exec "$SNAP/usr/bin/qbittorrent" "$@"
