@@ -1,0 +1,31 @@
+--- a/virtinst/buildconfig.py
++++ b/virtinst/buildconfig.py
+@@ -59,6 +59,11 @@
+         self._set_paths_by_prefix(_get_param("prefix", "/usr"))
+ 
+     def _set_paths_by_prefix(self, prefix):
++        # In a snap the application is installed under $SNAP/usr while the
++        # compile-time prefix is /usr; the snap revision directory is only
++        # known at run time.
++        if os.environ.get("SNAP"):
++            prefix = os.path.join(os.environ["SNAP"], "usr")
+         self.prefix = prefix
+         self.gettext_dir = os.path.join(prefix, "share", "locale")
+ 
+--- a/virtManager/virtmanager.py
++++ b/virtManager/virtmanager.py
+@@ -212,8 +212,12 @@
+ 
+     CLITestOptions = CLITestOptionsClass(options.test_options)
+ 
+-    # With F27 gnome+wayland we need to set these before GTK import
+-    os.environ["GSETTINGS_SCHEMA_DIR"] = BuildConfig.gsettings_dir
++    # With F27 gnome+wayland we need to set these before GTK import. In a
++    # snap the desktop-launch command chain has already put the snap's schema
++    # directory on XDG_DATA_DIRS; overriding the search path with that one
++    # directory would hide the platform's desktop schemas.
++    if not os.environ.get("SNAP"):
++        os.environ["GSETTINGS_SCHEMA_DIR"] = BuildConfig.gsettings_dir
+ 
+     # Force SSH to use askpass if a password is required,
+     # rather than possibly prompting on a terminal the user isn't looking at.

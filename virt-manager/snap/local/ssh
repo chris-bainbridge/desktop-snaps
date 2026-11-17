@@ -1,0 +1,16 @@
+#!/bin/sh
+# libvirt runs ssh(1) for qemu+ssh:// connections and virt-manager runs it for
+# the VNC/SPICE console tunnel. The base snap's global /etc/ssh/ssh_config is
+# not readable under strict confinement, so select the snap's own config with
+# -F. All arguments, including the remote command, are passed through.
+#
+# OpenSSH expands "~" from the passwd entry, which is the real home directory
+# and is not readable from this snap. Pass the paths in $HOME explicitly so
+# keys and known_hosts are taken from the snap's private home.
+exec "$SNAP/usr/bin/ssh" \
+    -F "$SNAP/etc/ssh/ssh_config" \
+    -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+    -o "IdentityFile=$HOME/.ssh/id_ed25519" \
+    -o "IdentityFile=$HOME/.ssh/id_ecdsa" \
+    -o "IdentityFile=$HOME/.ssh/id_rsa" \
+    "$@"

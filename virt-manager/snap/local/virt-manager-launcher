@@ -1,0 +1,37 @@
+#!/bin/sh
+# virt-manager is a Python 3 + GTK 3 application. The GNOME platform snap
+# provides the interpreter, PyGObject, pycairo, dbus-python and the GTK 3,
+# GdkPixbuf, VTE, libxml2 and AyatanaAppIndicator typelibs; the libvirt-GLib,
+# libosinfo, GTK-VNC, SPICE-GTK and GtkSourceView typelibs and their libraries
+# are staged inside this snap.
+#
+# The desktop-launch command chain already puts $SNAP/usr/lib/$arch and the
+# platform's GI directories on GI_TYPELIB_PATH. Set both paths explicitly as
+# well so the launcher also works through `snap run --shell`.
+export PYTHONPATH="$SNAP/usr/share/virt-manager:$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export GI_TYPELIB_PATH="$SNAP/usr/lib/girepository-1.0${SNAP_LAUNCHER_ARCH_TRIPLET:+:$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET/girepository-1.0}${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+# The GNOME command chain puts the platform and GPU libraries on the search
+# path but not the libraries staged in this snap.
+if [ -n "${SNAP_LAUNCHER_ARCH_TRIPLET:-}" ]; then
+    export LD_LIBRARY_PATH="$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+else
+    export LD_LIBRARY_PATH="$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+# The platform ships libsasl2 for qemu+tcp://, but its mechanism modules are
+# staged in this snap under a path libsasl2 does not search by default.
+if [ -n "${SNAP_LAUNCHER_ARCH_TRIPLET:-}" ]; then
+    export SASL_PATH="$SNAP/usr/lib/$SNAP_LAUNCHER_ARCH_TRIPLET/sasl2${SASL_PATH:+:$SASL_PATH}"
+fi
+# libvirt runs "ssh" from PATH for qemu+ssh:// connections. The base snap's
+# /usr/bin/ssh is not on the strict confinement's executable allowlist, so use
+# the copy staged in this snap through the bin/ssh wrapper, which selects the
+# snap's ssh_config.
+export PATH="$SNAP/bin:$SNAP/usr/bin:$PATH"
+
+# libvirt and libosinfo resolve their data under /usr/share in the base snap.
+# Point them at the copies staged in this snap instead.
+export LIBVIRT_DIR_OVERRIDE="$SNAP/usr/share/libvirt"
+export OSINFO_SYSTEM_DIR="$SNAP/usr/share/osinfo"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" \
+    -c 'from virtManager.virtmanager import runcli; runcli()' "$@"

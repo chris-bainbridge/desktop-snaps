@@ -1,0 +1,152 @@
+name: synaptic
+version: '0.92'
+summary: Graphical APT package manager (strict; no host package database)
+description: |
+  Synaptic is a graphical package manager for APT, the Debian package
+  system. In a normal installation it shows the package catalog, lets you
+  search and filter it, inspect package details, and choose packages to
+  install, upgrade or remove.
+
+  This snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. A strict snap cannot read or write the host's package
+  databases (/var/lib/dpkg, /var/lib/apt, /var/cache/apt, /etc/apt), cannot
+  gain root through pkexec or sudo, and cannot run a privileged apt/dpkg
+  transaction. The snap therefore starts against a private, empty APT cache:
+  the window opens, but it lists no packages installed on the host and cannot
+  install, upgrade or remove anything. Reload and Apply fail, and the
+  repositories editor only changes files in the snap's private area.
+
+  There is no classic-confinement variant: Core Desktop does not allow
+  classic snaps. Use the distribution's Synaptic, or another package manager
+  running with host privileges, for actual package management.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://github.com/mvo5/synaptic/wiki
+source-code: https://github.com/mvo5/synaptic
+issues: https://github.com/mvo5/synaptic/issues
+
+# Upstream 0.92 (tag 0.92, 2026-10-05) is the latest release, and the version
+# Debian carries in forky/sid. It is also the first Meson release: 0.91.7 and
+# earlier used autotools, and configure.ac/autogen.sh are gone. The tag is a
+# Debian-native tree (it contains debian/), but only the Meson build is used
+# here.
+#
+# Strict-confinement notes (Core Desktop has no classic snaps):
+#   * /var/lib/dpkg/status, /var/lib/apt/lists, /var/cache/apt and /etc/apt
+#     belong to the host and are not visible to a strict snap. No interface
+#     grants access to them: system-observe exposes /proc and /sys, not the
+#     dpkg database, and packagekit-control would drive PackageKit rather than
+#     the apt-pkg backend Synaptic uses. Neither plug is declared.
+#   * Synaptic normally runs as root: its desktop file calls synaptic-pkexec,
+#     backed by the com.ubuntu.pkexec.synaptic polkit action. A confined snap
+#     cannot use pkexec or sudo to leave its mount namespace, and a root
+#     process inside the snap would still see the snap's filesystem, not the
+#     host package database. The snap runs unprivileged; Apply cannot work.
+#   * To keep the application usable at all, bin/synaptic-apt-env generates an
+#     APT_CONFIG that points apt-pkg at a private, empty state/cache/config
+#     tree under $SNAP_USER_COMMON/apt. Without it apt-pkg opens
+#     /var/lib/dpkg/status, is denied, and Synaptic exits before showing a
+#     window.
+#   * The apt package (update methods, keyrings, dpkg) is not staged, because
+#     it could not operate on the host anyway. Reload therefore cannot fetch
+#     package lists, and only libapt-pkg, which Synaptic links against, is
+#     staged.
+#   * The polkit action file installed by upstream is inert in a snap: the
+#     host polkit only reads its own /usr/share/polkit-1/actions, and the
+#     action refers to /usr/bin/synaptic. It is removed from the prime tree.
+#   * VTE (for the dpkg progress terminal), GTK3 and the rest of the GNOME
+#     stack come from gnome-core26. The only runtime library the platform
+#     lacks is libapt-pkg.
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Synaptic is a GtkApplication and owns io.github.mvo5.synaptic on the
+  # session bus.
+  synaptic:
+    interface: dbus
+    bus: session
+    name: io.github.mvo5.synaptic
+
+apps:
+  synaptic:
+    extensions: [gnome]
+    command: usr/bin/synaptic
+    command-chain: [ bin/synaptic-apt-env ]
+    desktop: usr/share/applications/synaptic.desktop
+    plugs:
+      # GTK reads the theme, fonts and other desktop settings
+      - gsettings
+      # browse .deb files, and write logs or selections, in the user's home
+      - home
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      synaptic-apt-env: bin/synaptic-apt-env
+    prime:
+      - bin/synaptic-apt-env
+
+  synaptic:
+    source: https://github.com/mvo5/synaptic.git
+    source-type: git
+    # Tag 0.92 points at ed135d9b4153d38d4deeca0e2e71c60bfadc616a.
+    source-tag: '0.92'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      # Synaptic embeds PACKAGE_DATA_DIR and PACKAGE_LOCALE_DIR in the binary,
+      # so install to the path where the snap is mounted, then move the tree
+      # back under usr/ below.
+      - --prefix=/snap/synaptic/current/usr
+      - --buildtype=release
+      # The test binaries are not installed; skip the gtest-based one.
+      - -Dtests=disabled
+      # The Lua extension system, the experimental hold feature and
+      # launchpad-integration are not useful in the snap.
+      - -Dscripts=false
+      - -Dpkg_hold=false
+      - -Dlaunchpad_integration=false
+      # SYNAPTICSTATEDIR is compiled from localstatedir. /var is read-only
+      # under strict confinement, so use the snap's private /tmp for the apt
+      # pin preferences file. Pin preferences do not survive a restart.
+      - -Dlocalstatedir=/tmp
+    organize:
+      snap/synaptic/current/usr: usr
+    build-packages:
+      # GTK3, pango, X11, libsm, gettext and the toolchain come from the
+      # gnome-core26-sdk build snap. These are the extra build dependencies:
+      - libapt-pkg-dev          # apt-pkg headers and pkg-config file
+      - libpolkit-gobject-1-dev # required by meson.build, unused by the code
+      - libvte-2.91-dev         # terminal widget for the dpkg progress view
+      - xmlto                   # builds the HTML manual
+    override-build: |
+      craftctl default
+      # Upstream's desktop file launches synaptic-pkexec. A strict snap cannot
+      # use pkexec; launch the application directly. Snapcraft rewrites the
+      # exported Exec line, but keep the in-snap copy consistent.
+      sed -i 's|^Exec=synaptic-pkexec$|Exec=synaptic|' \
+        "$CRAFT_PART_INSTALL/snap/synaptic/current/usr/share/applications/synaptic.desktop"
+    prime:
+      - -usr/share/doc
+      # The host polkit does not read actions from inside a snap, and the
+      # action's pkexec path (/usr/bin/synaptic) does not exist on the host.
+      - -usr/share/polkit-1
+
+  libraries:
+    after: [synaptic]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 does not ship libapt-pkg. Everything libapt-pkg needs at
+      # runtime (libssl, libsystemd, liblz4, liblzma, libzstd, libbz2, zlib,
+      # libstdc++) is already in core26 or gnome-core26.
+      - libapt-pkg7.0
+    stage:
+      - usr/lib/*/libapt-pkg.so.*

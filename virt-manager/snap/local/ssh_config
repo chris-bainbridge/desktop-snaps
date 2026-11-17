@@ -1,0 +1,12 @@
+# The base snap's /etc/ssh/ssh_config and /etc/ssh/ssh_known_hosts are not
+# readable inside a strictly confined snap. The ssh wrapper in this snap
+# selects this file with -F, which also makes ssh ignore the unreadable global
+# files. Per-user settings from the snap's private home are still read.
+GlobalKnownHostsFile /dev/null
+# The host's ssh-agent socket is outside the snap's confinement. Keys copied
+# to $HOME/.ssh are used directly instead.
+IdentityAgent none
+Include ~/.ssh/config
+# OpenSSH expands ~ inside the included file from the passwd entry, which is
+# the real home directory. Use absolute paths under
+# /home/<user>/snap/virt-manager/current/.ssh for non-default key names.

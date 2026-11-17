@@ -1,0 +1,372 @@
+name: input-leap
+version: '3.0.3'
+summary: Share one keyboard, mouse and clipboard between computers
+description: |
+  Input Leap lets one keyboard and mouse control several computers on a
+  desk: the machine whose screen edge the pointer leaves (the server)
+  forwards the input over the network to the other machines (the clients),
+  and X11 clipboards can be shared. It is the fork of Barrier created by
+  Barrier's own maintainers. Release 3.0.3 (2025-06-13) is the last release;
+  upstream archived the repository in July 2026.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. Input Leap 3.0.3 has two Linux input backends and strict
+  confinement determines what each can do:
+
+  - X11. The traditional backend captures input with
+    XGrabKeyboard()/XGrabPointer() and injects it with the XTEST extension
+    through the socket the x11 interface exposes. It works as intended only
+    on a legacy X11 session, where that socket is the real X server. On a
+    Wayland session the GUI and this backend can run on XWayland, but
+    XWayland is a nested X server: the Wayland compositor owns the keyboard,
+    pointer and focus, so grabs apply only while an XWayland window has
+    focus and XTEST events reach only XWayland's own clients. The backend
+    cannot capture the whole session or type into native Wayland
+    applications. Select it with --use-x11 (or --display); otherwise it is
+    the fallback when no Wayland session is detected. The GUI has no backend
+    switch, so forcing X11 on a Wayland session means starting input-leaps
+    directly with --use-x11.
+
+  - libei (EI). This is the default on Wayland and the only backend that can
+    work with a native Wayland session under strict confinement. It does not
+    use the display server socket: the server role asks the desktop's
+    org.freedesktop.portal.InputCapture portal for permission and receives
+    input through libei's EIS transport, and the client role uses
+    org.freedesktop.portal.RemoteDesktop with ConnectToEIS to inject events.
+    Ubuntu 26.04's GNOME 50 portal backend implements both. A strict snap
+    reaches the portals over the session bus, which the desktop interface
+    (connected automatically) allows, so both roles can work without
+    classic confinement. The compositor keeps control: GNOME asks the user
+    for permission when a session is created and only starts capture after
+    the pointer crosses a screen-edge barrier. The portal identifies the
+    requesting application as "snap.input-leap" (the InputCapture dialog
+    shows that name). Input Leap uses transient sessions, so the question is
+    asked again on every start and cannot be pre-approved with a snap
+    connection. A compositor with these portal implementations is required;
+    older or non-GNOME desktops may lack InputCapture, in which case the
+    server has to be started with --use-x11 to use the X11 backend instead
+    (the selection itself has no automatic fallback). Clipboard sharing is
+    not implemented on the libei/Wayland path. Upstream's GUI shows its
+    Wayland advisory dialog on every start when it runs as a native Wayland
+    client.
+
+  Not available, and not used by this release:
+
+  - /dev/uinput. snapd's uinput interface is privileged, is not connected
+    automatically and is not declared here. Input Leap 3.0.3 has no uinput
+    backend in any case.
+  - /dev/input/event*. No evdev backend exists in Input Leap 3.0.3. The
+    joystick interface covers only game controllers and is not declared.
+  - The libei backend's non-portal mode (--disable-portal together with a
+    LIBEI_SOCKET path) cannot work under strict confinement: the host's EIS
+    socket is outside the directories the snap may connect to. The portal
+    mode, which is the default, passes a connected file descriptor over
+    D-Bus instead of a path.
+
+  Other strict-confinement limits:
+
+  - Configuration, the generated TLS certificate and accepted fingerprints
+    live in the snap's private area,
+    ~/snap/input-leap/current/.config/InputLeap, not in ~/.config/InputLeap;
+    they are not shared with a distribution package of Input Leap. The
+    system-wide /etc/input-leap.conf is not visible: use the GUI's own
+    configuration or pass --config with a path in the home directory.
+  - mDNS peer discovery uses the host avahi-daemon. The avahi interfaces are
+    not connected automatically:
+      sudo snap connect input-leap:avahi-observe
+      sudo snap connect input-leap:avahi-control
+    Without them, enter the peer's address manually.
+  - The "log to file" option cannot write to /var/log inside the sandbox;
+    use the log pane, or point the log filename at a file in the home
+    directory.
+  - There is no autostart service. Start the GUI and press Start, or run
+    "snap run input-leap.input-leaps" / "snap run input-leap.input-leapc"
+    in a terminal. A server started by the GUI inherits the GUI's plugs. The
+    two command-line apps carry hidden desktop entries so that snapd's
+    portal-info lookup can identify them when they are started directly;
+    without such an entry the portals refuse the request.
+  - The screen-change script option can only execute files inside the snap
+    or its private home area; scripts elsewhere on the host are outside the
+    sandbox.
+  - The tray icon is a Qt StatusNotifierItem on Wayland and an XEmbed icon
+    on X11. GNOME Shell does not show StatusNotifierItem without an
+    extension, so "minimize to tray" can hide the window with no visible
+    icon to restore it; use the window instead.
+  - core26 provides only the XErrorDB part of libx11-data and no X11
+    locale/compose data; the gnome extension points XLOCALEDIR at a tree
+    that has none. XIM input methods in the X11 backend, and compose
+    sequences for Qt's compose input plugin, are therefore unavailable by
+    default (XCOMPOSEFILE can supply a compose file for one user). Plain
+    keysym handling is unaffected, and so is the libei backend, which gets
+    its keymap from the compositor.
+  - Qt 6.10 is staged from the 26.04 archive because snapcraft's KDE
+    extensions support only core22 and core24 and no KDE Frameworks are
+    needed. Host Qt/KDE themes are not visible; Qt falls back to Fusion.
+  - Drag and drop between machines is not implemented on Linux upstream.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Input Leap is built from the pinned upstream
+# release; the GUI is Qt 6 and the runtime libraries the platform lacks are
+# staged from the 26.04 archive. No prebuilt Input Leap binaries are embedded.
+#
+# Qt approach: Input Leap supports Qt 5 (>= 5.9) and Qt 6 (>= 6.2) and
+# defaults to Qt 6 (QT_DEFAULT_MAJOR_VERSION 6). snapcraft's kde-neon and
+# kde-neon-6 extensions only support core22/core24, and no KDE Frameworks are
+# used, so Qt 6.10.2 from the 26.04 archive is staged below. Qt's platform
+# plugins (xcb in libqt6gui6, Wayland in libqt6waylandclient6 plus the
+# xdg-shell integration) are staged too; Qt 6.10 prefers Wayland when
+# WAYLAND_DISPLAY or XDG_SESSION_TYPE=wayland is present and falls back to
+# xcb, so the GUI runs natively on Wayland with an XWayland fallback.
+#
+# Input backend approach: both Linux backends are built. X11 provides the
+# legacy backend (and the only option on a real X11 session); libei provides
+# the Wayland path through the InputCapture and RemoteDesktop portals. The
+# choice is automatic (libei when WAYLAND_DISPLAY or LIBEI_SOCKET is set,
+# otherwise X11) and --use-x11/--use-ei override it.
+#
+# Runtime approach: the gnome extension supplies the gnome-core26 platform
+# (fonts, fontconfig, GLib/GIO, libportal, libXtst, libXi, libXinerama,
+# libXrandr, libICE, libSM) and the gpu-2604 content snap (Mesa, libX11,
+# libXext, libXfixes, libXau, libXdmcp, libxcb core, libwayland). The runtime
+# part lists the packages those snaps lack; the extension's cleanup prunes
+# anything the SDK or the platform already provides, and the cleanup part at
+# the end drops shared libraries that core26 itself ships.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+# GPL-2.0 with an exemption that allows linking against OpenSSL.
+license: GPL-2.0-only
+website: https://github.com/input-leap/input-leap
+source-code: https://github.com/input-leap/input-leap
+issues: https://github.com/input-leap/input-leap/issues
+
+icon: snap/local/input-leap.svg
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  input-leap:
+    extensions: [gnome]
+    command: usr/bin/input-leap
+    desktop: usr/share/applications/io.github.input_leap.input-leap.desktop
+    common-id: io.github.input_leap.input-leap
+    # The gnome extension also adds desktop, desktop-legacy, opengl, wayland
+    # and x11 to every app. They are listed here as well because they are
+    # what makes the snap work: desktop allows the portal calls, wayland and
+    # x11 are the display sockets, and opengl is the gpu-2604 content snap.
+    # snapcraft merges the lists and removes the duplicates.
+    plugs:
+      - avahi-control  # register this machine's mDNS service; not automatic
+      - avahi-observe  # browse for peers; not automatic
+      - desktop        # portal access and snapctl user-open
+      - desktop-legacy # legacy desktop paths used by Qt
+      - home           # configuration files and logs in the user's home
+      - network        # connect to the other machines
+      - network-bind   # the server it starts listens on TCP 24800
+      - opengl         # GPU access through the gpu-2604 content snap
+      - wayland        # native Wayland session
+      - x11            # X11 session, and XWayland on Wayland desktops
+
+  input-leaps:
+    # The server role. Started by the GUI, or with
+    # "snap run input-leap.input-leaps"; the hidden desktop entry is needed
+    # for snapd's portal-info when it is started directly. The extension
+    # also gives it desktop (portal access), wayland/x11 (the display
+    # sockets) and opengl.
+    extensions: [gnome]
+    command: usr/bin/input-leaps
+    desktop: usr/share/applications/input-leaps.desktop
+    plugs:
+      - home           # configuration and --log files in the user's home
+      - network        # connect to the clients and to the GUI's local IPC
+      - network-bind   # listen on TCP 24800
+
+  input-leapc:
+    # The client role. Started by the GUI, or with
+    # "snap run input-leap.input-leapc"; the extension adds desktop (portal
+    # access) and wayland/x11 just as for the other apps.
+    extensions: [gnome]
+    command: usr/bin/input-leapc
+    desktop: usr/share/applications/input-leapc.desktop
+    plugs:
+      - home           # --log files and trusted fingerprint database
+      - network        # reach the server
+
+parts:
+  local:
+    # The two hidden desktop entries. They make the command-line apps
+    # identifiable to snapd's portal-info lookup, which xdg-desktop-portal
+    # uses to build the app identity for the InputCapture and RemoteDesktop
+    # portals. Snapcraft turns each of them into meta/gui/input-leaps.desktop
+    # and meta/gui/input-leapc.desktop, which is what snapd exports. The
+    # project icon lives here too but is not part of the payload; snapcraft
+    # copies it to meta/gui/icon.svg for the exported desktop files.
+    plugin: dump
+    source: snap/local
+    organize:
+      input-leaps.desktop: usr/share/applications/input-leaps.desktop
+      input-leapc.desktop: usr/share/applications/input-leapc.desktop
+    prime:
+      - -input-leap.svg
+
+  input-leap:
+    # v3.0.3 is the newest (and final) stable upstream release, 2025-06-13.
+    # The GitHub archive contains the release tree; both git submodules
+    # (googletest, gulrak-filesystem) are unused because tests are disabled
+    # and C++17 std::filesystem is used.
+    source: https://github.com/input-leap/input-leap/archive/refs/tags/v3.0.3.tar.gz
+    source-checksum: sha256/fbbf6e3f99abccfc3592939a039daf13f0e003dd33764c7c591d354b1a6c07eb
+    plugin: cmake
+    override-pull: |
+      craftctl default
+      # XKBUtil.cpp uses size_t without including <cstddef>; upstream fixed
+      # this right after v3.0.3 (commit 6b87931) for stricter compilers and
+      # standard libraries that do not provide the type transitively.
+      patch -p1 --batch \
+        < "${CRAFT_PROJECT_DIR}/patches/0001-xkbutil-include-cstddef.patch"
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # The tarball has no .git, so do not let Version.cmake run git log.
+      - -DINPUTLEAP_VERSION_DESC=release
+      - -DQT_DEFAULT_MAJOR_VERSION=6
+      - -DINPUTLEAP_BUILD_GUI=ON
+      # The tests need GTest, Qt Test and an X server, and are not shipped.
+      - -DINPUTLEAP_BUILD_TESTS=OFF
+      # Both Linux backends: X11 for legacy sessions, libei for Wayland.
+      - -DINPUTLEAP_BUILD_X11=ON
+      - -DINPUTLEAP_BUILD_LIBEI=ON
+      # C++17 std::filesystem instead of the bundled gulrak-filesystem.
+      - -DINPUTLEAP_BUILD_GULRAK_FILESYSTEM=OFF
+    build-packages:
+      # The core26 build environment has a C++ compiler and make, but no
+      # CMake, pkg-config, Qt, OpenSSL, Bonjour, X11, libei or libportal
+      # headers.
+      - build-essential
+      - cmake
+      - patch
+      - pkgconf
+      - qt6-base-dev          # Core, Gui, Widgets, Network, DBus, moc/uic/rcc
+      - qt6-tools-dev         # Qt6LinguistTools (lrelease support)
+      - qt6-l10n-tools        # lrelease, used for the embedded translations
+      - libssl-dev            # TLS transport and certificate generation
+      - libavahi-compat-libdnssd-dev  # dns_sd.h for the Zeroconf GUI
+      - libx11-dev            # Xlib and XKB headers
+      - libxtst-dev           # XTEST injection
+      - libxi-dev             # XInput2, used to watch input
+      - libxinerama-dev
+      - libxrandr-dev
+      - libxext-dev           # DPMS header
+      - libice-dev            # session management, found by CMake
+      - libsm-dev
+      - libxkbcommon-dev      # EiKeyState and the libei backend
+      - libglib2.0-dev        # GLib/GIO, required by the libei backend
+      - libei-dev             # libei-1.0 >= 0.99.1
+      - libportal-dev         # InputCapture and RemoteDesktop portals
+    override-build: |
+      craftctl default
+
+      # Qt's compiled-in Prefix is /usr, which inside the snap is the core26
+      # base. A qt.conf next to the GUI binary relocates Qt's plugin lookup
+      # to the staged tree. Prefix is relative to usr/bin.
+      cat > "$CRAFT_PART_INSTALL/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Translations = share/qt6/translations
+      EOF
+
+  runtime:
+    # Stage the Qt 6 and input runtime that the base and gnome-core26 lack.
+    # The gnome/gpu cleanup parts remove whatever the SDK and content snaps
+    # already provide, so this list can name the directly linked libraries
+    # as well as the extras; only the missing pieces survive into the snap.
+    after: [input-leap]
+    plugin: nil
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6gui6        # xcb, minimal and offscreen platform plugins
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6dbus6       # StatusNotifierItem tray and QtDBus
+      - libqt6opengl6     # needed by the Wayland client library
+      # The Wayland platform plugin: libqt6waylandclient6 provides
+      # libqwayland.so, libqt6wlshellintegration6 provides xdg-shell.
+      - libqt6waylandclient6
+      - libqt6wlshellintegration6
+      # EI transport for the libei backend; gnome-core26 has no libei.
+      - libei1
+      # dns_sd.h's runtime, used by the GUI for mDNS; neither the base nor
+      # gnome-core26 carries the Bonjour compatibility library.
+      - libavahi-compat-libdnssd1
+      # Qt 6.10's direct dependencies that the platform does not ship.
+      - libb2-1
+      - libdouble-conversion3
+      - libmd4c0
+      - libts0t64
+      # The X libraries Input Leap links. The ones gnome-core26 has (libXtst,
+      # libXi, libXinerama, libXrandr, libICE, libSM) are pruned by the
+      # extension's cleanup; libX11, libXext, libXfixes, libXau, libXdmcp and
+      # the core xcb library come from the gpu-2604 content snap at run time.
+      - libx11-6
+      - libx11-xcb1
+      - libxext6
+      - libxtst6
+      - libxi6
+      - libxinerama1
+      - libxrandr2
+      - libice6
+      - libsm6
+      # Extensions of libxcb that Qt's xcb platform plugin loads. They are in
+      # neither the base, gnome-core26 nor the Mesa content snap.
+      - libxcb-cursor0
+      - libxcb-icccm4
+      - libxcb-image0
+      - libxcb-keysyms1
+      - libxcb-render-util0
+      - libxcb-util1
+      - libxcb-xinput0
+      - libxcb-xkb1
+      # The X11 integration library for libxkbcommon; gnome-core26 only ships
+      # the core libxkbcommon, which Qt's xcb plugin cannot use without this.
+      - libxkbcommon-x11-0
+    prime:
+      # Runtime packages do not need development files or documentation.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      # Plugins whose dependencies are not shipped and which a desktop Qt
+      # app never loads. Keeping them would only produce loader warnings.
+      - -usr/lib/*/qt6/plugins/generic/libqevdev*.so
+      - -usr/lib/*/qt6/plugins/generic/libqlibinput*.so
+      - -usr/lib/*/qt6/plugins/generic/libqtslib*.so
+      - -usr/lib/*/qt6/plugins/imageformats/libqmng.so
+      - -usr/lib/*/qt6/plugins/imageformats/libqtiff.so
+      - -usr/lib/*/qt6/plugins/imageformats/libqwebp.so
+      - -usr/lib/*/qt6/plugins/platforminputcontexts/libibus*.so
+
+  cleanup:
+    # The staged Qt dependency tree contains copies of libraries that the
+    # core26 base already ships (libstdc++, glibc, OpenSSL, ...). Loading two
+    # copies in one process is not safe, so drop every primed shared library
+    # whose path also exists in the base, exactly as the other core26
+    # recipes do. Libraries provided by gnome-core26 and gpu-2604 are
+    # removed by the extension's own cleanup parts.
+    after: [input-leap, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

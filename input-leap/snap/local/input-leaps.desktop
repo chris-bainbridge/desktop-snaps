@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Input Leap Server
+Comment=Share this computer's keyboard and mouse with Input Leap clients
+Exec=input-leap.input-leaps
+Terminal=true
+NoDisplay=true
+Categories=Network;
+Keywords=keyboard;mouse;sharing;network;

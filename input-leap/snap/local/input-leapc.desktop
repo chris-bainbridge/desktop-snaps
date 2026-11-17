@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Input Leap Client
+Comment=Use another computer's keyboard and mouse through Input Leap
+Exec=input-leap.input-leapc
+Terminal=true
+NoDisplay=true
+Categories=Network;
+Keywords=keyboard;mouse;sharing;network;

@@ -1,0 +1,163 @@
+name: hardinfo
+version: '2.3.1'
+summary: System information and benchmark tool
+description: |
+  HardInfo2 gathers information about the processor, memory, motherboard,
+  firmware, storage, USB and PCI devices, displays, sensors, network and
+  operating system, and includes CPU, memory, zlib and drawing benchmarks.
+  It has a GTK3 interface and can also write HTML and plain-text reports from
+  the command line.
+
+  The snap is strictly confined and runs as the user. HardInfo2's optional
+  root service, which pre-collects data that normally requires root, cannot
+  run inside a snap, so dmidecode-based details (memory modules, processor
+  socket, some firmware values), the hardware addresses in /proc/iomem and
+  /proc/ioports, SPD EEPROM data, IPMI sensors and debugfs values are
+  unavailable. The Qt5 OpenGL and Vulkan benchmark panels are not built.
+
+  Sensor and system readings need the hardware-observe and system-observe
+  interfaces, which are not auto-connected: connect them with
+  `snap connect hardinfo:hardware-observe` and
+  `snap connect hardinfo:system-observe`.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://hardinfo2.org
+source-code: https://github.com/hardinfo2/hardinfo2
+issues: https://github.com/hardinfo2/hardinfo2/issues
+
+# Upstream: HardInfo2 2.3.1 (tag release-2.3.1, 2026-07-03), the maintained
+# fork. The original lpereira/hardinfo README says that repository is being
+# decommissioned and that development continues in hardinfo2; Ubuntu 26.04
+# packages hardinfo2 2.2.16, with "hardinfo" as a transitional package that
+# depends on it.
+#
+# Build system: CMake (upstream default). GTK3 is the default
+# (HARDINFO2_GTK3=1) and libsoup 3 is used. Qt5 and Vulkan are optional and
+# only needed by the OpenGL/Vulkan benchmark panels.
+#
+# Strict-confinement limitations (Core Desktop has no classic snaps, so the
+# snap must stay strict):
+#   * Upstream's systemd unit runs hwinfo2_fetch_sysdata as root and writes
+#     /run/hardinfo2/{dmi_memory,dmi_memarray,iomem,ioports,mmc*_ios,...}.
+#     A snap cannot install or run a root systemd service, so that helper
+#     script is not shipped and the app falls back to unprivileged sources.
+#   * dmidecode needs root (and /dev/mem); it is not shipped. DMI strings
+#     that the kernel exposes in /sys/devices/virtual/dmi/id (vendor,
+#     product, board, BIOS, chassis) are world-readable and work with
+#     hardware-observe. The detailed SMBIOS tables in
+#     /sys/firmware/dmi/tables (mode 0400) and everything decoded from them
+#     (DIMM arrays/devices, processor socket/voltage, some firmware fields)
+#     are unavailable.
+#   * /proc/iomem and /proc/ioports are readable with hardware-observe, but
+#     the kernel zeroes the addresses for unprivileged readers, so the
+#     Resources page has little useful address data.
+#   * /sys/kernel/debug is mode 0700 and not covered by hardware-observe;
+#     MMC/SD interface details and AMDGPU debugfs clock/voltage values are
+#     missing.
+#   * Loading the spd5118/ee1004/at24 modules and decoding SPD EEPROMs needs
+#     root; RAM module (SPD) details are therefore absent.
+#   * IPMI sensors need ipmi-sensors and root; that data is absent.
+#   * External helper programs used by some benchmark/network panels
+#     (sysbench, iperf3, fwupd, vulkan-tools, mesa-utils, x11-xserver-utils)
+#     are not shipped. The built-in CPU, memory, zlib and GTK drawing
+#     benchmarks work. The OpenGL benchmark is disabled because core26 has
+#     no Qt5 extension and shipping the full Qt5 stack for one panel is
+#     disproportionate; the Vulkan benchmark is disabled for the same
+#     reason (it also needs libdecor and glslang).
+#   * HardInfo2 reads /usr/lib/os-release (and /etc/os-release), which in
+#     the snap are the core26 base's files, so the OS page names Ubuntu Core
+#     26 rather than the host distribution. The `dpkg -l` probe that
+#     upstream uses to tell derivatives apart also finds no dpkg in the
+#     core26 base. The host's os-release is visible at
+#     /var/lib/snapd/hostfs/etc/os-release with system-observe, but upstream
+#     does not read that path.
+#   * The "Users" page reads /etc/passwd, i.e. the base's user database, so
+#     it does not show the host's user accounts.
+#   * No udisks2 plug is declared: udisks2 is a privileged, manually
+#     connected interface. Storage comes from /sys and lsblk instead, so
+#     udisks2-only fields (some drive models, SMART attributes) are absent.
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  hardinfo:
+    extensions: [gnome]
+    command: usr/bin/hardinfo2
+    desktop: usr/share/applications/hardinfo2.desktop
+    plugs:
+      # /sys/{bus,class,devices,firmware}/**, /proc/{cpuinfo,modules,...}
+      # and the hwmon sensor files; manual connection.
+      - hardware-observe
+      # /proc/stat, /proc/meminfo, /proc/net and the other system counters;
+      # manual connection.
+      - system-observe
+      # GTK reads the desktop's theme, font and accessibility settings.
+      - gsettings
+      # Reports are saved through a GTK file chooser; manual connection.
+      - home
+      # Online benchmark comparison and the update check talk to
+      # api.hardinfo2.org over HTTPS.
+      - network
+
+parts:
+  hardinfo:
+    source: https://github.com/hardinfo2/hardinfo2/archive/refs/tags/release-2.3.1.tar.gz
+    source-checksum: sha256/59b30378127dde8e0af92de1a23ebcee706820a862581a603543a99c357bcecb
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=Release
+      # HardInfo2 forces CMAKE_INSTALL_PREFIX to /usr in its top-level
+      # CMakeLists.txt (a -D would be overwritten), so override-pull rewrites
+      # that line to the runtime mount path; organize moves the tree back
+      # under usr/ below.
+      - -DHARDINFO2_GTK3=1
+      - -DHARDINFO2_LIBSOUP3=1
+      # No root service, no systemd unit, no root helper data.
+      - -DHARDINFO2_SERVICE=0
+      # See the confinement notes above: the GPU benchmark panels would need
+      # the whole Qt5 and Vulkan stacks, neither of which is in core26.
+      - -DHARDINFO2_QT5=0
+      - -DHARDINFO2_QT6=0
+      - -DHARDINFO2_VK=0
+    organize:
+      snap/hardinfo/current/usr: usr
+    build-packages:
+      # gnome-core26-sdk provides GTK3 3.24, GLib/GIO, cairo, pango,
+      # gdk-pixbuf, json-glib, libsoup-3.0, X11, zlib, gettext, CMake and
+      # the C toolchain. Only the sensor library and make are absent.
+      - libsensors-dev
+      - make
+    override-pull: |
+      set -eux
+      craftctl default
+      # Upstream forces CMAKE_INSTALL_PREFIX to /usr, where the compiled-in
+      # data and module paths (PREFIX/LIBPREFIX in config.h.cmake) would
+      # resolve to the core26 base instead of the snap. Point them at the
+      # runtime mount; organize moves the installed tree to usr/ afterwards.
+      sed -i 's|^SET(CMAKE_INSTALL_PREFIX "/usr")$|SET(CMAKE_INSTALL_PREFIX "/snap/hardinfo/current/usr")|' CMakeLists.txt
+      grep -q '^SET(CMAKE_INSTALL_PREFIX "/snap/hardinfo/current/usr")$' CMakeLists.txt
+    prime:
+      # This helper only makes sense when run as root by upstream's systemd
+      # unit, which a strictly confined snap cannot provide.
+      - -usr/bin/hwinfo2_fetch_sysdata
+
+  libraries:
+    # gnome-core26 provides GTK3, GLib/GIO, cairo, pango, gdk-pixbuf,
+    # json-glib, libsoup-3.0 and the gdk-pixbuf loaders. The core26 base
+    # provides zlib, and the gnome extension's mesa-2604 content snap
+    # provides libX11. Ship only the runtime library that is absent from all
+    # of them.
+    after: [hardinfo]
+    plugin: nil
+    stage-packages:
+      # libsensors5 reads the hwmon entries that hardware-observe exposes and
+      # gives them the usual chip/label names. libsensors-config is pulled in
+      # as a dependency, but its /etc/sensors3.conf would land in the base's
+      # /etc rather than the snap's, so only the library is primed.
+      - libsensors5
+    prime:
+      - usr/lib/*/libsensors.so.*

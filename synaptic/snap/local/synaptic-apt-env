@@ -1,0 +1,57 @@
+#!/bin/sh
+# Give apt-pkg a private, writable root before Synaptic starts.
+#
+# Synaptic is an APT front-end. By default apt-pkg reads /etc/apt and
+# /var/lib/dpkg/status, which a strictly confined snap cannot access; apt-pkg
+# then fails to build a cache and Synaptic exits before opening a window.
+#
+# APT_CONFIG replaces the main apt configuration file, and the Dir:: options
+# below redirect every path apt-pkg would use into the snap's per-user area.
+# The status file is deliberately left empty: the host's installed-package
+# database is not visible from this snap, and nothing can be installed or
+# removed under strict confinement.
+#
+# No apt methods or dpkg are shipped, so Reload and Apply still fail. This
+# configuration exists so the application starts and its interface can be
+# inspected, not to make package management work.
+
+set -eu
+
+root="${SNAP_USER_COMMON:-${SNAP_USER_DATA:-$HOME}}/apt"
+
+mkdir -p \
+    "$root/state/lists/partial" \
+    "$root/cache/archives/partial" \
+    "$root/etc/apt.conf.d" \
+    "$root/etc/sources.list.d" \
+    "$root/etc/preferences.d" \
+    "$root/etc/trusted.gpg.d" \
+    "$root/log"
+
+# apt-pkg treats a missing status file as an empty database, but creating it
+# keeps the private root self-describing.
+: >> "$root/state/status"
+
+conf="$root/apt.conf"
+cat > "$conf" <<EOF
+Dir::State "$root/state";
+Dir::State::status "$root/state/status";
+Dir::State::lists "$root/state/lists";
+Dir::State::extended_states "$root/state/extended_states";
+Dir::Cache "$root/cache";
+Dir::Cache::archives "$root/cache/archives";
+Dir::Etc "$root/etc";
+Dir::Etc::main "$root/etc/apt.conf";
+Dir::Etc::parts "$root/etc/apt.conf.d";
+Dir::Etc::sourcelist "$root/etc/sources.list";
+Dir::Etc::sourceparts "$root/etc/sources.list.d";
+Dir::Etc::preferences "$root/etc/preferences";
+Dir::Etc::preferencesparts "$root/etc/preferences.d";
+Dir::Etc::trusted "$root/etc/trusted.gpg";
+Dir::Etc::trustedparts "$root/etc/trusted.gpg.d";
+Dir::Bin::methods "$SNAP/usr/lib/apt/methods";
+Dir::Log "$root/log";
+EOF
+
+export APT_CONFIG="$conf"
+exec "$@"

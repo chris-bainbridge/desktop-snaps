@@ -1,0 +1,6 @@
+snap: hardinfo
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/hardinfo2/hardinfo2 (release-2.3.1)
+imported: '2026-11-17'

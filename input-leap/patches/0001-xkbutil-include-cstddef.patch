@@ -1,0 +1,18 @@
+Description: Add the missing <cstddef> include for size_t
+ XKBUtil.cpp uses size_t without including <cstddef>. Upstream fixed this
+ right after v3.0.3 in commit
+ 6b8793192dae072582917728b49e1f67c75b9f6c ("Fix missing size_t include in
+ XKBUtil.cpp for stricter compilers"), because not every toolchain and
+ standard library provides the type transitively through the X11 headers.
+
+--- a/src/lib/platform/XKBUtil.cpp
++++ b/src/lib/platform/XKBUtil.cpp
+@@ -20,6 +20,8 @@
+ 
+ #include "inputleap/key_types.h"
+ 
++#include <cstddef>
++
+ #define XK_APL
+ #define XK_ARABIC
+ #define XK_ARMENIAN

@@ -1,0 +1,246 @@
+name: virt-manager
+version: '5.1.0'
+summary: Desktop tool for managing virtual machines via libvirt
+description: |
+  Virtual Machine Manager (virt-manager) is a desktop application for managing
+  virtual machines through libvirt. It can start, stop, create and delete
+  guests, change their virtual hardware, open graphical and serial consoles,
+  migrate machines and show resource usage for local or remote libvirt hosts.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences for a libvirt client:
+
+  - The host's libvirt sockets (/var/run/libvirt/libvirt-sock and the session
+    socket below /run/user) cannot be reached from a strictly confined snap,
+    so the local qemu:///system and qemu:///session connections do not work.
+    Only remote connections are usable, for example
+    qemu+ssh://user@host/system or qemu+tcp://host/system. Add one with
+    File > Add Connection; use qemu+ssh:// for key-based authentication and
+    qemu+tcp:// for SASL or unauthenticated TCP.
+  - Host SSH keys and the host ssh-agent are not available. $HOME inside the
+    snap is ~/snap/virt-manager/<revision>, and the home interface hides
+    dot-directories such as ~/.ssh. Copy the private key (mode 0600) into
+    ~/snap/virt-manager/current/.ssh and put host settings in
+    ~/snap/virt-manager/current/.ssh/config; the snap's ssh wrapper looks
+    there for known_hosts as well. Password prompts cannot be answered: the
+    snap has no terminal and no askpass helper, so key-based authentication
+    is required. Add the remote host key to known_hosts first, or set
+    StrictHostKeyChecking in that config, because the non-interactive SSH
+    connection cannot answer the host-key prompt. The SSH console tunnel also
+    runs nc on the remote host.
+  - Only non-hidden files in your home directory are visible. The file
+    chooser can open ISOs and save screenshots there, but disk paths for a
+    remote libvirt connection are interpreted on the remote host, not here.
+  - USB redirection from the SPICE console is unavailable because the snap
+    has no raw-usb interface. Guest audio from the VNC or SPICE console is not
+    routed to the desktop either, since no audio-playback interface is
+    connected.
+  - libguestfs virtual machine inspection is not included.
+  - The host's libvirt, QEMU, virsh, virt-install and qemu-img are not visible.
+    The snap talks to the remote libvirt API directly and ships its own
+    libvirt client library.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Everything virt-manager needs beyond the GNOME
+# runtime is staged from the 26.04 archive or built from the upstream source;
+# no vendor binaries are embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://virt-manager.org/
+source-code: https://github.com/virt-manager/virt-manager
+issues: https://github.com/virt-manager/virt-manager/issues
+
+icon: snap/local/virt-manager.png
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Gtk.Application registers org.virt-manager.virt-manager on the session bus
+  # for single-instance handling and for "virt-manager -c URI" calls that
+  # dispatch to an already running manager window.
+  virt-manager:
+    interface: dbus
+    bus: session
+    name: org.virt-manager.virt-manager
+
+apps:
+  virt-manager:
+    extensions: [gnome]
+    command: bin/virt-manager-launcher
+    desktop: usr/share/applications/virt-manager.desktop
+    common-id: virt-manager.desktop
+    plugs:
+      - gsettings # dconf storage for org.virt-manager.* and the desktop theme
+      - home      # ISO images, screenshots and the file chooser
+      - network   # remote libvirt over SSH or TCP, and the VNC/SPICE consoles
+      # network-bind is not needed: the SPICE/VNC clients only connect out,
+      # and the SSH console tunnel uses a socketpair rather than a listener.
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      virt-manager-launcher: bin/virt-manager-launcher
+      ssh: bin/ssh
+      ssh_config: etc/ssh/ssh_config
+    # virt-manager.png is the store/desktop icon referenced by the top-level
+    # icon key, not a runtime file of its own.
+    prime:
+      - bin/ssh
+      - bin/virt-manager-launcher
+      - etc/ssh/ssh_config
+
+  runtime-deps:
+    plugin: nil
+    stage-packages:
+      # The gnome extension's gnome-core26 platform snap already provides
+      # Python 3.14, PyGObject, pycairo, dbus-python, the GTK 3, GdkPixbuf,
+      # VTE, libxml2 and AyatanaAppIndicator typelibs, and the X11, Wayland,
+      # VA-API and Mesa libraries through the gpu-2604 content snap. These are
+      # the modules, typelibs and libraries it does not ship:
+      - python3-libvirt          # libvirt.py and the libvirtmod extension
+      - gir1.2-libvirt-glib-1.0  # LibvirtGLib/LibvirtGObject typelibs
+      - libvirt-glib-1.0-0       # the libraries behind those typelibs
+      - libvirt0                 # libvirt.so.0, used by libvirtmod
+      - libvirt-common           # cpu_map and schema data for libvirt
+      - gir1.2-libosinfo-1.0     # Libosinfo typelib, imported by virtinst
+      - libosinfo-1.0-0          # the library behind the typelib
+      - libosinfo-l10n           # translations used by the OS list
+      - osinfo-db                # the operating system database
+      - gir1.2-gtk-vnc-2.0       # the VNC console widget and its typelibs
+      - libgtk-vnc-2.0-0
+      - libgvnc-1.0-0
+      - gir1.2-spiceclientgtk-3.0 # the SPICE console widget
+      - gir1.2-spiceclientglib-2.0
+      - libspice-client-gtk-3.0-5
+      - libspice-client-glib-2.0-8
+      - gir1.2-gtksource-4       # syntax highlighting in the XML editor
+      - libgtksourceview-4-0
+      - libgtksourceview-4-common
+      - python3-requests         # fetching install trees from URLs
+      # The platform's python3-libxml2 extension module loads libxml2.so.16,
+      # but the platform does not ship that shared library (and core26 does
+      # not either). libvirt and libosinfo need it as well.
+      - libxml2-16
+      - libssh-4                # libvirt's SSH transport library
+      - libusb-1.0-0            # SPICE USB redirection support
+      - libcacard0              # SPICE smartcard support
+      - libphodav-3.0-0         # SPICE folder sharing support
+      - libusbredirhost1t64     # SPICE USB redirection
+      - libusbredirparser1t64
+      # libvirt runs ssh(1) for qemu+ssh:// connections. The base snap ships
+      # an ssh, but strict confinement does not allow executing it; stage the
+      # client so libvirt finds a permitted ssh at $SNAP/usr/bin/ssh.
+      - openssh-client
+      # SASL mechanisms for qemu+tcp:// authentication. The platform ships
+      # libsasl2 itself but no pluggable mechanism modules.
+      - libsasl2-modules
+      - libsasl2-modules-gssapi-mit
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every staged .so that also exists in the
+      # gnome-core26-sdk. The SDK contains libxml2 while the gnome-core26
+      # platform does not, so keep the staged copy in usr/lib, which is on the
+      # runtime LD_LIBRARY_PATH, outside the SDK's usr/lib/<triplet> layout.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    # Stage only the runtime files. An explicit list keeps the interpreter and
+    # its standard library out of the snap (python3-libvirt and
+    # python3-requests depend on python3); the gnome/cleanup part of the
+    # extension then prunes anything the platform already ships.
+    stage:
+      - usr/lib/python3/dist-packages/libvirt*.py
+      - usr/lib/python3/dist-packages/libvirtmod*.so
+      - usr/lib/python3/dist-packages/libvirt*.dist-info
+      - usr/lib/python3/dist-packages/requests
+      - usr/lib/python3/dist-packages/requests-*.dist-info
+      - usr/lib/python3/dist-packages/urllib3
+      - usr/lib/python3/dist-packages/urllib3-*.dist-info
+      - usr/lib/python3/dist-packages/certifi
+      - usr/lib/python3/dist-packages/certifi-*.dist-info
+      - usr/lib/python3/dist-packages/chardet
+      - usr/lib/python3/dist-packages/chardet-*.dist-info
+      - usr/lib/python3/dist-packages/idna
+      - usr/lib/python3/dist-packages/idna-*.dist-info
+      - usr/lib/*/girepository-1.0/GVnc-1.0.typelib
+      - usr/lib/*/girepository-1.0/GVncPulse-1.0.typelib
+      - usr/lib/*/girepository-1.0/GtkVnc-2.0.typelib
+      - usr/lib/*/girepository-1.0/GtkSource-4.typelib
+      - usr/lib/*/girepository-1.0/Libosinfo-1.0.typelib
+      - usr/lib/*/girepository-1.0/LibvirtGConfig-1.0.typelib
+      - usr/lib/*/girepository-1.0/LibvirtGLib-1.0.typelib
+      - usr/lib/*/girepository-1.0/LibvirtGObject-1.0.typelib
+      - usr/lib/*/girepository-1.0/SpiceClientGLib-2.0.typelib
+      - usr/lib/*/girepository-1.0/SpiceClientGtk-3.0.typelib
+      - usr/lib/*/libcacard.so.*
+      - usr/lib/*/libgtk-vnc-2.0.so.*
+      - usr/lib/*/libgtksourceview-4.so.*
+      - usr/lib/*/libgvnc*.so.*
+      - usr/lib/*/libosinfo-1.0.so.*
+      - usr/lib/*/libphodav-3.0.so.*
+      - usr/lib/*/libspice-client-glib-2.0.so.*
+      - usr/lib/*/libspice-client-gtk-3.0.so.*
+      - usr/lib/*/libssh.so.*
+      - usr/lib/*/libusb-1.0.so.*
+      - usr/lib/*/libusbredirhost.so.*
+      - usr/lib/*/libusbredirparser.so.*
+      - usr/lib/*/libvirt-gconfig-1.0.so.*
+      - usr/lib/*/libvirt-glib-1.0.so.*
+      - usr/lib/*/libvirt-gobject-1.0.so.*
+      - usr/lib/*/libvirt-lxc.so.*
+      - usr/lib/*/libvirt-qemu.so.*
+      - usr/lib/*/libvirt.so.*
+      - usr/lib/*/libxml2.so.*
+      - usr/lib/libxml2.so.*
+      - usr/lib/*/sasl2
+      - usr/bin/ssh
+      - usr/share/gtksourceview-4
+      - usr/share/libvirt
+      - usr/share/locale
+      - usr/share/misc/*.ids
+      - usr/share/osinfo
+
+  virt-manager:
+    source: https://github.com/virt-manager/virt-manager.git
+    source-type: git
+    source-tag: 'v5.1.0'
+    source-depth: 1
+    plugin: meson
+    build-packages:
+      - gettext        # msgfmt for the desktop file, appdata and translations
+      - libglib2.0-bin # glib-compile-schemas
+      - libglib2.0-dev # gio-2.0 pkg-config check made by the GNOME module
+      - meson
+      - ninja-build
+      - pkg-config
+      - python3
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dtests=disabled
+      - -Dupdate-icon-cache=false
+    override-pull: |
+      craftctl default
+      # Resolve the compile-time /usr prefix against $SNAP at run time: the
+      # snap's own files are below $SNAP/usr, not the base snap's /usr.
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-use-snap-prefix-for-runtime-paths.patch"
+    override-build: |
+      craftctl default
+
+      # Meson skips post-install scripts when DESTDIR is set, so compile the
+      # GSettings schema here. The snap is read-only at runtime.
+      glib-compile-schemas "$CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas"
+
+      # Meson's wrappers bake /usr/share/virt-manager into sys.path, which in
+      # a snap is the base snap's /usr, not this snap. The snap app entry point
+      # is snap/local/virt-manager-launcher instead. The man pages and bash
+      # completion belong to the CLI tools, which this snap does not expose.
+      rm -f "$CRAFT_PART_INSTALL"/usr/bin/virt-*
+      rm -rf "$CRAFT_PART_INSTALL/usr/share/man" \
+             "$CRAFT_PART_INSTALL/usr/share/bash-completion"
