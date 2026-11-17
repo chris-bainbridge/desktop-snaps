@@ -74,14 +74,13 @@ PY
 }
 
 list_packages() {
-    printf '%-32s %-9s %-7s %s\n' NAME MODE BASE PUBLISHER
+    printf '%-32s %-7s %s\n' NAME BASE PUBLISHER
     local manifest pkgdir name
     while IFS= read -r manifest; do
         pkgdir="$(dirname -- "$manifest")"
         name="$(basename -- "$pkgdir")"
-        printf '%-32s %-9s %-7s %s\n' \
+        printf '%-32s %-7s %s\n' \
             "$name" \
-            "$(meta_get "$pkgdir" mode)" \
             "$(meta_get "$pkgdir" base)" \
             "$(meta_get "$pkgdir" store.publisher)"
     done < <(find "$ROOT" -mindepth 2 -maxdepth 2 -name metadata.yaml | sort)

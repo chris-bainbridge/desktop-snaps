@@ -50,7 +50,7 @@ gnome-logs/
 ## Building
 
 ```console
-./build --list                     # all packages, mode and publisher
+./build --list                     # all packages, base and publisher
 ./build gnome-logs                 # build the gnome-logs package
 ./build gnome-calculator --dry-run # show what would happen
 ./build gnome-calculator --keep    # keep the workspace for inspection
