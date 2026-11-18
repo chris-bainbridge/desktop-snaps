@@ -45,6 +45,11 @@ layout:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libpeas-1.0
   /usr/share/rhythmbox:
     bind: $SNAP/usr/share/rhythmbox
+  # librhythmbox-core spawns the tag-reading helper through the compiled-in
+  # absolute path LIBEXEC_DIR "/rhythmbox-metadata"; bind that one file so the
+  # library scanner can start it (the base has no such file in /usr/libexec).
+  /usr/libexec/rhythmbox-metadata:
+    bind-file: $SNAP/usr/libexec/rhythmbox-metadata
 
 slots:
   # for GtkApplication registration, matching
@@ -145,9 +150,22 @@ parts:
       sed -i -e 's|^Icon=org.gnome.Rhythmbox3$|Icon=${SNAP}/meta/gui/org.gnome.Rhythmbox3.svg|' \
         data/org.gnome.Rhythmbox3.desktop.in
     override-build: |
+      # libgstreamer1.0-dev installs Gst-1.0.gir into the multiarch libdir
+      # (/usr/lib/<triplet>/gir-1.0), but g-ir-scanner only searches
+      # /usr/share/gir-1.0. Link the GIRs into the searched directory so the
+      # RB-3.0 typelib can resolve its --include=Gst-1.0 dependency.
+      gir_libdir="/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gir-1.0"
+      if [ -d "$gir_libdir" ]; then
+        install -d /usr/share/gir-1.0
+        for gir in "$gir_libdir"/*.gir; do
+          ln -sf "$gir" /usr/share/gir-1.0/
+        done
+      fi
       craftctl default
+      # After craftctl the working directory is no longer the source tree, so
+      # take the icon from the files just installed into the part.
       mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
-      cp data/icons/hicolor/scalable/apps/org.gnome.Rhythmbox3.svg \
+      cp "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.Rhythmbox3.svg" \
         "$CRAFT_PART_INSTALL/meta/gui/"
     prime:
       - -usr/include
