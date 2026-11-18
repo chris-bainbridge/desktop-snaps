@@ -1,4 +1,5 @@
 name: pitivi
+title: Pitivi
 version: '2023.03.0'
 summary: Video editor based on GStreamer Editing Services
 description: |
@@ -41,6 +42,7 @@ grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
 base: core26
 license: LGPL-2.1-or-later
+contact: https://gitlab.gnome.org/GNOME/pitivi/-/issues
 website: https://www.pitivi.org/
 source-code: https://gitlab.gnome.org/GNOME/pitivi
 issues: https://gitlab.gnome.org/GNOME/pitivi/-/issues
@@ -100,6 +102,9 @@ parts:
       - python3-kiwisolver     # matplotlib dependency
       - python3-pyparsing      # matplotlib dependency
       - python3-packaging      # matplotlib dependency
+      # matplotlib's _qhull module (matplotlib.tri) links libqhull_r; the
+      # library linter reports it as missing from the platform.
+      - libqhull-r8.0
       # GStreamer's Python overrides (Gst.Fraction, Gst.Structure, ...). The
       # platform ships PyGObject but not gst-python, and pitivi/check.py exits
       # when Gst.Fraction cannot be constructed.
@@ -155,6 +160,7 @@ parts:
       - usr/lib/*/liblapack.so.3
       - usr/lib/*/libpeas-1.0.so.1*
       - usr/lib/*/libpeas-1.0/loaders/libpython3loader.so
+      - usr/lib/*/libqhull_r.so.8*
       - usr/lib/*/libraqm.so.0*
     override-build: |
       set -eux
@@ -191,13 +197,24 @@ parts:
       - gstreamer1.0-plugins-bad    # videoparsersbad, mpegtsmux, transcodebin
       - gstreamer1.0-plugins-ugly   # x264enc, mpeg2dec, dvdreadsrc
       - libges-1.0-0                # libges-1.0.so.0, libgstges.so, libgstnle.so
-      # libges loads its projects with libxml2. gnome-core26 does not ship
-      # libxml2 at all (only libxmlb), so unlike the other staged libraries
-      # this one is not removed by gnome/cleanup.
+      # libges loads its projects with libxml2. gnome-core26 does not ship it,
+      # so the copy staged here is the one used at runtime (see the
+      # override-build).
       - libxml2-16
     stage:
       - -usr/share/doc
       - -usr/share/lintian
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension's cleanup part deletes every shared object that the
+      # SDK build snap also ships at the same relative path. The SDK does ship
+      # libxml2.so.16 even though gnome-core26 does not, so the copy installed
+      # above would be removed from the prime tree and libges would fail to
+      # load at runtime. usr/lib is on the launcher's LD_LIBRARY_PATH and is
+      # not scanned in the same way, so keep the library there instead.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      mv "$libdir"/libxml2.so.16* "$CRAFT_PART_INSTALL/usr/lib/"
 
   pitivi:
     source: https://gitlab.gnome.org/GNOME/pitivi.git

@@ -111,21 +111,36 @@ parts:
       - libgrilo-0.3-dev
       - libtotem-plparser-dev
       - libportal-gtk3-dev
-      # gobject-introspection-1.0.pc is not in the SDK (the g-ir-scanner
-      # binary is); Totem builds the Totem-1.0 GIR for its Python plugins.
-      - libgirepository1.0-dev
-      # gnome.yelp needs yelp-build/xsltproc.
+      # Totem builds the Totem-1.0 GIR for its Python plugins; g-ir-scanner
+      # and the merged GIRepository come from the SDK's GLib, so no extra
+      # gobject-introspection package is needed (see patches/0001).
+      # gnome.yelp needs yelp-build/xsltproc; patch applies patches/0001.
       - yelp-tools
+      - patch
       # Totem's meson.build runs gst-inspect at configure time and asserts
       # that playbin, videoscale, autoaudiosink, scaletempo, gtksink,
-      # gtkglsink and glsinkbin exist. gst-inspect and the GTK3 sink plugin
-      # are not in the SDK; the base/good plugins come from the archive.
+      # gtkglsink and glsinkbin exist. gst-inspect and the sink/GL plugin
+      # packages are not in the SDK; they come from the archive.
       - gstreamer1.0-tools
       - gstreamer1.0-plugins-base
       - gstreamer1.0-plugins-good
-      - gstreamer1.0-gtk3
+      - gstreamer1.0-gtk3 # libgstgtk.so: gtksink, gtkglsink
+      - gstreamer1.0-gl   # libgstopengl.so: glsinkbin
+    build-environment:
+      # gst-inspect picks up the SDK's libgstreamer through LD_LIBRARY_PATH,
+      # so it scans only the SDK's plugin directory, which ships neither the
+      # GTK3 sinks nor glsinkbin. Add the archive's plugin directory (where
+      # the build packages above land) to the search path used by the
+      # configure-time assertions.
+      - GST_PLUGIN_SYSTEM_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gstreamer-1.0:/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gstreamer-1.0
     override-pull: |
       craftctl default
+      # Totem 43.2 still calls the pre-GLib-2.90 g_irepository API, but GLib
+      # 2.90 ships GIRepository itself and libpeas 1.38's headers include the
+      # merged <girepository/girepository.h>; including both in one file
+      # redefines every GI type. Use the merged library, as Debian/Fedora do.
+      patch -p1 --silent \
+          < "${CRAFT_PROJECT_DIR}/patches/0001-use-libgirepository-2.0.patch"
       # Do not install the help media as symlinks: they would point at the
       # build location rather than at the files in the snap.
       sed -i.bak -e 's|symlink_media: true|symlink_media: false|' $CRAFT_PART_SRC/help/meson.build
@@ -145,11 +160,14 @@ parts:
       # playback stack, but not:
       # - the GTK3 video sink (gtksink/gtkglsink), which Totem 43 uses for
       #   its OpenGL widget and as the fallback when GL is unavailable;
+      # - glsinkbin (gstreamer1.0-gl), which bacon-video-widget wraps around
+      #   gtkglsink and hands to playbin as its video sink;
       # - the codec parsers and streaming elements from gst-plugins-bad
       #   (h264parse, h265parse, hls, dash, ...), without which most MP4
       #   files cannot be played;
       # - the libav decoders (H.264, HEVC, MPEG-2/4, AAC, ...).
       - gstreamer1.0-gtk3
+      - gstreamer1.0-gl
       - gstreamer1.0-plugins-bad
       - gstreamer1.0-libav
       # gnome-core26 ships neither Grilo nor totem-pl-parser nor libpeas.

@@ -133,6 +133,7 @@ parts:
       # platform lacks or that are safer to ship explicitly:
       - python3-twisted      # the RPC, HTTP, reactor and web layers
       - python3-openssl      # Twisted TLS for the RPC server and trackers
+      - python3-cffi-backend # _cffi_backend, imported by cryptography's Rust bindings
       - python3-rencode      # deluge's RPC wire encoding
       - python3-xdg          # config and download directory lookup
       - python3-mako         # the web UI templates
@@ -153,6 +154,12 @@ parts:
     # extension then prunes anything the SDK already ships.
     stage:
       - usr/lib/python3/dist-packages/OpenSSL
+      # cryptography's Rust bindings import _cffi_backend at load time; it is a
+      # Python extension, so nothing links against it and the library linter
+      # cannot report it missing. Without it "from OpenSSL import SSL" fails,
+      # and with it every UI and the daemon (deluge.ui.client imports
+      # twisted.internet.ssl) would refuse to start.
+      - usr/lib/python3/dist-packages/_cffi_backend.cpython-*.so
       - usr/lib/python3/dist-packages/PIL
       - usr/lib/python3/dist-packages/attr
       - usr/lib/python3/dist-packages/attrs
@@ -218,6 +225,7 @@ parts:
       - gettext            # msgfmt/msgmerge for intltool-merge
       - intltool           # generates deluge.desktop and the metainfo XML
       - python3
+      - python3-rjsmin     # setup.py build_webui minifies the web UI JS with it
       - python3-setuptools
       - python3-wheel      # listed in setup_requires, avoids fetching it
     override-build: |

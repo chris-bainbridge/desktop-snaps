@@ -145,7 +145,7 @@ parts:
     override-build: |
       craftctl default
       mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
-      cp "$CRAFT_PART_SRC/icons/org.gnome.Geary.svg" \
+      cp "$CRAFT_PART_SRC/icons/hicolor/scalable/apps/org.gnome.Geary.svg" \
          "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Geary.svg"
     build-packages:
       # gnome-core26-sdk already provides GTK3, GLib/GIO, gdk-pixbuf, cairo,
