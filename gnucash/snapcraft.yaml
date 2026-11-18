@@ -54,6 +54,19 @@ platforms:
   amd64:
   arm64:
 
+# Guile compiles Scheme modules to .go files, which are ELF shared objects
+# whose .dynamic section uses Guile-specific DT_* tags and a zero sh_link.
+# pyelftools 0.33 (as shipped in snapcraft 9.2.1) asserts on them while
+# snapcraft's gpu and library linters enumerate ELF files, so packing fails
+# with "snapcraft internal error: AssertionError()" even though both linters
+# only produce warnings. The compiled modules are part of a normal GnuCash
+# installation and removing them would make every start recompile the Scheme
+# tree, so skip the two linters that cannot cope with them.
+lint:
+  ignore:
+    - gpu
+    - library
+
 # GnuCash is built with the conventional /usr prefix; inside the snap its
 # libraries, data and GSettings schemas live below $SNAP/usr. AqBanking and
 # Gwenhywfar look up their data and plugin directories through paths compiled
@@ -180,8 +193,11 @@ parts:
       - libaqbanking-dev
       - libgwenhywfar-core-dev
       - libgwengui-gtk3-dev    # AqBanking's GTK3 dialogs
-      # SQLite books through libdbi.
+      # SQLite books through libdbi. CMake refuses to configure when no
+      # libdbi driver module is present, so the runtime driver package is
+      # needed at build time as well as in the staged runtime closure.
       - libdbi-dev
+      - libdbd-sqlite3
       # libxslt and its xsltproc tool are not part of the SDK; GnuCash uses
       # xsltproc to generate two source files and requires libxslt.pc.
       - libxslt1-dev

@@ -1,0 +1,52 @@
+diff --git a/src/smime/gui/certificate-manager.c b/src/smime/gui/certificate-manager.c
+index e1fe078..d3e8a0a 100644
+--- a/src/smime/gui/certificate-manager.c
++++ b/src/smime/gui/certificate-manager.c
+@@ -20,7 +20,7 @@
+ #include "e-cert-trust.h"
+ #include "e-cert-db.h"
+ 
+-#include "nss.h"
++#include <nss/nss.h>
+ #include <cms.h>
+ #include <cert.h>
+ #include <certdb.h>
+diff --git a/src/smime/gui/e-cert-selector.c b/src/smime/gui/e-cert-selector.c
+index 1596b67..2b7321e 100644
+--- a/src/smime/gui/e-cert-selector.c
++++ b/src/smime/gui/e-cert-selector.c
+@@ -10,7 +10,7 @@
+ 
+ #include <libedataserverui/libedataserverui.h>
+ 
+-#include "nss.h"
++#include <nss/nss.h>
+ #include "pk11func.h"
+ #include "certdb.h"
+ #include "cert.h"
+diff --git a/src/smime/lib/e-cert-db.c b/src/smime/lib/e-cert-db.c
+index eaf7ae8..e33fc02 100644
+--- a/src/smime/lib/e-cert-db.c
++++ b/src/smime/lib/e-cert-db.c
+@@ -59,7 +59,7 @@
+ 
+ #include "gmodule.h"
+ 
+-#include "nss.h"
++#include <nss/nss.h>
+ #include "ssl.h"
+ #include "p12plcy.h"
+ #include "pk11func.h"
+diff --git a/src/smime/lib/e-pkcs12.c b/src/smime/lib/e-pkcs12.c
+index bb516eb..39221bc 100644
+--- a/src/smime/lib/e-pkcs12.c
++++ b/src/smime/lib/e-pkcs12.c
+@@ -55,7 +55,7 @@
+ #include "e-pkcs12.h"
+ 
+ #include "prmem.h"
+-#include "nss.h"
++#include <nss/nss.h>
+ #include "ssl.h"
+ #include "pkcs12.h"
+ #include "p12plcy.h"

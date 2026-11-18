@@ -116,25 +116,71 @@ do not appear.
   or `contacts-service`. This is deliberate: the host EDS in the 26.04
   archive is 3.56.2, while this snap needs 3.62.1.
 
-## Validation
+## Build
 
-Performed locally on the 26.04 host:
+Built with the monorepo driver, which runs `snapcraft pack --use-lxd` on
+Ubuntu 26.04 with the core26 GNOME extension and SDK:
 
 ```console
-python3 -c "import yaml; yaml.safe_load(open('evolution/snapcraft.yaml'))"
-python3 -c "import yaml; yaml.safe_load(open('evolution/metadata.yaml'))"
-cd /home/chrb/git/snaps && ./build evolution --dry-run
-snapcraft expand-extensions   # validates the recipe and the gnome extension expansion
+cd /home/chrb/git/snaps && ./build evolution
 ```
 
-`apt-cache show` was used to confirm every build and stage package exists
-in the 26.04 archive:
+Result (amd64; arm64 is declared but was not built):
 
 ```
-build (EDS):   gperf, libgoa-1.0-dev, libical-dev
-build (Evo):   intltool, iso-codes, libgnome-autoar-0-dev, libical-dev,
-               libytnef0-dev
-stage:         libical3t64, libytnef0, libgnome-autoar-0-0, libxml2-16
+/var/tmp/opencode/snaps-build/artifacts/evolution_3.62.1_amd64.snap
+29024256 bytes (28 MiB)
+sha256 78f69ad5ca53065e38b2035b8ac42a80d3d55a7b3211e82f42939bf511f65ed6
 ```
 
-No snapcraft or LXD build was run.
+A full build of both parts takes about six minutes on a 32-core host.
+The resulting snap is `confinement: strict`, `grade: stable`,
+`base: core26`, with the seven typed D-Bus slots and the layout binds
+described above. Verified in the packed snap: `usr/bin/evolution`, the
+four EDS factory/prompter daemons plus `evolution-alarm-notify` below
+`usr/libexec`, the prefixed `.service` files in
+`usr/share/dbus-1/services`, the compiled GSettings schemas, the
+`usr/lib/evolution` and `usr/lib/evolution-data-server` module trees, and
+that every layout bind target exists.
+
+### Build-environment workarounds
+
+The core26 build environment needs six adjustments, all encoded in
+`snapcraft.yaml` and `patches/`:
+
+- OpenLDAP: gnome-core26-sdk has no usable `ldap.h`/`libldap.so`, and
+  EDS's `FindLDAP.cmake` hard-codes `/usr/include` plus `/usr/lib`, so
+  `libldap2-dev` is taken from the archive. LDAP address books are built
+  in; at runtime `libldap.so.2` and `liblber.so.2` come from gnome-core26.
+- NSS headers: the SDK's flat `/usr/include` also contains glibc's
+  `nss.h`, which wins over the Mozilla header from `nss.pc` and leaves
+  the NSS API undeclared. `patches/evolution-data-server-nss-include.patch`
+  and `patches/evolution-nss-include.patch` switch the affected
+  `#include "nss.h"` lines to `<nss/nss.h>`.
+- GNOME desktop thumbnails: `gnome-desktop-3.0.pc` requires
+  `xkeyboard-config`, which 26.04 ships in the `xkb-data` package, and
+  the help build requires `itstool`; both are build packages.
+- Linking: the SDK's library directory is not in the linker's default
+  search path, so the parts pass `-Wl,-rpath-link` for it in `LDFLAGS`;
+  without it indirect dependencies of `libgdk-3`/`libcairo` (epoxy, X11,
+  xkbcommon) are reported as undefined.
+- iso-codes: the SDK's `iso-codes.pc` has its prefix inside the SDK,
+  which does not exist on a user's system. Evolution compiles that prefix
+  into its language and country lookups, so the recipe passes
+  `-DISO_CODES_PREFIX=/usr`; the gnome extension's layout binds
+  `/usr/share/xml/iso-codes` to the content snap's XML files.
+- NSS built-in roots: Evolution's S/MIME code compiles in the SDK's
+  libdir as the directory of `libnssckbi.so` and then falls back to
+  `/usr/lib` and `/usr/lib/mozilla`. A `bind-file` layout provides
+  `libnssckbi.so` at the `/usr/lib` fallback from the content snap.
+
+### Packaging notes
+
+`libraries` primes libical, libytnef and gnome-autoar from the archive and
+moves libxml2 out of the SDK's multiarch path so the gnome extension's
+cleanup does not delete it. `prime` filters drop the staged headers and
+`.pc` files from both source parts.
+
+`snapcraft pack` lints the result with three warnings: libical's unused
+C++ library `libicalss_cxx.so.3` (a side effect of staging
+`libical3t64`), and the missing `title` and `contact` metadata fields.

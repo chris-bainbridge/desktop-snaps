@@ -161,14 +161,19 @@ parts:
       - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig:$CRAFT_STAGE/usr/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
       - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
     build-packages:
-      # GTK3, GLib, cairo, librsvg, libxml2, enchant-2, libgcrypt, libjpeg,
-      # libpng, zlib, X11 and the base build tools come from the
-      # gnome-core26-sdk build snap. These are the dependencies it lacks.
+      # GTK3, GLib, cairo, librsvg, libxml2, enchant-2, libgcrypt, libpng,
+      # zlib, X11 and the base build tools come from the gnome-core26-sdk
+      # build snap. These are the dependencies it lacks.
       - autoconf-archive # AX_CXX_COMPILE_STDCXX_11, AX_CHECK_COMPILE_FLAG
       - bison
       - flex
       - libboost-dev # AX_BOOST_BASE; boost headers are a hard build dependency
       - libgsf-1-dev
+      # configure.ac requires jpeglib.h directly; the SDK ships libjpeg.so.8
+      # but not the development headers.
+      - libjpeg-dev
+      # the SDK's gcrypt.h includes gpg-error.h, which it does not ship
+      - libgpg-error-dev
       - libots-dev
       - libtidy-dev
       - libwpd-dev

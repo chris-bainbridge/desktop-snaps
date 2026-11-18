@@ -1,0 +1,39 @@
+diff --git a/src/camel/camel-smime-context.c b/src/camel/camel-smime-context.c
+index 12b6713..2a7958e 100644
+--- a/src/camel/camel-smime-context.c
++++ b/src/camel/camel-smime-context.c
+@@ -10,7 +10,7 @@
+ 
+ #ifdef ENABLE_SMIME
+ 
+-#include "nss.h"
++#include <nss/nss.h>
+ #include <cms.h>
+ #include <cert.h>
+ #include <certdb.h>
+diff --git a/src/camel/camel.c b/src/camel/camel.c
+index 51178d5..132703b 100644
+--- a/src/camel/camel.c
++++ b/src/camel/camel.c
+@@ -11,7 +11,7 @@
+ 
+ #include <nspr.h>
+ #include <prthread.h>
+-#include "nss.h"      /* Don't use <> here or it will include the system nss.h instead */
++#include <nss/nss.h>  /* gnome-core26-sdk has glibc's nss.h in its include root */
+ #include <ssl.h>
+ #include <sslproto.h>
+ #include <errno.h>
+diff --git a/src/libedataserverui/e-certificate-widget.c b/src/libedataserverui/e-certificate-widget.c
+index 1ec3ae1..2c645f4 100644
+--- a/src/libedataserverui/e-certificate-widget.c
++++ b/src/libedataserverui/e-certificate-widget.c
+@@ -16,7 +16,7 @@
+ #include <gtk/gtk.h>
+ #include <cert.h>
+ #include <pk11func.h>
+-#include <nss.h>
++#include <nss/nss.h>
+ 
+ #include "libedataserver/libedataserver.h"
+ 

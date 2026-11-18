@@ -96,6 +96,13 @@ layout:
   # compiled-in directory; expose the snap's copies rather than the base's.
   /usr/share/dbus-1/services:
     bind: $SNAP/usr/share/dbus-1/services
+  # libessmime.so searches a compiled-in NSS library directory and then
+  # /usr/lib (among others) for libnssckbi.so, the NSS built-in root
+  # certificates module. The compiled-in directory is the SDK's libdir at
+  # build time, which does not exist on a user's system; provide the
+  # module at the /usr/lib fallback so the built-in roots can be loaded.
+  /usr/lib/libnssckbi.so:
+    bind-file: $SNAP/gnome-platform/usr/lib/x86_64-linux-gnu/libnssckbi.so
 
 slots:
   # Evolution's GtkApplication name.
@@ -268,15 +275,35 @@ parts:
       - -DENABLE_EXAMPLES=OFF
       - -DENABLE_TESTS=OFF
       - -DENABLE_INSTALLED_TESTS=OFF
+    build-environment:
+      # The linker resolves the dependencies of the SDK's shared libraries
+      # (libgdk-3, libcairo, ...) through -L only for direct libraries, so
+      # linking a GTK program against them fails with undefined references
+      # to, for example, epoxy_* and X* symbols. Point the linker at the
+      # SDK's library directories for indirect dependencies as well.
+      - LDFLAGS: -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib
+    override-pull: |
+      craftctl default
+      # gnome-core26-sdk's gio-2.0.pc and sqlite3.pc add -I${includedir},
+      # i.e. the SDK's /usr/include, which contains a copy of glibc's
+      # nss.h. A bare "nss.h" therefore resolves to the C library header
+      # and the Mozilla NSS API is undeclared. Use the Mozilla header's
+      # nss/ path, which the SDK's nss.pc puts on the include path.
+      patch -p1 < "$CRAFT_PROJECT_DIR/patches/evolution-data-server-nss-include.patch"
     build-packages:
       # gnome-core26-sdk provides GTK3, GLib/GIO, libsoup-3.0, libsecret,
       # libgcr, libgspell, libcanberra-gtk3, WebKitGTK 4.1, libgweather,
-      # geocode-glib, libxml2, SQLite, ICU, NSS/NSPR, Kerberos and OpenLDAP
+      # geocode-glib, libxml2, SQLite, ICU, NSS/NSPR and Kerberos
       # development files. It does not provide gperf, GOA's development
-      # files or libical (EDS is not part of the GNOME SDK).
+      # files, libical (EDS is not part of the GNOME SDK) or OpenLDAP
+      # headers. EDS's FindLDAP.cmake only searches /usr/include and
+      # /usr/lib, so the SDK's copy would not be found anyway; the runtime
+      # libraries come from gnome-core26, which ships libldap.so.2 and
+      # liblber.so.2.
       - gperf
       - libgoa-1.0-dev
       - libical-dev
+      - libldap2-dev
     override-stage: |
       craftctl default
       # craft-parts rewrites only the "prefix=" line of staged .pc files.
@@ -295,10 +322,11 @@ parts:
           -e 's|^privincludedir=/usr/include/evolution-data-server$|privincludedir=${prefix}/include/evolution-data-server|' \
           "$pc"
       done
-      # libedbus-private.so is installed into privlibdir and has no RPATH
-      # of its own. Public EDS libraries list it as a dependency; keep a
-      # copy in $SNAP/usr/lib (which is in LD_LIBRARY_PATH) so both the
-      # Evolution link step and the runtime loader find it.
+      # libedbus-private.so is installed into privlibdir. Public EDS
+      # libraries list it as a dependency and carry a RUNPATH of
+      # /usr/lib/evolution-data-server, which the layout binds at runtime.
+      # Keep a copy in the stage's usr/lib as well so the Evolution link
+      # step, which searches libdir rather than privlibdir, resolves it.
       if [ -f "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" ]; then
         cp -a "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" \
               "$CRAFT_STAGE/usr/lib/"
@@ -328,6 +356,12 @@ parts:
       - -DENABLE_GSPELL=ON
       - -DENABLE_LIBNOTIFY=ON
       - -DENABLE_WEATHER=ON
+      # The SDK's iso-codes.pc points its prefix into the SDK, which does
+      # not exist on a user's system. Evolution compiles that prefix into
+      # its language and country lookups. Force the /usr path instead; the
+      # gnome extension's layout binds /usr/share/xml/iso-codes to the
+      # content snap's copy, which has the XML files.
+      - -DISO_CODES_PREFIX=/usr
       # Optional features whose runtime dependencies are not available in
       # gnome-core26 or the 26.04 archive. See the description.
       - -DENABLE_CONTACT_MAPS=OFF
@@ -345,10 +379,18 @@ parts:
       # gnome-core26-sdk provides GTK3, WebKitGTK 4.1, libsoup-3.0,
       # libsecret, libgspell, libcanberra-gtk3, libnotify, libgweather,
       # geocode-glib, gnome-desktop-3, libxml2, SQLite, enchant-2,
-      # NSS/NSPR and libunity. It does not provide intltool, iso-codes'
-      # pkg-config file, libical, libytnef or gnome-autoar.
+      # NSS/NSPR and libunity. It does not provide intltool, itstool (the
+      # help build hard-requires the binary), iso-codes' pkg-config file,
+      # libical, libytnef or gnome-autoar. gnome-desktop-3.0.pc pulls in
+      # xkeyboard-config.pc, which 26.04 ships in xkb-data; the
+      # gsettings-desktop-schemas and shared-mime-info .pc files come from
+      # their data packages, which the SDK does not contain.
       - intltool
+      - itstool
       - iso-codes
+      - gsettings-desktop-schemas-dev
+      - shared-mime-info
+      - xkb-data
       - libgnome-autoar-0-dev
       - libical-dev
       - libytnef0-dev
@@ -356,6 +398,12 @@ parts:
       - C_INCLUDE_PATH: $CRAFT_STAGE/usr/include/evolution-data-server${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}
       - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib:$CRAFT_STAGE/usr/lib/evolution-data-server${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
       - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - LDFLAGS: -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib
+    override-pull: |
+      craftctl default
+      # Same glibc-nss.h shadowing as evolution-data-server: include the
+      # Mozilla NSS header through its nss/ directory.
+      patch -p1 < "$CRAFT_PROJECT_DIR/patches/evolution-nss-include.patch"
     override-build: |
       craftctl default
       # The exported desktop file must point at an icon that the host icon

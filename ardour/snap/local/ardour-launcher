@@ -43,9 +43,23 @@ export VAMP_PATH="$SNAP/usr/lib/ardour9/vamp"
 # but keep the staged bin directory on PATH for completeness.
 export PATH="$SNAP/usr/bin:$PATH"
 
+# YTK loads its theme engine (engines/libclearlooks.so) and the theme RC files
+# through GTK_PATH, as upstream's /usr/bin/ardour9 wrapper does.
+export GTK_PATH="$SNAP/usr/etc/ardour9:$SNAP/usr/lib/ardour9${GTK_PATH:+:$GTK_PATH}"
+
+# Ubuntu's global-menu module is a host GTK module that crashes Ardour; the
+# upstream wrapper disables it, and the setting is harmless inside the snap.
+export UBUNTU_MENUPROXY=""
+
+# NSM (Non Session Manager) identifies the client by this name.
+export ARDOUR_SELF=ardour9
+
 # YTK is a GTK2-derived toolkit with an X11 backend only. Be explicit so that
 # no GTK/GDK component can try a Wayland connection; on a Wayland desktop
 # the x11 interface provides the XWayland display.
 export GDK_BACKEND=x11
 
-exec "$SNAP/usr/bin/ardour9" "$@"
+# Run the real executable directly. usr/bin/ardour9 is upstream's wrapper
+# script and hardcodes /usr/lib/ardour9/ardour-9.10.0, which is the base's
+# path rather than the snap's; its environment setup is done above.
+exec "$SNAP/usr/lib/ardour9/ardour-9.10.0" "$@"
