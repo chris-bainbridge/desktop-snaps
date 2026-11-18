@@ -33,10 +33,10 @@ parts:
   gnome-logs:
     source: https://gitlab.gnome.org/GNOME/gnome-logs.git
     source-type: git
-    source-tag: '49.0'
+    source-tag: '50.0'
     source-depth: 1
     plugin: meson
-    parse-info: [usr/share/metainfo/org.gnome.Logs.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Logs.metainfo.xml]
     meson-parameters:
       - --prefix=/usr
     build-packages:

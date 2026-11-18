@@ -43,7 +43,7 @@ parts:
   gnome-text-editor:
     after: [libspelling]
     source: https://gitlab.gnome.org/GNOME/gnome-text-editor.git
-    source-tag: '48.3'
+    source-tag: '51.0'
     source-depth: 1
     plugin: meson
     meson-parameters:

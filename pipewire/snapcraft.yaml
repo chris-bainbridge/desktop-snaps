@@ -238,20 +238,200 @@ plugs:
     name: org.freedesktop.impl.portal.PermissionStore
 
 parts:
+  # PipeWire and WirePlumber are built from upstream source: the 26.04 archive
+  # still carries PipeWire 1.6.2 / WirePlumber 0.5.13, and this snap follows
+  # the newest stable upstream releases instead.
   pipewire:
-    plugin: nil
-    stage-packages:
-      # Same archive build as the desktop content snap ships: the daemons
-      # must not be a version downgrade relative to the desktop stack.
-      - pipewire-bin
-      - pipewire-pulse
-      - wireplumber
-      - libspa-0.2-bluetooth
-      - alsa-ucm-conf
+    source: https://github.com/PipeWire/pipewire/archive/refs/tags/1.6.11.tar.gz
+    source-checksum: sha256/f3f70c4af173cc93d05070a9d412efe3ef5889bdf4ac32298e2c0d9ae1350559
+    source-type: tar
+    plugin: meson
+    build-packages:
+      - gettext
+      - meson
+      - ninja-build
+      - libapparmor-dev
+      - libasound2-dev
+      - libavahi-client-dev
+      - libbluetooth-dev
+      - libdbus-1-dev
+      - libfftw3-dev
+      - libfreeaptx-dev
+      - libglib2.0-dev
+      - liblc3-dev
+      - libldacbt-abr-dev
+      - libldacbt-enc-dev
+      - libncurses-dev
+      - libopus-dev
+      - libpulse-dev
+      - libreadline-dev
+      - libroc-dev
+      - libsbc-dev
+      - libsnapd-glib-dev
+      - libsndfile1-dev
+      - libspandsp-dev
+      - libsystemd-dev
+      - libudev-dev
+      - libusb-1.0-0-dev
+      - libwebrtc-audio-processing-dev
+      - systemd-dev
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Ddocs=disabled
+      - -Dman=disabled
+      - -Dexamples=disabled
+      - -Dtests=disabled
+      - -Dinstalled_tests=disabled
+      # WirePlumber is a separate part below; do not let Meson fetch and
+      # build it as a subproject.
+      - -Dsession-managers=[]
+      # The bluez5 SPA plugin replaces the archive's old
+      # libspa-0.2-bluetooth deb, including the codecs that Ubuntu ships.
+      - -Dbluez5=enabled
+      - -Dbluez5-codec-aptx=enabled
+      - -Dbluez5-codec-ldac=enabled
+      - -Dbluez5-codec-lc3=enabled
+      - -Dbluez5-codec-opus=enabled
+      - -Dbluez5-plc-spandsp=enabled
+      - -Dalsa=enabled
+      - -Dv4l2=enabled
+      - -Dudev=enabled
+      - -Dlibusb=enabled
+      - -Ddbus=enabled
+      - -Dlibsystemd=enabled
+      - -Dpw-cat=enabled
+      - -Dsndfile=enabled
+      - -Dfftw=enabled
+      - -Dlibpulse=enabled
+      - -Davahi=enabled
+      - -Droc=enabled
+      - -Draop=enabled
+      # Snapd camera/permission integration for pipewire-pulse, as in the
+      # archive package (libsnapd-glib is not part of the core26 base).
+      - -Dsnap=enabled
+      - -Decho-cancel-webrtc=enabled
+      - -Dreadline=enabled
+      - -Dgsettings=enabled
+      # Features this snap does not ship (no corresponding apps or clients
+      # inside the snap), and which would otherwise drag in extra libraries.
+      - -Dpipewire-alsa=disabled
+      - -Dpipewire-jack=disabled
+      - -Dpipewire-v4l2=disabled
+      - -Djack=disabled
+      - -Dlibcamera=disabled
+      - -Dlibcanberra=disabled
+      - -Dlibmysofa=disabled
+      - -Dlv2=disabled
+      - -Dsdl2=disabled
+      - -Dgstreamer=disabled
+      - -Dffmpeg=disabled
+      - -Dvulkan=disabled
+      - -Dvolume=disabled
+      - -Dlibffado=disabled
+      - -Dselinux=disabled
     override-build: |
       craftctl default
-      deb_dir="/root/parts/pipewire/stage_packages"
-      craftctl set version="$(dpkg-deb -f "$deb_dir"/pipewire-bin_*.deb Version)"
+      triplet="$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      # WirePlumber's part builds against this part's stage, where the
+      # installed prefix is not /usr. Point the two public .pc files at the
+      # stage tree (header/lib paths); they are excluded from the snap below.
+      for pc in libpipewire-0.3.pc libspa-0.2.pc; do
+        sed -i "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+          "$CRAFT_PART_INSTALL/usr/lib/$triplet/pkgconfig/$pc"
+      done
+      # The layout binds /etc/alsa, so the bind source has to exist even
+      # though nothing in this build writes there.
+      mkdir -p "$CRAFT_PART_INSTALL/etc/alsa"
+      craftctl set version="1.6.11"
+    prime:
+      # Build-only files: headers, pkg-config metadata and the ALSA client
+      # plugins (the archive's pipewire-bin did not ship pipewire-alsa).
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/lib/*/alsa-lib
+      - -usr/share/alsa/alsa.conf.d
+    stage:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+
+  wireplumber:
+    after: [pipewire]
+    source: https://github.com/PipeWire/wireplumber/archive/refs/tags/0.5.19.tar.gz
+    source-checksum: sha256/f9454eae3a5a6ca903c05ead2a7e47d7d3957fb0ffac3ebb11d92842603ae80f
+    source-type: tar
+    plugin: meson
+    build-packages:
+      - gettext
+      - meson
+      - ninja-build
+      - libglib2.0-dev
+      - liblua5.4-dev
+      - libsystemd-dev
+      - systemd-dev
+    build-environment:
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig:$CRAFT_STAGE/usr/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Ddoc=disabled
+      - -Dintrospection=disabled
+      - -Dtests=false
+      # Use the archive's Lua instead of downloading the bundled subproject.
+      - -Dsystem-lua=true
+      - -Dsystem-lua-version=5.4
+      - -Dsystemd=enabled
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+    stage:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+
+  # Runtime dependencies of the two source builds. Stage-packages resolve
+  # their own dependency closure, so only the direct DT_NEEDED providers are
+  # listed here; nothing pulls in the archive's 1.6.2 libpipewire/libspa.
+  runtime:
+    plugin: nil
+    stage-packages:
+      # ALSA data: alsa.conf/cards/pcm definitions and the UCM profiles.
+      - libasound2-data
+      - alsa-ucm-conf
+      - libasound2t64
+      - libavahi-client3
+      - libbluetooth3
+      - libfftw3-single3
+      - libfreeaptx0
+      - liblc3-1
+      - libldacbt-abr2
+      - libldacbt-enc2
+      - liblua5.4-0
+      - libopus0
+      - libpulse0
+      - libroc0.4
+      - libsbc1
+      - libsnapd-glib-2-1
+      - libsndfile1
+      - libspandsp2t64
+      - libusb-1.0-0
+      - libwebrtc-audio-processing-1-3
+    override-build: |
+      craftctl default
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      # libpulse and libproxy link their private helpers through a RUNPATH
+      # pointing inside their own subdirectory, which is not on the snap's
+      # library search path at run time. Expose the helpers next to the
+      # public libraries so the DT_NEEDED closure holds inside the snap.
+      for sub in pulseaudio libproxy; do
+        for f in "$libdir/$sub"/*.so*; do
+          [ -e "$f" ] || continue
+          ln -sfn "$sub/$(basename "$f")" "$libdir/$(basename "$f")"
+        done
+      done
     stage:
       - -usr/share/doc
       - -usr/share/man

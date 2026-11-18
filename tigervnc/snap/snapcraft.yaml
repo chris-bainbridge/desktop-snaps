@@ -1,16 +1,49 @@
 name: tigervnc
-adopt-info: tigervnc
+version: '1.16.2'
+title: TigerVNC Viewer
+summary: Connect to VNC server and display remote desktop
+description: |
+  Virtual Network Computing (VNC) is a remote display system that allows you
+  to view and interact with a virtual desktop environment running on another
+  computer on the network.  Using VNC, you can run graphical applications on
+  a remote machine and send only the display from these applications to your
+  local device.  This package contains a client which will enable you to
+  connect to other desktops running a VNC server.
+
+  VNC is platform-independent and supports various operating systems and
+  architectures as both servers and clients.
+
+  TigerVNC is a high-speed version of VNC based on the RealVNC 4 and X.org
+  code bases.  TigerVNC started as a next-generation development effort for
+  TightVNC on Unix and Linux platforms, but it split from its parent project
+  in early 2009 so that TightVNC could focus on Windows platforms.  TigerVNC
+  supports a variant of Tight encoding that is greatly accelerated by the use
+  of the libjpeg-turbo JPEG codec.
 grade: stable
 confinement: strict
 base: core22
-architectures:
-  - build-on: amd64
+license: GPL-2.0-or-later
+website: https://github.com/TigerVNC/tigervnc
+source-code: https://github.com/TigerVNC/tigervnc
+issues: https://github.com/TigerVNC/tigervnc/issues
+contact: https://github.com/TigerVNC/tigervnc/issues
+# Upstream's 128x128 icon; snapcraft copies it to meta/gui/icon.png, which
+# the store listing and the exported desktop entry use.
+icon: snap/local/tigervnc.png
+
+platforms:
+  amd64:
+  arm64:
 
 apps:
   tigervnc:
-    command: usr/bin/xtigervncviewer
+    # Upstream installs the viewer as bin/vncviewer; Debian renames it to
+    # xtigervncviewer and ships xtigervncviewer.desktop.  The snap follows
+    # the upstream layout, so both paths differ from the previously staged
+    # Debian package.
+    command: usr/bin/vncviewer
     common-id: org.tigervnc.vncviewer.desktop
-    desktop: usr/share/applications/xtigervncviewer.desktop
+    desktop: usr/share/applications/vncviewer.desktop
     extensions: [gnome]
     plugs:
       - audio-record
@@ -22,26 +55,81 @@ apps:
 
 parts:
   tigervnc:
-    plugin: nil
-    parse-info: [usr/share/metainfo/org.tigervnc.vncviewer.metainfo.xml]
-    organize:
-       snap/tigervnc/current/usr: usr
-    stage-packages:
-      - tigervnc-viewer
-    override-stage: |
-      craftctl default
-      VERSION=$(dpkg-parsechangelog -S Version -l $CRAFT_STAGE/usr/share/doc/tigervnc-viewer/changelog.Debian.gz |awk -F '+' '{print $1}')
-      craftctl set version=$VERSION
+    # v1.16.2 is the newest stable upstream release (2026-03-26).
+    source: https://github.com/TigerVNC/tigervnc/archive/refs/tags/v1.16.2.tar.gz
+    source-checksum: sha256/b107c0c8b8a962594281690366c24186e95c2ea4a169acbc0076aa62ed01f467
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # Viewer only: the snap has no server or VNC session app, and the
+      # remaining unix/ targets (vncserver, x0vncserver, vncconfig,
+      # vncpasswd) are compiled but pruned in prime below.
+      - -DBUILD_VIEWER=ON
+      # H.264 needs the jammy libav* stack, which is not part of the gnome
+      # platform and drags ~25 MB of extra libraries into the snap.  The
+      # previously shipped 1.12 viewer had no H.264 support either; the
+      # viewer falls back to the Tight/RLE/raw encodings.
+      - -DENABLE_H264=OFF
+      # Translated desktop entry and AppStream metadata via gettext.
+      - -DENABLE_NLS=ON
+    build-packages:
+      - build-essential
+      - cmake
+      - gettext           # msgfmt --desktop/--xml for the viewer's metadata
+      - pkg-config
+      - libfltk1.3-dev    # the only FLTK series the viewer supports
+      - libx11-dev        # Xlib and XKB headers
+      - libxext-dev
+      - libxft-dev
+      - libxinerama-dev
+      - libxfixes-dev
+      - libxcursor-dev
+      - libxrender-dev
+      - libxi-dev
+      - libxrandr-dev
+      - libxtst-dev
+      - libxdamage-dev    # x0vncserver, built but not shipped
+      - zlib1g-dev
+      - libpixman-1-dev
+      - libjpeg-turbo8-dev
+      - libpam0g-dev      # find_package(PAM REQUIRED) runs for every build
+      - libgnutls28-dev   # TLS and the VeNCrypt security types
+      - nettle-dev        # RSA-AES security types
     prime:
+      # Only the viewer and the data its desktop entry references.  The
+      # server-side binaries and man pages are built but not shipped.
+      - usr/bin/vncviewer
+      - usr/share/applications/vncviewer.desktop
+      - usr/share/metainfo/org.tigervnc.vncviewer.metainfo.xml
+      - usr/share/icons/hicolor
+      - usr/share/locale
+
+  runtime:
+    # FLTK is the only library the viewer links that neither core22 nor the
+    # gnome-42-2204 platform ships; everything else (X11, GnuTLS, nettle,
+    # jpeg, pixman, fontconfig) comes from them at run time, exactly as in
+    # the previously staged Debian package.  libfltk_images is a separate
+    # package in jammy, even though the viewer links it directly.
+    after: [tigervnc]
+    plugin: nil
+    stage-packages:
+      - libfltk1.3
+      - libfltk-images1.3
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
       - -usr/share/doc
-      - -usr/share/lintian
       - -usr/share/man
-      - -usr/share/xml
-  
+      - -usr/share/lintian
+
   # Find files provided by the base and platform snap and ensure they aren't
   # duplicated in this snap
   cleanup:
-    after: [tigervnc]
+    after: [tigervnc, runtime]
     plugin: nil
     build-snaps: [core22, gnome-42-2204]
     override-prime: |
