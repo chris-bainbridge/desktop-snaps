@@ -132,6 +132,7 @@ parts:
       - libfontconfig-dev
       - libxcb1-dev
       - libxcb-util-dev  # xcb-imdkit links -lxcb-util
+      - libxcb-image0-dev # xcb-imdkit's C code links -lxcb-image
       # rust-xcb's xlib_xcb feature, which the window crate enables, emits
       # #[link(name = "X11-xcb")]; the .so symlink comes from this package.
       - libx11-xcb-dev
@@ -154,6 +155,15 @@ parts:
       set -eux
 
       cd "${CRAFT_PART_SRC}"
+
+      # Upstream's February 2024 sources predate Rust 2024's never-type
+      # fallback change. Two Lua calls in config/src/lua.rs rely on the old
+      # `!`-to-`()` fallback and rustc 1.93 rejects them with the
+      # deny-by-default dependency_on_unit_never_type_fallback lint (part of
+      # rust_2024_compatibility). The code is valid for edition 2021 and the
+      # fallback still resolves to (), so allow that single lint rather than
+      # patching upstream.
+      export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-A dependency_on_unit_never_type_fallback"
 
       # The default wezterm-gui features are vendored-fonts and wayland;
       # distro-defaults only turns the update check off, as recommended by
@@ -209,9 +219,11 @@ parts:
     after: [wezterm]
     plugin: nil
     stage-packages:
-      # xcb-imdkit (XIM input) links -lxcb-util; mesa-2604 has libxcb but
-      # not libxcb-util.
+      # xcb-imdkit (XIM input) links -lxcb-util and -lxcb-image; mesa-2604
+      # has libxcb (plus the render/dri/randr/present extensions) but not
+      # these two.
       - libxcb-util1
+      - libxcb-image0
       # the X11 half of libxkbcommon, which the base lacks (it only has the
       # Wayland-capable libxkbcommon.so.0); the xkbcommon crate links it.
       - libxkbcommon-x11-0

@@ -3,85 +3,70 @@ version: '26.08.3'
 summary: Drop-down terminal emulator based on KDE Konsole
 description: |
   Yakuake is a drop-down terminal emulator based on KDE Konsole technology.
-  Press a hotkey to slide a terminal down from the top of the screen and press
-  it again to hide it. It supports tabs, split views, profiles, custom skins
-  and Konsole's terminal features.
+  Press a hotkey to slide a terminal down from the top of the screen and again
+  to hide it. It supports tabs, split views, profiles, custom skins and
+  Konsole's terminal features.
 
   The snap is strictly confined, as required on Core Desktop, which has no
   classic snaps. That changes how a terminal behaves:
 
   - The shell runs inside the snap, not on the host. HOME is the snap's
-    private per-user directory (~/snap/yakuake/<revision>), so top-level
-    dotfiles and dot-directories of your real home (~/.bashrc, ~/.config,
-    ~/.ssh, ...) are neither read nor written. Only non-hidden paths of the
-    real home are reachable through the home interface. Programs installed on
-    the host (distribution packages, /usr/local/bin, ...) are not on PATH;
-    the base provides bash, dash and the usual core utilities only. Host
-    shells such as zsh or fish are not available and SHELL falls back to
-    bash.
-  - Sessions start in the snap's private HOME. To work in the real home, cd
-    to it explicitly (for example /home/<user>); its hidden directories stay
-    inaccessible.
+    private per-user directory (~/snap/yakuake/<revision>): dotfiles of your
+    real home (~/.bashrc, ~/.ssh, ...) are neither read nor written, and only
+    non-hidden paths are reachable through the home interface. Host programs
+    are not on PATH; the base provides bash, dash and core utilities, so host
+    shells (zsh, fish, ...) are unavailable and SHELL is bash.
+    Sessions start in the private HOME; cd to the real home to work there.
   - /tmp is a private tmpfs, /dev/shm is private, and host /run sockets
-    other than the desktop ones (session bus, Wayland, PulseAudio) are not
-    accessible.
-  - Login records are not written: libutempter is not shipped, so shells
-    started in Yakuake do not appear in the host's who(1) or w(1).
-  - Settings, skins and caches live under ~/snap/yakuake/<revision> and are
-    not shared with a distribution-packaged Yakuake.
-  - The global show/hide shortcut is implemented with KGlobalAccel, which
-    talks to org.kde.kglobalaccel on the session bus. Strict confinement
-    does not grant access to that service, so no global shortcut is
-    registered, on X11 or Wayland. Use the tray icon, or bind a desktop
-    custom shortcut to "snap run yakuake" (a second launch asks the running
-    instance to toggle) or to
+    other than the desktop ones (session bus, Wayland, PulseAudio) are
+    inaccessible.
+  - Login records are not written: libutempter is not shipped, so Yakuake's
+    shells do not appear in who(1) or w(1).
+  - Settings, skins and caches live under ~/snap/yakuake/<revision>, not
+    shared with a packaged Yakuake.
+  - The global show/hide shortcut uses KGlobalAccel, which talks to
+    org.kde.kglobalaccel on the session bus; strict confinement does not
+    grant access to it, so no global shortcut is registered, on X11 or
+    Wayland. Use the tray icon, or bind a desktop shortcut to
+    "snap run yakuake" (a second launch toggles) or to
     dbus-send --session --dest=org.kde.yakuake /yakuake/window org.kde.yakuake.toggleWindowState
   - The snap owns org.kde.yakuake for its single-instance behaviour. If a
-    distribution-packaged Yakuake is already running on the same session
-    bus, the snap cannot talk to that unconfined instance, so it cannot take
-    over the name and will exit; quit the host Yakuake before starting the
-    snap.
+    distribution-packaged Yakuake is already running on the session bus, the
+    snap cannot talk to that unconfined instance, cannot take over the name
+    and exits; quit the host Yakuake first.
   - "Open after start" defaults to true through a system-wide yakuakerc
-    shipped in the snap, because there is no global hotkey and the snap
-    cannot write an autostart entry into the host session. Change it in the
-    settings if you start Yakuake another way.
-  - The first-run dialog cannot check or register a global shortcut: its
-    validation calls cannot reach kglobalaccel, so it falls back to the
-    previously configured key (F12 by default) and the shortcut is not
-    activated. Complete or cancel the dialog and use the tray icon or a
-    desktop shortcut instead.
-  - The tray icon uses StatusNotifierItem. It is shown on KDE Plasma and on
-    GNOME only when an AppIndicator extension provides the watcher; GNOME
-    Shell does not show it by default.
-  - Get New Skins downloads use KNewStuff over KIO. KIO's kiod6/kioworker
-    worker daemons are D-Bus services that a strict snap cannot activate, so
-    downloads normally fail. Skins can still be copied into the snap's data
-    directory manually.
-  - Notifications work through the desktop interface.
-  - Qt 6 and KDE Frameworks 6 are staged from the 26.04 archive. The host's
-    Qt/KDE theme and global settings are not visible: the snap ships the
-    Breeze icon theme but uses Qt's Fusion widget style, so it follows
-    neither the GNOME theme nor its accent colours.
-  - On an X11 session the drop-down behaviour works as intended: the window
-    is anchored to the top edge, kept above other windows, hidden from the
-    taskbar and pager and shown on all desktops. The global hotkey is still
-    unavailable as described above.
-  - On Wayland Yakuake does not use wlr-layer-shell; upstream uses KDE's
-    plasma-shell protocol, which only KWin implements. On Plasma Wayland it
-    can position the window and skip the taskbar and switcher, but it cannot
-    query plasmashell for the work area (that D-Bus call is blocked by
-    confinement) and it does not request keep-above on Wayland. On GNOME
-    Wayland, including Core Desktop, there is no plasma-shell, so the window
-    is an ordinary toplevel placed by the compositor: it will not stay on
-    top, will not be pinned to the screen edge and may appear in the window
-    switcher. Show/hide toggling still works. Running the snap with
-    QT_QPA_PLATFORM=xcb selects the X11 path through XWayland and may restore
-    positioning and keep-above where the compositor honours X11 hints, but
-    that is compositor-dependent and the global hotkey remains unavailable.
-  - The Konsole terminal is provided by the konsole-kpart KPart from the
-    26.04 archive (25.12.3) while Yakuake itself is built from the 26.08.3
-    release. The KPart interface Yakuake uses is unchanged between those
-    releases.
+    shipped in the snap: there is no global hotkey, and the snap cannot write
+    an autostart entry into the host session. Change it in the settings if
+    you start it another way.
+  - The first-run dialog cannot register a global shortcut: its checks
+    cannot reach kglobalaccel, so it keeps the previously configured key
+    (F12 by default), which is not activated. Complete or cancel it and use
+    the tray icon or a desktop shortcut.
+  - The tray icon uses StatusNotifierItem, shown on KDE Plasma and on GNOME
+    only when an AppIndicator extension provides the watcher; GNOME Shell
+    does not show it by default.
+  - Get New Skins uses KNewStuff over KIO. Its kiod6/kioworker daemons are
+    D-Bus services a strict snap cannot activate, so downloads normally fail;
+    skins can be copied into the data directory manually.
+  - Notifications use the desktop interface.
+  - Qt 6 and KDE Frameworks 6 come from the 26.04 archive. Host Qt/KDE theme
+    and settings are not visible: the snap ships Breeze icons but uses Qt's
+    Fusion style, so it follows neither the GNOME theme nor its accents.
+  - On X11 the drop-down behaviour works as intended: the window is anchored
+    to the top edge, kept above other windows, hidden from the taskbar and
+    pager and shown on all desktops. The global hotkey is unavailable.
+  - On Wayland Yakuake uses KDE's plasma-shell protocol, which only KWin
+    implements, not wlr-layer-shell. On Plasma Wayland it can position the
+    window and skip the taskbar and switcher, but cannot query plasmashell
+    for the work area (blocked by confinement) and does not request
+    keep-above. On GNOME Wayland, including Core Desktop, the window is an
+    ordinary toplevel: it does not stay on top, is not pinned to the screen
+    edge and may appear in the switcher. Toggling still works.
+    QT_QPA_PLATFORM=xcb uses the X11 path through XWayland, which may restore
+    positioning and keep-above where X11 hints are honoured.
+  - The Konsole terminal comes from konsole-kpart 25.12.3 (26.04 archive)
+    while Yakuake is built from 26.08.3; the KPart interface used is
+    unchanged.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. No prebuilt Yakuake binaries are embedded: the
@@ -127,13 +112,19 @@ platforms:
 
 # The staged X11 keyboard/locale data and fontconfig configuration have to
 # appear at the absolute paths their libraries were built with; /usr and /etc
-# inside the snap are the core26 base. The bind targets already exist in the
-# base and are replaced by the staged copies.
+# inside the snap are the core26 base. The bind targets are created in the
+# snap and are replaced by the staged copies at runtime.
 layout:
   /etc/fonts:
     bind: $SNAP/etc/fonts
+  # The data lives in usr/share/X11-data rather than usr/share/X11: the
+  # gpu-2604-cleanup helper deletes usr/share/X11/locale to deduplicate
+  # against the mesa-2604 content snap, and snapd rejects a second layout
+  # nested below this one, so the bind source is kept outside the cleaned
+  # path. Without the staged Compose/XLC_LOCALE files libX11 and
+  # libxkbcommon-compose find no locale data.
   /usr/share/X11:
-    bind: $SNAP/usr/share/X11
+    bind: $SNAP/usr/share/X11-data
   /usr/share/fontconfig:
     bind: $SNAP/usr/share/fontconfig
   /usr/share/fonts:
@@ -362,8 +353,8 @@ parts:
     # xkb-data and libx11-data are listed in core26's chisel manifest even
     # though only their copyright and XErrorDB slices are present. craft-parts
     # filters stage-packages by package name, so requesting them there would
-    # silently produce an empty usr/share/X11 and break the layout bind. Fetch
-    # the data packages directly; they contain no binaries.
+    # silently produce an empty bind source and break the layout. Fetch the
+    # data packages directly; they contain no binaries.
     plugin: nil
     override-build: |
       set -eux
@@ -372,15 +363,26 @@ parts:
       for package in ./*.deb; do
         dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
       done
+
+      # xkb-data 2.46 installs the keymaps under usr/share/xkeyboard-config-2
+      # and leaves usr/share/X11/xkb as a relative symlink to ../xkeyboard-
+      # config-2. Move the whole X11 tree away from usr/share/X11 (see the
+      # layout comment) and materialise the keymaps inside it, otherwise the
+      # symlink would resolve to the base's /usr/share/xkeyboard-config-2,
+      # which does not exist.
+      mv "$CRAFT_PART_INSTALL/usr/share/X11" "$CRAFT_PART_INSTALL/usr/share/X11-data"
+      rm "$CRAFT_PART_INSTALL/usr/share/X11-data/xkb"
+      mv "$CRAFT_PART_INSTALL/usr/share/xkeyboard-config-2" \
+        "$CRAFT_PART_INSTALL/usr/share/X11-data/xkb"
     prime:
       - -usr/share/doc
 
   cleanup:
     # The staged Qt/KF6/Konsole dependency trees contain copies of libraries
-    # that the core26 base already ships (GLib, OpenSSL, libstdc++, libicu,
-    # ...). Loading two copies in one process is not safe, so drop every
-    # primed shared library whose path also exists in the base, exactly as the
-    # other core26 recipes do.
+    # that the core26 base already ships (GLib, OpenSSL, libstdc++, ...).
+    # Loading two copies in one process is not safe, so drop every primed
+    # shared library whose path also exists in the base, exactly as the other
+    # core26 recipes do.
     after: [yakuake, runtime, x11-data]
     plugin: nil
     build-snaps: [core26]
@@ -391,3 +393,13 @@ parts:
       find . -type f,l -name '*.so.*' -print |
         sed "s|^\./|$root/|" |
         xargs -r rm -f
+
+      # x11-common (staged by the runtime part through libx11) installs
+      # usr/share/X11/rgb.txt as a relative symlink to ../../../etc/X11/rgb.txt.
+      # /usr/share/X11 is not the layout source and /etc/X11 is not bound, so
+      # place the real file in the bound tree; the dormant usr/share/X11 tree
+      # is otherwise unused.
+      if [ -f "$root/etc/X11/rgb.txt" ]; then
+        cp "$root/etc/X11/rgb.txt" "$root/usr/share/X11-data/rgb.txt"
+      fi
+      rm -f "$root/usr/share/X11/rgb.txt"

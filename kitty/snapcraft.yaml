@@ -181,7 +181,18 @@ parts:
       # Python headers and libpython of python3-dev. setup.py then runs the
       # freshly built launcher to generate Go bindings and the shaders, so the
       # build environment needs an importable Python 3.14 standard library.
-      /usr/bin/python3 setup.py linux-package --prefix "$CRAFT_PART_INSTALL/usr"
+      #
+      # kitty builds with -pedantic-errors -Werror. The extension injects the
+      # SDK's pkg-config directories, so its include tree reaches the compiler
+      # as ordinary -I directories instead of system includes, and warnings
+      # from those headers then abort the build: linux/stddef.h and
+      # linux/types.h use named variadic macros and __int128 (rejected by
+      # strict ISO C11), and wchar.h trips -Wtype-limits. Those headers belong
+      # to the platform, not to kitty, so disable warnings-as-errors for the
+      # build with the upstream option meant for packagers instead of patching
+      # kitty's sources or replacing the SDK include paths.
+      /usr/bin/python3 setup.py linux-package --ignore-compiler-warnings \
+        --prefix "$CRAFT_PART_INSTALL/usr"
 
       # The release tarball ships 26 MB of prebuilt HTML documentation. A
       # strictly confined terminal snap has no browser to open it with, while

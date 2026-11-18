@@ -118,10 +118,30 @@ platforms:
 
 layout:
   # libxkbcommon-x11 reads the keyboard-layout database from
-  # /usr/share/X11/xkb, which is the core26 base inside the snap and contains
-  # only XErrorDB. Bind the staged database and X11 locale data there.
-  /usr/share/X11:
-    bind: $SNAP/usr/share/X11
+  # /usr/share/X11/xkb, and libX11 and Qt's compose input context read the
+  # locale data from /usr/share/X11/locale. The core26 base has neither (its
+  # /usr/share/X11 contains only XErrorDB). Point those paths at the staged
+  # copies instead of binding /usr/share/X11 as a whole, because snapd rejects
+  # layout entries nested underneath a bound directory.
+  #
+  # xkb-data 2.46 installs the compiled database in
+  # /usr/share/xkeyboard-config-2, so point xkb there directly; otherwise the
+  # relative ../xkeyboard-config-2 symlink shipped by the package resolves
+  # against the base's /usr/share, where no such directory exists, and
+  # libxkbcommon cannot load any rules.
+  /usr/share/X11/xkb:
+    symlink: $SNAP/usr/share/xkeyboard-config-2
+  # The X11 locale data (compose tables, compose.dir) is staged at
+  # usr/share/x11-locale by the x11-data part instead of usr/share/X11/locale:
+  # the gpu extension's gpu/cleanup part deletes usr/share/X11/locale/*
+  # because mesa-2604 ships its own copy, and that would remove the staged
+  # data as well.
+  /usr/share/X11/locale:
+    symlink: $SNAP/usr/share/x11-locale
+  # x11-common ships rgb.txt as a symlink to /etc/X11/rgb.txt, which is the
+  # base inside the snap and has no such file; point at the staged copy.
+  /usr/share/X11/rgb.txt:
+    symlink: $SNAP/etc/X11/rgb.txt
 
 apps:
   texmaker:
@@ -285,6 +305,10 @@ parts:
       for package in ./*.deb; do
         dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
       done
+    organize:
+      # gpu/cleanup deletes usr/share/X11/locale/* (see the layout comment);
+      # keep the staged locale data under a path it does not touch.
+      usr/share/X11/locale: usr/share/x11-locale
     prime:
       - -usr/share/doc
 
