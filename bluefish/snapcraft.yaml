@@ -126,10 +126,10 @@ parts:
     override-build: |
       craftctl default
       # The gnome extension's cleanup part deletes primed libraries that also
-      # exist in gnome-core26-sdk, and libxml2 is part of the SDK. Keep the
-      # copy outside the SDK's path layout; the ELF patcher records
-      # $ORIGIN/../lib for usr/bin/bluefish, so the library is found at run
-      # time without relying on LD_LIBRARY_PATH.
+      # exist in gnome-core26-sdk (it runs find over the SDK and removes every
+      # matching *.so*), and libxml2 is part of the SDK. Keep the copy outside
+      # the SDK's path layout; the extension puts $SNAP/usr/lib on
+      # LD_LIBRARY_PATH, so the library is still found at run time.
       mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
       mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
         "$CRAFT_PART_INSTALL/usr/lib/"

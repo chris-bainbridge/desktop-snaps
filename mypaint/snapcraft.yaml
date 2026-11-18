@@ -70,7 +70,10 @@ parts:
       # Python 3.14, PyGObject, pycairo, GTK 3, librsvg and the GTK 3
       # typelibs. numpy and MyPaint's own dependencies are not part of it:
       - python3-numpy # imported by both the GUI and the C extension
-      # numpy is linked against the reference BLAS/LAPACK and libgfortran
+      # numpy is linked against the reference BLAS/LAPACK and libgfortran.
+      # libblas3/liblapack3 keep the libraries in private blas/ and lapack/
+      # subdirectories; the libblas.so.3/liblapack.so.3 names numpy links
+      # against only exist through update-alternatives.
       - libblas3
       - liblapack3
       - libgfortran5
@@ -83,15 +86,28 @@ parts:
     # the gnome/cleanup part of the extension removes any shared object that
     # the platform already ships, so these are only the platform's gaps.
     stage:
-      - usr/lib/*/libblas.so.3*
+      - usr/lib/*/blas/libblas.so.3*
+      # The update-alternatives names that override-build recreates.
+      - usr/lib/*/libblas.so.3
       - usr/lib/*/libgfortran.so.5*
       - usr/lib/*/libjson-c.so.5*
-      - usr/lib/*/liblapack.so.3*
+      - usr/lib/*/lapack/liblapack.so.3*
+      - usr/lib/*/liblapack.so.3
       - usr/lib/*/libmypaint*.so*
       - usr/lib/python3/dist-packages/numpy
       - usr/lib/python3/dist-packages/numpy-*.dist-info
       - usr/share/locale/*/LC_MESSAGES/libmypaint.mo
       - usr/share/mypaint-data/2.0/brushes
+    override-build: |
+      set -eux
+      craftctl default
+      # stage-packages unpacks the debs without running their maintainer
+      # scripts, so the update-alternatives symlinks numpy resolves at load
+      # time do not exist. Recreate them next to the libraries, where the
+      # extension's LD_LIBRARY_PATH ($SNAP/usr/lib/$triplet) looks for them.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      ln -sfn blas/libblas.so.3 "$libdir/libblas.so.3"
+      ln -sfn lapack/liblapack.so.3 "$libdir/liblapack.so.3"
 
   mypaint:
     source: https://github.com/mypaint/mypaint.git

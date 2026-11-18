@@ -90,6 +90,10 @@ parts:
       - -usr/lib/*.la
       - -usr/lib/goffice/**/*.la
       - -usr/share/doc
+      # --disable-gtk-doc stops the build from regenerating the API reference
+      # but the release tarball ships the prebuilt HTML, which is still
+      # installed. It is development documentation, not needed at run time.
+      - -usr/share/gtk-doc
 
   gnumeric:
     after: [goffice]
@@ -143,6 +147,7 @@ parts:
       - -usr/lib/pkgconfig
       - -usr/share/pkgconfig
       - -usr/lib/*.la
+      - -usr/lib/gnumeric/**/*.la
       - -usr/share/gir-1.0
 
   libraries:
@@ -152,8 +157,24 @@ parts:
       # libgsf is not part of the GNOME stack in gnome-core26 and is required
       # by both goffice and gnumeric (>= 1.14.45). The archive has 1.14.53.
       - libgsf-1-114
+      # libgsf, libgoffice and libspreadsheet link libxml2 (and librsvg and
+      # libxslt in gnome-core26 do too), but neither the core26 base nor the
+      # gnome-core26 content snap ships it. The archive has libxml2 2.15.2 as
+      # libxml2-16.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part removes every primed *.so that also
+      # exists in gnome-core26-sdk (libxml2 is part of the SDK), and the GPU
+      # cleanup removes the copy under the multiarch directory as well. Keep
+      # the library outside those path layouts; core26 puts $SNAP/usr/lib on
+      # LD_LIBRARY_PATH, so it is still found at run time.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
       - usr/lib/*/libgsf-1.so.*
+      - usr/lib/libxml2.so.16*
 
   cleanup:
     after: [gnumeric]
