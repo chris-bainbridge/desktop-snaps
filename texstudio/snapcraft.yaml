@@ -113,6 +113,23 @@ layout:
   # multiarch libproxy directory, which the base does not provide.
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libproxy:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libproxy
+  # libxkbcommon-x11 reads the keyboard database from /usr/share/X11/xkb and
+  # libX11's compose input context reads /usr/share/X11/locale. The core26
+  # base has neither. Point those paths at the staged copies instead of
+  # binding /usr/share/X11 as a whole, because snapd rejects layouts nested
+  # underneath a bound directory. xkb-data 2.46 installs the database in
+  # /usr/share/xkeyboard-config-2, so link to that directory directly.
+  /usr/share/X11/xkb:
+    symlink: $SNAP/usr/share/xkeyboard-config-2
+  # The locale data is staged at usr/share/x11-locale by the x11-data part:
+  # the gpu extension's cleanup deletes usr/share/X11/locale/* because
+  # mesa-2604 ships its own copy.
+  /usr/share/X11/locale:
+    symlink: $SNAP/usr/share/x11-locale
+  # x11-common ships rgb.txt as a symlink to /etc/X11/rgb.txt; the symlink
+  # itself escapes into the base, so expose the real staged file.
+  /usr/share/X11/rgb.txt:
+    symlink: $SNAP/etc/X11/rgb.txt
 
 apps:
   texstudio:
@@ -267,3 +284,24 @@ parts:
       - -usr/lib/pkgconfig
       - -usr/lib/*/pkgconfig
       - -usr/share/pkgconfig
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty /usr/share/X11. Fetch the data packages
+    # directly; they contain no binaries.
+    after: [texstudio]
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    organize:
+      # Keep the locale data out of the directory the GPU cleanup empties.
+      usr/share/X11/locale: usr/share/x11-locale
+    prime:
+      - -usr/share/doc
