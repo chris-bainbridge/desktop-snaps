@@ -23,13 +23,18 @@ info() {
 
 usage() {
     cat <<'EOF'
-Usage: ./build [options] <snap>
+Usage: ./build [options] <snap>[:<track>]
 
-Build a snap from its top-level package directory (e.g. gnome-logs). Builds
-run out of tree in a temporary workspace.
+Build a snap from its package directory (e.g. gnome-logs). Builds run out of
+tree in a temporary workspace.
+
+A package with a single recipe is flat and implicitly builds the stable
+track. A package with more than one track keeps its recipes under stable/,
+beta/, edge/ (and optionally candidate/); <snap> then defaults to stable.
 
 Options:
-  --list               list packages and exit
+  --list               list packages and tracks, then exit
+  --track TRACK        track to build: stable (default), candidate, beta, edge
   --keep               keep the workspace after a successful build
   --dry-run            print the resolved build plan and exit
   --workspace DIR      workspace root (default: $SNAPS_BUILD_DIR or
@@ -43,6 +48,8 @@ Environment:
 Examples:
   ./build --list
   ./build gnome-logs
+  ./build ardour --track edge
+  ./build ardour/edge
   ./build gnome-calculator --dry-run
   ./build gnome-calculator -- --build-for=arm64
 EOF
@@ -73,20 +80,48 @@ else:
 PY
 }
 
+# recipe_exists <dir>: true when <dir> holds a snapcraft recipe, in either
+# of the two layouts used in this repository (snapcraft.yaml at the root of
+# the build project, or snap/snapcraft.yaml).
+recipe_exists() {
+    [[ -f "$1/snapcraft.yaml" || -f "$1/snap/snapcraft.yaml" ]]
+}
+
+# tracks_in <pkgdir>: print the tracks available for a package, one per line.
+# A flat package has only the implicit stable track.
+tracks_in() {
+    local pkgdir=$1 track
+    if recipe_exists "$pkgdir"; then
+        printf 'stable\n'
+        return
+    fi
+    # A nested package without stable/ is invalid; keep it out of --list so
+    # the layout error is reported by the build, with the package named.
+    recipe_exists "$pkgdir/stable" || return 0
+    for track in stable candidate beta edge; do
+        [[ -d "$pkgdir/$track" ]] && recipe_exists "$pkgdir/$track" &&
+            printf '%s\n' "$track"
+    done
+}
+
 list_packages() {
-    printf '%-32s %-7s %s\n' NAME BASE PUBLISHER
-    local manifest pkgdir name
+    printf '%-32s %-10s %-7s %s\n' NAME TRACK BASE PUBLISHER
+    local manifest pkgdir name track
     while IFS= read -r manifest; do
         pkgdir="$(dirname -- "$manifest")"
         name="$(basename -- "$pkgdir")"
-        printf '%-32s %-7s %s\n' \
-            "$name" \
-            "$(meta_get "$pkgdir" base)" \
-            "$(meta_get "$pkgdir" store.publisher)"
+        while IFS= read -r track; do
+            printf '%-32s %-10s %-7s %s\n' \
+                "$name" \
+                "$track" \
+                "$(meta_get "$pkgdir" base)" \
+                "$(meta_get "$pkgdir" store.publisher)"
+        done < <(tracks_in "$pkgdir")
     done < <(find "$ROOT" -mindepth 2 -maxdepth 2 -name metadata.yaml | sort)
 }
 
 name=""
+track=""
 keep=0
 dry_run=0
 workspace="$DEFAULT_WORKSPACE"
@@ -103,6 +138,14 @@ while (($#)); do
             ;;
         --dry-run)
             dry_run=1
+            ;;
+        --track)
+            (($# >= 2)) || die "--track requires a track name"
+            track="$2"
+            shift
+            ;;
+        --track=*)
+            track="${1#*=}"
             ;;
         --workspace)
             (($# >= 2)) || die "--workspace requires a directory"
@@ -137,17 +180,91 @@ done
     exit 1
 }
 
-# Accept both "gnome-logs" and a path to the package directory.
+# Accept a snap name, a package directory, a track directory, a path to a
+# recipe, or a "snap:track" / "snap/track" pair.
+raw_name="$name"
 name="${name#./}"
 name="${name%/}"
-if [[ "$name" == */* ]]; then
-    name="${name##*/}"
+
+if [[ "$name" == *:* ]]; then
+    [[ -z "$track" ]] || die "track given twice (--track and ':${name##*:}')"
+    track="${name##*:}"
+    name="${name%:*}"
 fi
 
-pkgdir="$ROOT/$name"
+candidate="$name"
+[[ "$candidate" == /* ]] || candidate="$ROOT/$candidate"
 
-[[ -d "$pkgdir" ]] || die "no such snap: $name; try ./build --list"
-[[ -f "$pkgdir/metadata.yaml" ]] || die "missing $pkgdir/metadata.yaml"
+# A flat package has no stable/ directory, but "pkg/stable" should still
+# resolve to it: the track is implicit, the path is only a selector.
+if [[ ! -e "$candidate" && "$name" == */* ]]; then
+    parent="${name%/*}"
+    last="${name##*/}"
+    case "$last" in
+        stable | candidate | beta | edge)
+            parent_candidate="$parent"
+            [[ "$parent_candidate" == /* ]] || parent_candidate="$ROOT/$parent_candidate"
+            if [[ -d "$parent_candidate" ]]; then
+                [[ -z "$track" || "$track" == "$last" ]] ||
+                    die "track '$track' does not match '$raw_name'"
+                track="$last"
+                candidate="$parent_candidate"
+            fi
+            ;;
+    esac
+fi
+
+[[ -e "$candidate" ]] || die "no such snap: $raw_name; try ./build --list"
+
+# The metadata stays at the package root, above any track directory.
+pkgdir="$candidate"
+while [[ ! -f "$pkgdir/metadata.yaml" && "$pkgdir" != "$ROOT" && "$pkgdir" != "/" ]]; do
+    pkgdir="$(dirname -- "$pkgdir")"
+done
+[[ -f "$pkgdir/metadata.yaml" ]] || die "no metadata.yaml above $candidate"
+
+name="$(basename -- "$pkgdir")"
+
+# A trailing path component inside the package is a track: pkg/edge.
+if [[ "$candidate" != "$pkgdir" ]]; then
+    rel="${candidate#"$pkgdir"/}"
+    pathtrack="${rel%%/*}"
+    case "$pathtrack" in
+        stable | candidate | beta | edge)
+            [[ -z "$track" || "$track" == "$pathtrack" ]] ||
+                die "track '$track' does not match '$candidate'"
+            track="$pathtrack"
+            ;;
+        *)
+            die "unrecognised track '$pathtrack' in $candidate"
+            ;;
+    esac
+fi
+
+track="${track:-stable}"
+case "$track" in
+    stable | candidate | beta | edge) ;;
+    *) die "invalid track '$track' (expected stable, candidate, beta or edge)" ;;
+esac
+
+# Flat and nested layouts must not be mixed. A flat package is implicitly
+# stable; a nested package has stable/ plus one or more extra tracks.
+recipe_root=""
+if recipe_exists "$pkgdir"; then
+    for other in stable candidate beta edge; do
+        [[ -d "$pkgdir/$other" ]] && recipe_exists "$pkgdir/$other" &&
+            die "$name mixes a flat recipe with a nested '$other/' recipe"
+    done
+    [[ "$track" == stable ]] ||
+        die "$name is a flat package and only has the implicit stable track"
+    recipe_root="$pkgdir"
+elif [[ -d "$pkgdir/$track" ]] && recipe_exists "$pkgdir/$track"; then
+    recipe_exists "$pkgdir/stable" ||
+        die "nested package $name must also carry a stable/ recipe"
+    recipe_root="$pkgdir/$track"
+else
+    die "no '$track' recipe for $name; try ./build --list"
+fi
 
 snap="$(meta_get "$pkgdir" snap)"
 mode="$(meta_get "$pkgdir" mode)"
@@ -172,11 +289,18 @@ if [[ "$mode" == overlay ]]; then
         die "invalid overlay-to '$overlay_to'"
 fi
 
-ws="$workspace/$name"
+if [[ "$recipe_root" == "$pkgdir" ]]; then
+    ws="$workspace/$name"
+else
+    ws="$workspace/$name-$track"
+fi
 
 if ((dry_run)); then
     printf 'snap:       %s\n' "$snap"
     printf 'package:    %s\n' "${pkgdir#"$ROOT"/}"
+    printf 'track:      %s%s\n' "$track" \
+        "$([[ "$recipe_root" == "$pkgdir" ]] && printf ' (flat, implicit)')"
+    printf 'recipe:     %s\n' "${recipe_root#"$ROOT"/}"
     printf 'base:       %s\n' "$base"
     printf 'mode:       %s\n' "$mode"
     printf 'workspace:  %s\n' "$ws"
@@ -216,8 +340,8 @@ trap cleanup EXIT
 
 case "$mode" in
     vendored)
-        info "copying $name into $ws"
-        rsync -a --exclude=metadata.yaml --exclude=.git -- "$pkgdir/" "$ws/"
+        info "copying ${recipe_root#"$ROOT"/} into $ws"
+        rsync -a --exclude=metadata.yaml --exclude=.git -- "$recipe_root/" "$ws/"
         ;;
     overlay)
         info "cloning $overlay_repo${overlay_commit:+ at $overlay_commit}"
@@ -228,9 +352,9 @@ case "$mode" in
         else
             git clone --quiet --depth=1 -- "$overlay_repo" "$ws"
         fi
-        info "overlaying snap/ onto $overlay_to/"
+        info "overlaying ${recipe_root#"$ROOT"/}/snap/ onto $overlay_to/"
         mkdir -p -- "$ws/$overlay_to"
-        rsync -a -- "$pkgdir/snap/" "$ws/$overlay_to/"
+        rsync -a -- "$recipe_root/snap/" "$ws/$overlay_to/"
         ;;
 esac
 
@@ -239,7 +363,7 @@ if [[ -n "$prepare" ]]; then
     (cd "$ws" && bash -c "$prepare")
 fi
 
-info "building $snap with snapcraft pack --use-lxd"
+info "building $snap ($track) with snapcraft pack --use-lxd"
 (cd "$ws" && snapcraft pack --use-lxd "${snapcraft_args[@]+"${snapcraft_args[@]}"}")
 
 artifact=""

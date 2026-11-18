@@ -52,39 +52,86 @@ thunderbird/
 ```
 
 A two-letter shard (`gn/`, `th/`, as in Nixpkgs) is deliberately not used:
-with a dozen packages a flat layout is easier to scan, and sharding can be
-added later if the repository grows to hundreds.
+a flat layout is easier to scan, and sharding can be added later if the
+repository grows to many hundreds.
 
-The directory name matches `snap:` in `metadata.yaml`. Each package directory
-is a complete build project in whatever shape its upstream uses:
+The directory name matches `snap:` in `metadata.yaml`. A package with a single
+recipe is **flat**; that recipe is implicitly the `stable` track:
 
 ```
 gnome-logs/
 ├── metadata.yaml       # provenance and build mode
-├── snapcraft.yaml      # the recipe
+├── snapcraft.yaml      # the recipe, implicitly stable
 └── ...                 # patches, snap/, or whatever the recipe needs
 ```
 
-`metadata.yaml` is never copied into a build workspace.
+If a package has more than one release track, it is **nested**: the stable
+recipe moves too, and every track is a complete build project of its own:
+
+```
+ardour/
+├── metadata.yaml       # provenance and build mode, shared by all tracks
+├── stable/
+│   ├── snapcraft.yaml  # latest stable upstream release
+│   └── ...
+└── edge/
+    ├── snapcraft.yaml  # latest upstream git / nightly
+    └── ...
+```
+
+`beta/` is an official upstream beta or pre-release; `edge/` is the upstream
+development branch, latest tag or nightly. `candidate/` is accepted for a
+recipe that needs it, but do not create a track without a real upstream
+stream behind it. Flat and nested layouts are never mixed, and a nested
+package always keeps a `stable/` recipe.
+
+`metadata.yaml` stays at the package root, never inside a track, and is never
+copied into a build workspace.
 
 ## Building
 
 ```console
-./build --list                     # all packages, base and publisher
-./build gnome-logs                 # build the gnome-logs package
+./build --list                     # name, track, base and publisher
+./build gnome-logs                 # flat package, implicit stable
 ./build gnome-calculator --dry-run # show what would happen
 ./build gnome-calculator --keep    # keep the workspace for inspection
 ./build gnome-calculator -- --build-for=arm64   # extra args go to snapcraft
 ```
 
-Builds happen **out of tree**, in `${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>`,
-so the repository never accumulates `parts/`, `stage/`, `prime/` or `*.snap`.
-The built `.snap` is moved to `<workspace>/artifacts/`, the workspace is
-removed on success (unless `--keep`) and kept on failure. The build runs
-`snapcraft pack --use-lxd`.
+For a nested package, `./build <name>` builds its stable track. Use
+`--track edge`, `./build <name>/edge`, or `./build <name>:edge` for another
+track.
+
+Builds happen **out of tree**, in
+`${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>` for a flat or
+`<snap>-<track>` for a nested package, so the repository never accumulates
+`parts/`, `stage/`, `prime/` or `*.snap`. The built `.snap` is moved to
+`<workspace>/artifacts/`, the workspace is removed on success (unless
+`--keep`) and kept on failure. The build runs `snapcraft pack --use-lxd`.
 
 Requirements: `bash`, `git`, `rsync`, `python3` with PyYAML, `snapcraft`,
 and a working LXD.
+
+## Upstream versions and tracks
+
+The default is the **latest stable upstream release**, not whatever version
+happened to be frozen in Ubuntu at release time. Snaps exist precisely so
+that the application can move ahead of the distribution.
+
+- Build the application from upstream source at its latest stable release.
+- Use libraries from the Ubuntu archive wherever they work, instead of
+  rebuilding them: this saves build time and the application usually does
+  not care about the library's exact version.
+- When a recipe stages an application from the Ubuntu archive rather than
+  building it, check that the archive version really is the latest upstream
+  release. If it is not, build from upstream or refresh the recipe.
+- Imported recipes are starting points, not version pins: refresh them to the
+  latest upstream release when importing.
+- `stable` is the latest stable upstream release. `beta` is an official
+  upstream beta/pre-release. `edge` is the upstream development branch,
+  latest tag or nightly, and may be refreshed on a daily or weekly basis.
+  Use the upstream's own terminology when deciding which track a release
+  belongs to.
 
 ## Two build modes
 
@@ -134,6 +181,11 @@ store:
 packaging repository. `recipe` is the packaging repository the vendored
 recipe came from (with its branch), and `recipe-commit` is the commit it was
 copied from.
+
+`metadata.yaml` stays at the package root even when the package is nested.
+The track directories contain the complete build projects, so the version
+and source of a track live in that track's recipe, not in the shared
+metadata.
 
 Overlay packages additionally set `overlay-repo`, `overlay-commit` and
 `overlay-to`; none currently do. Imported packages (2026-11-17) carry
