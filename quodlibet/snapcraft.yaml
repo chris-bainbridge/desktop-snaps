@@ -1,4 +1,5 @@
 name: quodlibet
+title: Quod Libet
 version: '4.7.1'
 summary: Music library manager and player
 description: |
@@ -38,6 +39,7 @@ license: GPL-2.0-or-later
 website: https://quodlibet.readthedocs.io/
 source-code: https://github.com/quodlibet/quodlibet
 issues: https://github.com/quodlibet/quodlibet/issues
+contact: https://github.com/quodlibet/quodlibet/issues
 
 icon: snap/local/io.github.quodlibet.QuodLibet.png
 
@@ -117,7 +119,9 @@ parts:
       - usr/lib/python3/dist-packages/sgmllib.py
       - usr/lib/python3/dist-packages/sgmllib3k-*.egg-info
       - usr/lib/*/gstreamer-1.0/libgstfaad.so
-      - usr/lib/*/libfaad*.so.2*
+      # Only the plain decoder: libfaad2 also ships libfaad_drm.so.2, which
+      # nothing loads (the faad plugin links libfaad.so.2 only).
+      - usr/lib/*/libfaad.so.2*
 
   quodlibet:
     source: https://github.com/quodlibet/quodlibet.git
@@ -146,8 +150,12 @@ parts:
         --install-data=/usr \
         --single-version-externally-managed \
         --record=install-files.txt
-      # Drop build metadata from the snap's module tree.
-      rm -rf "$CRAFT_PART_INSTALL"/usr/lib/python3/dist-packages/quodlibet-*.egg-info
+      # setuptools turns the "quodlibet" script into an entry-point script
+      # (EASY-INSTALL-ENTRY-SCRIPT, console_scripts), which resolves
+      # quodlibet.main:main through importlib.metadata at run time. Keep the
+      # egg-info: without it /usr/bin/quodlibet dies with
+      # PackageNotFoundError. (exfalso and operon are plain scripts and do
+      # not need it.)
       # core26 has no /usr/bin/python3. The launcher runs the platform
       # interpreter explicitly, but keep direct invocation inside the snap
       # working too.

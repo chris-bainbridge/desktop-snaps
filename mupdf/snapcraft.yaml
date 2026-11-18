@@ -61,6 +61,12 @@ platforms:
   amd64:
   arm64:
 
+environment:
+  # mupdf-gl caches rendered pages in $XDG_CACHE_HOME/mupdf (falling back to
+  # ~/.cache/mupdf). The home interface cannot write to hidden directories in
+  # the real home, so keep the cache in the snap's private per-user area.
+  XDG_CACHE_HOME: $SNAP_USER_COMMON/.cache
+
 apps:
   mupdf:
     extensions: [gpu]
@@ -100,6 +106,7 @@ parts:
       - libglu1-mesa-dev
       - libx11-dev
       - libxext-dev
+      - libxi-dev          # X11/extensions/XInput.h, included unconditionally by freeglut
       - libxrandr-dev
       # OpenSSL is the only system library MuPDF links for document encryption
       # and signatures; core26 provides libcrypto.so.3 at runtime.

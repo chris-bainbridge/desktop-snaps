@@ -105,6 +105,10 @@ parts:
       # libwnck links against startup-notification, which the platform lacks
       # (it has libXRes); without it the libwnck library cannot be loaded.
       - libstartup-notification0
+      # libstartup-notification links against libxcb-util, which neither the
+      # base nor the platform ships; the library linter flags it as missing and
+      # the dynamic loader really does fail without it.
+      - libxcb-util1
     # Stage only the runtime files. An explicit list keeps the interpreter and
     # its standard library out of the snap (python3-yaml depends on python3);
     # the gnome/cleanup part of the extension removes anything the platform
@@ -118,6 +122,7 @@ parts:
       - usr/lib/*/libkeybinder-3.0.so.*
       - usr/lib/*/libwnck-3.so.*
       - usr/lib/*/libstartup-notification-1.so.*
+      - usr/lib/*/libxcb-util.so.*
 
   guake:
     source: https://github.com/Guake/guake.git
