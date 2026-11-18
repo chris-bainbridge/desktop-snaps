@@ -247,6 +247,12 @@ tools, and provides the `pipewire`, `audio-playback`, `audio-record` and
 requires a snapd with the `pipewire-server` interface. It is not an
 application and is listed separately from the app imports above.
 
+Since 2026-11-18 the recipe builds PipeWire 1.6.11 and WirePlumber 0.5.19
+from upstream source; the 26.04 archive still has 1.6.2/0.5.13. WirePlumber
+0.5.19 replaced the snapd permission-prompting C module with its Lua
+snap-access policy, so there is no interactive snapd prompt for
+`audio-record`.
+
 ### New core26 recipes (64)
 
 `terminator`, `meld`, `gnome-tweaks`, `dconf-editor`, `baobab`,
@@ -298,6 +304,13 @@ perform root-level cleaning.
 too old) and uses Arch's byte-identical mirrors for the official tarballs;
 `handbrake` is GTK4 now and builds against system FFmpeg/x264/x265 instead of
 its contrib bundle; `qbittorrent` stages Qt 6 and libtorrent.
+
+`evince` loads PDF, TIFF and comic-book archives; its DjVu, XPS and DVI
+backends are built but their libraries are not in the platform, so those
+formats do not load. `tigervnc` builds upstream 1.16.2 with H.264 RFB
+encoding disabled to avoid the jammy FFmpeg stack, so H.264 servers fall
+back to Tight/RLE/raw. `gedit` 51 folded the remaining gedit-plugins into
+the application; there is no separate plugins package upstream any more.
 
 The audio applications (`ardour`, `lmms`, `mixxx`) can only use
 PulseAudio/PipeWire under strict confinement: no ALSA/JACK, no hardware MIDI
