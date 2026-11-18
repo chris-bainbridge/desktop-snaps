@@ -5,14 +5,15 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 119 repackage snaps: the 13
+one-repository-per-snap setup. It contains 120 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
 from other `~desktop-snappers` repositories on 2026-11-17, 14 from the
-personal packaging repositories of Canonical staff, and 64 new recipes
-written on 2026-11-17.
+personal packaging repositories of Canonical staff, one infrastructure
+recipe imported from Canonical's pipewire-snap repository on 2026-11-18,
+and 64 new recipes written on 2026-11-17.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the sixty-four new recipes, which are not in the store yet. Bases: 83
+the sixty-four new recipes, which are not in the store yet. Bases: 84
 `core26`, 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26`
 packages have not been migrated.
 
@@ -143,7 +144,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (119)
+## Snaps in scope (120)
 
 ### Migrated to core26 (13)
 
@@ -172,6 +173,21 @@ From personal packaging repositories of Canonical staff (14):
 `dippi`, `epic-games-launcher`, `freemind`, `freeplane-mindmapping`,
 `geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
 `squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
+
+### Imported 2026-11-18 (1)
+
+Infrastructure provider, from Canonical's
+[pipewire-snap](https://github.com/canonical/pipewire-snap) repository
+(`desktop/26`, commit `13c610e8`):
+
+`pipewire`
+
+Already `core26` and strict upstream. It ships the PipeWire server,
+wireplumber and pipewire-pulse as user daemons plus the `pw-*`/`wpctl`
+tools, and provides the `pipewire`, `audio-playback`, `audio-record` and
+`pulseaudio` slots that the desktop application snaps connect to. It
+requires a snapd with the `pipewire-server` interface. It is not an
+application and is listed separately from the app imports above.
 
 ### New core26 recipes (64)
 
@@ -295,8 +311,8 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 36 imported packages still on older bases; 83 of
-  the 119 are on `core26` (13 migrated, 6 imported and 64 new), and `freemind`
+- `core26` migration of the 36 imported packages still on older bases; 84 of
+  the 120 are on `core26` (13 migrated, 7 imported and 64 new), and `freemind`
   is still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.

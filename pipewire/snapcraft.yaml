@@ -1,0 +1,258 @@
+name: pipewire
+base: core26
+adopt-info: pipewire
+summary: Pipewire server, plus wireplumber and pipewire-pulse
+description: |
+  The pipewire video/audio daemon server.
+
+grade: stable
+confinement: strict
+
+# Explicit platforms: without this block snapcraft names the output after
+# the host arch implicitly; declaring both keeps the amd64 and arm64 CI
+# legs deterministic and the meta architectures per build arch.
+platforms:
+  amd64:
+    build-on: [amd64]
+    build-for: [amd64]
+  arm64:
+    build-on: [arm64]
+    build-for: [arm64]
+
+layout:
+  /usr/share/pipewire:
+    bind: $SNAP/usr/share/pipewire
+  /usr/share/wireplumber:
+    bind: $SNAP/usr/share/wireplumber
+  /usr/share/alsa:
+    bind: $SNAP/usr/share/alsa
+  /usr/share/alsa-card-profile:
+    bind: $SNAP/usr/share/alsa-card-profile
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/wireplumber-0.5:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/wireplumber-0.5
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/alsa-lib:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/alsa-lib
+  /etc/alsa:
+    bind: $SNAP/etc/alsa
+  /etc/pulse:
+    bind: $SNAP/etc/pulse
+
+environment:
+  SPA_PLUGIN_DIR: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/spa-0.2
+  LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/usr/lib:/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pipewire-0.3
+
+apps:
+  pipewire-bin:
+    command: usr/bin/pipewire
+    daemon: simple
+    daemon-scope: user
+    restart-condition: always
+    sockets:
+      pipewire-socket:
+        listen-stream: $XDG_RUNTIME_DIR/pipewire-0
+        socket-mode: 0644
+      pipewire-manager-socket:
+        listen-stream: $XDG_RUNTIME_DIR/pipewire-0-manager
+        socket-mode: 0644
+    before:
+      - wireplumber-bin
+    slots:
+      - pipewire
+      - audio-playback
+      - audio-record
+      - pulseaudio
+    plugs:
+      - alsa
+      - bluez
+      - camera
+      - dbus-portal-desktop
+      - hardware-observe
+      - media-control
+      - network
+      - network-bind
+      - system-observe
+
+  wireplumber-bin:
+    command: usr/bin/wireplumber
+    daemon: simple
+    daemon-scope: user
+    restart-condition: always
+    after:
+      - pipewire-bin
+    slots:
+      - audio-playback
+      - audio-record
+      - pulseaudio
+    plugs:
+      - alsa
+      - bluez
+      - camera
+      - dbus-portal-permission-store
+      - hardware-observe
+      - media-control
+      - network
+      - network-bind
+      - system-observe
+
+  pipewire-pulse:
+    command: usr/bin/pipewire-pulse
+    daemon: simple
+    daemon-scope: user
+    restart-condition: always
+    sockets:
+      pulse-socket:
+        listen-stream: $XDG_RUNTIME_DIR/pulse/native
+        socket-mode: 0644
+    slots:
+      - audio-playback
+      - audio-record
+      - pulseaudio
+    plugs:
+      - alsa
+      - bluez
+      - hardware-observe
+      - network
+      - network-bind
+      - system-observe
+
+  wpctl:
+    command: usr/bin/wpctl
+    slots:
+      - pipewire
+
+  wpexec:
+    command: usr/bin/wpexec
+    slots:
+      - pipewire
+
+  pw-play:
+    command: usr/bin/pw-play
+    slots:
+      - pipewire
+
+  pw-cat:
+    command: usr/bin/pw-cat
+    slots:
+      - pipewire
+
+  pw-cli:
+    command: usr/bin/pw-cli
+    slots:
+      - pipewire
+
+  pw-config:
+    command: usr/bin/pw-config
+    slots:
+      - pipewire
+
+  pw-dot:
+    command: usr/bin/pw-dot
+    slots:
+      - pipewire
+
+  pw-dsdplay:
+    command: usr/bin/pw-dsdplay
+    slots:
+      - pipewire
+
+  pw-dump:
+    command: usr/bin/pw-dump
+    slots:
+      - pipewire
+
+  pw-encplay:
+    command: usr/bin/pw-encplay
+    slots:
+      - pipewire
+
+  pw-link:
+    command: usr/bin/pw-link
+    slots:
+      - pipewire
+
+  pw-loopback:
+    command: usr/bin/pw-loopback
+    slots:
+      - pipewire
+
+  pw-metadata:
+    command: usr/bin/pw-metadata
+    slots:
+      - pipewire
+
+  pw-mididump:
+    command: usr/bin/pw-mididump
+    slots:
+      - pipewire
+
+  pw-midiplay:
+    command: usr/bin/pw-midiplay
+    slots:
+      - pipewire
+
+  pw-midirecord:
+    command: usr/bin/pw-midirecord
+    slots:
+      - pipewire
+
+  pw-mon:
+    command: usr/bin/pw-mon
+    slots:
+      - pipewire
+
+  pw-profiler:
+    command: usr/bin/pw-profiler
+    slots:
+      - pipewire
+
+  pw-record:
+    command: usr/bin/pw-record
+    slots:
+      - pipewire
+
+  pw-top:
+    command: usr/bin/pw-top
+    slots:
+      - pipewire
+
+slots:
+  dbus-wireplumber:
+    interface: dbus
+    name: org.freedesktop.ReserveDevice1
+    bus: session
+  dbus-pulseaudio:
+    interface: dbus
+    name: org.pulseaudio.Server
+    bus: session
+
+plugs:
+  dbus-portal-desktop:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.portal.Desktop
+  dbus-portal-permission-store:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.impl.portal.PermissionStore
+
+parts:
+  pipewire:
+    plugin: nil
+    stage-packages:
+      # Same archive build as the desktop content snap ships: the daemons
+      # must not be a version downgrade relative to the desktop stack.
+      - pipewire-bin
+      - pipewire-pulse
+      - wireplumber
+      - libspa-0.2-bluetooth
+      - alsa-ucm-conf
+    override-build: |
+      craftctl default
+      deb_dir="/root/parts/pipewire/stage_packages"
+      craftctl set version="$(dpkg-deb -f "$deb_dir"/pipewire-bin_*.deb Version)"
+    stage:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
