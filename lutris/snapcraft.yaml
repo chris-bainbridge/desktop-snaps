@@ -155,8 +155,8 @@ parts:
       - usr/lib/python3/dist-packages/pyyaml-*.dist-info
       - usr/lib/python3/dist-packages/certifi
       - usr/lib/python3/dist-packages/certifi-*.dist-info
-      - usr/lib/python3/dist-packages/charset_normalizer
-      - usr/lib/python3/dist-packages/charset_normalizer-*.dist-info
+      - usr/lib/python3/dist-packages/chardet
+      - usr/lib/python3/dist-packages/chardet-*.dist-info
       - usr/lib/python3/dist-packages/distro
       - usr/lib/python3/dist-packages/distro-*.dist-info
       - usr/lib/python3/dist-packages/evdev

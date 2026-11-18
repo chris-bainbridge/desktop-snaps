@@ -220,6 +220,7 @@ parts:
       - ninja-build
       - pkg-config
       - python3
+      - python3-docutils # rst2man, required unconditionally by man/meson.build
     meson-parameters:
       - --prefix=/usr
       - --buildtype=release

@@ -1,108 +1,81 @@
 name: input-leap
 version: '3.0.3'
+title: Input Leap
+contact: https://github.com/input-leap/input-leap/issues
 summary: Share one keyboard, mouse and clipboard between computers
 description: |
   Input Leap lets one keyboard and mouse control several computers on a
-  desk: the machine whose screen edge the pointer leaves (the server)
-  forwards the input over the network to the other machines (the clients),
-  and X11 clipboards can be shared. It is the fork of Barrier created by
-  Barrier's own maintainers. Release 3.0.3 (2025-06-13) is the last release;
-  upstream archived the repository in July 2026.
+  desk: the server forwards input over the network to the clients when the
+  pointer leaves its screen edge, and X11 clipboards can be shared.
+  Release 3.0.3 (2025-06-13) is the last one; upstream archived the
+  repository in July 2026.
 
-  The snap is strictly confined, as required on Core Desktop, which has no
-  classic snaps. Input Leap 3.0.3 has two Linux input backends and strict
-  confinement determines what each can do:
+  The snap is strictly confined, as required on Core Desktop. Input Leap
+  3.0.3 has two Linux backends:
 
-  - X11. The traditional backend captures input with
-    XGrabKeyboard()/XGrabPointer() and injects it with the XTEST extension
-    through the socket the x11 interface exposes. It works as intended only
-    on a legacy X11 session, where that socket is the real X server. On a
-    Wayland session the GUI and this backend can run on XWayland, but
-    XWayland is a nested X server: the Wayland compositor owns the keyboard,
-    pointer and focus, so grabs apply only while an XWayland window has
-    focus and XTEST events reach only XWayland's own clients. The backend
-    cannot capture the whole session or type into native Wayland
-    applications. Select it with --use-x11 (or --display); otherwise it is
-    the fallback when no Wayland session is detected. The GUI has no backend
-    switch, so forcing X11 on a Wayland session means starting input-leaps
-    directly with --use-x11.
+  - X11. Captures input with XGrabKeyboard()/XGrabPointer() and injects it
+    with XTEST through the socket the x11 interface exposes. It works as
+    intended only on a legacy X11 session. On Wayland, XWayland is a
+    nested server: the compositor owns input and focus, so grabs apply
+    only to focused XWayland windows and XTEST events reach only XWayland
+    clients. Select it with --use-x11 (or --display); it is the fallback
+    when no Wayland session is detected, and the GUI has no switch, so run
+    input-leaps directly to force it.
 
-  - libei (EI). This is the default on Wayland and the only backend that can
-    work with a native Wayland session under strict confinement. It does not
-    use the display server socket: the server role asks the desktop's
-    org.freedesktop.portal.InputCapture portal for permission and receives
-    input through libei's EIS transport, and the client role uses
-    org.freedesktop.portal.RemoteDesktop with ConnectToEIS to inject events.
-    Ubuntu 26.04's GNOME 50 portal backend implements both. A strict snap
-    reaches the portals over the session bus, which the desktop interface
-    (connected automatically) allows, so both roles can work without
-    classic confinement. The compositor keeps control: GNOME asks the user
-    for permission when a session is created and only starts capture after
-    the pointer crosses a screen-edge barrier. The portal identifies the
-    requesting application as "snap.input-leap" (the InputCapture dialog
-    shows that name). Input Leap uses transient sessions, so the question is
-    asked again on every start and cannot be pre-approved with a snap
-    connection. A compositor with these portal implementations is required;
-    older or non-GNOME desktops may lack InputCapture, in which case the
-    server has to be started with --use-x11 to use the X11 backend instead
-    (the selection itself has no automatic fallback). Clipboard sharing is
-    not implemented on the libei/Wayland path. Upstream's GUI shows its
-    Wayland advisory dialog on every start when it runs as a native Wayland
-    client.
+  - libei (EI). The default on Wayland and the only backend that works
+    with a native Wayland session under strict confinement. The server
+    asks org.freedesktop.portal.InputCapture for permission and receives
+    input through libei's EIS transport; the client uses
+    org.freedesktop.portal.RemoteDesktop with ConnectToEIS. Ubuntu 26.04's
+    GNOME 50 portal implements both. A strict snap reaches the portals
+    over the session bus, which the desktop interface (connected
+    automatically) allows. GNOME asks for permission when a session is
+    created and starts capture only after the pointer crosses a
+    screen-edge barrier; the dialog names the app "snap.input-leap". A
+    compositor with these portals is required; otherwise start the server
+    with --use-x11. Clipboard sharing is not implemented on this path.
 
   Not available, and not used by this release:
 
-  - /dev/uinput. snapd's uinput interface is privileged, is not connected
-    automatically and is not declared here. Input Leap 3.0.3 has no uinput
-    backend in any case.
-  - /dev/input/event*. No evdev backend exists in Input Leap 3.0.3. The
-    joystick interface covers only game controllers and is not declared.
-  - The libei backend's non-portal mode (--disable-portal together with a
-    LIBEI_SOCKET path) cannot work under strict confinement: the host's EIS
-    socket is outside the directories the snap may connect to. The portal
-    mode, which is the default, passes a connected file descriptor over
-    D-Bus instead of a path.
+  - /dev/uinput: the interface is privileged, not auto-connected and not
+    declared; 3.0.3 has no uinput backend.
+  - /dev/input/event*: no evdev backend exists in 3.0.3; the joystick
+    interface is not declared.
+  - libei's non-portal mode (--disable-portal with LIBEI_SOCKET) cannot
+    work: the host EIS socket is outside the reachable directories. Portal
+    mode, the default, passes a descriptor over D-Bus instead of a path.
 
   Other strict-confinement limits:
 
-  - Configuration, the generated TLS certificate and accepted fingerprints
-    live in the snap's private area,
-    ~/snap/input-leap/current/.config/InputLeap, not in ~/.config/InputLeap;
-    they are not shared with a distribution package of Input Leap. The
-    system-wide /etc/input-leap.conf is not visible: use the GUI's own
-    configuration or pass --config with a path in the home directory.
-  - mDNS peer discovery uses the host avahi-daemon. The avahi interfaces are
-    not connected automatically:
-      sudo snap connect input-leap:avahi-observe
-      sudo snap connect input-leap:avahi-control
-    Without them, enter the peer's address manually.
-  - The "log to file" option cannot write to /var/log inside the sandbox;
-    use the log pane, or point the log filename at a file in the home
-    directory.
+  - Configuration, the TLS certificate and accepted fingerprints live in
+    ~/snap/input-leap/current/.config/InputLeap, not ~/.config/InputLeap,
+    and are not shared with a distribution package. /etc/input-leap.conf
+    is not visible: use the GUI's config or --config with a home-directory
+    path.
+  - mDNS discovery uses the host avahi-daemon. Connect
+    input-leap:avahi-observe and :avahi-control manually; without them,
+    enter the peer address instead.
+  - "log to file" cannot write to /var/log inside the sandbox; use the log
+    pane or a file in the home directory.
   - There is no autostart service. Start the GUI and press Start, or run
     "snap run input-leap.input-leaps" / "snap run input-leap.input-leapc"
-    in a terminal. A server started by the GUI inherits the GUI's plugs. The
-    two command-line apps carry hidden desktop entries so that snapd's
-    portal-info lookup can identify them when they are started directly;
-    without such an entry the portals refuse the request.
-  - The screen-change script option can only execute files inside the snap
-    or its private home area; scripts elsewhere on the host are outside the
-    sandbox.
-  - The tray icon is a Qt StatusNotifierItem on Wayland and an XEmbed icon
-    on X11. GNOME Shell does not show StatusNotifierItem without an
-    extension, so "minimize to tray" can hide the window with no visible
-    icon to restore it; use the window instead.
-  - core26 provides only the XErrorDB part of libx11-data and no X11
-    locale/compose data; the gnome extension points XLOCALEDIR at a tree
-    that has none. XIM input methods in the X11 backend, and compose
-    sequences for Qt's compose input plugin, are therefore unavailable by
-    default (XCOMPOSEFILE can supply a compose file for one user). Plain
-    keysym handling is unaffected, and so is the libei backend, which gets
-    its keymap from the compositor.
-  - Qt 6.10 is staged from the 26.04 archive because snapcraft's KDE
-    extensions support only core22 and core24 and no KDE Frameworks are
-    needed. Host Qt/KDE themes are not visible; Qt falls back to Fusion.
-  - Drag and drop between machines is not implemented on Linux upstream.
+    in a terminal. The two command-line apps carry hidden desktop entries
+    so snapd's portal-info lookup can identify them when started directly;
+    without one the portals refuse the request.
+  - The screen-change script option can only run files inside the snap or
+    its private home area.
+  - The tray icon is a Qt StatusNotifierItem on Wayland and an XEmbed
+    icon on X11. GNOME Shell shows no StatusNotifierItem without an
+    extension, so "minimize to tray" can hide the window with no icon;
+    use the window instead.
+  - core26 has only the XErrorDB part of libx11-data and no X11
+    locale/compose data, so XIM input methods and Qt's compose sequences
+    are unavailable by default (XCOMPOSEFILE can supply a compose file).
+    Plain keysym handling and the libei backend are unaffected.
+  - Qt 6.10 is staged from the 26.04 archive: snapcraft's KDE extensions
+    support only core22/core24 and no KDE Frameworks are needed. Host Qt
+    themes are not visible; Qt falls back to Fusion.
+  - Drag and drop between machines is not implemented on Linux.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. Input Leap is built from the pinned upstream

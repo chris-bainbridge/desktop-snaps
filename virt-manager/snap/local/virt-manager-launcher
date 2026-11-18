@@ -28,9 +28,12 @@ fi
 # snap's ssh_config.
 export PATH="$SNAP/bin:$SNAP/usr/bin:$PATH"
 
-# libvirt and libosinfo resolve their data under /usr/share in the base snap.
-# Point them at the copies staged in this snap instead.
-export LIBVIRT_DIR_OVERRIDE="$SNAP/usr/share/libvirt"
+# libosinfo resolves its database below /usr/share in the base snap, which
+# does not contain osinfo-db. Point it at the copy staged in this snap.
+# libvirt has no equivalent path override (LIBVIRT_DIR_OVERRIDE is a boolean
+# build-tree switch, not a path). Its cpu_map files are used by the daemon,
+# not by a client: virt-manager asks the remote libvirt for CPU models and
+# baselines.
 export OSINFO_SYSTEM_DIR="$SNAP/usr/share/osinfo"
 
 exec "$SNAP/gnome-platform/usr/bin/python3" \

@@ -161,9 +161,11 @@ parts:
       - python3-requests           # downloads
       - python3-socks              # PySocks, requests[socks] proxy support
       - python3-urllib3            # requests
+      - python3-vkbasalt           # vkBasalt settings UI parses configs
       - python3-yaml               # repositories, bottle metadata, backups
       - python3-yara               # Eagle's YARA rules
       - libyara10                  # the C engine behind python3-yara
+      - patool                     # patoolib, the archive extraction library
       # Command line tools Bottles shells out to. tar, gzip, bzip2 and the
       # basic shell utilities come from core26; these do not.
       - 7zip                       # .7z and self-extracting installers
@@ -213,11 +215,14 @@ parts:
       - usr/lib/python3/dist-packages/PySocks-*.egg-info
       - usr/lib/python3/dist-packages/urllib3
       - usr/lib/python3/dist-packages/urllib3-*.dist-info
+      - usr/lib/python3/dist-packages/vkbasalt
+      - usr/lib/python3/dist-packages/vkbasalt_cli-*.egg-info
       - usr/lib/python3/dist-packages/yaml
       - usr/lib/python3/dist-packages/pyyaml-*.dist-info
       - usr/lib/python3/dist-packages/yara.cpython-*.so
       - usr/lib/python3/dist-packages/yara_python-*.egg-info
       - usr/lib/*/libmagic.so.1*
+      - usr/lib/*/libmspack.so.0*
       - usr/lib/*/libyara.so.1*
       # file(1) finds its compiled database through the MAGIC variable that
       # the launchers set to this copy.

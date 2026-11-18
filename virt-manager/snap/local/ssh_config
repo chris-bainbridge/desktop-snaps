@@ -6,7 +6,11 @@ GlobalKnownHostsFile /dev/null
 # The host's ssh-agent socket is outside the snap's confinement. Keys copied
 # to $HOME/.ssh are used directly instead.
 IdentityAgent none
-Include ~/.ssh/config
-# OpenSSH expands ~ inside the included file from the passwd entry, which is
-# the real home directory. Use absolute paths under
-# /home/<user>/snap/virt-manager/current/.ssh for non-default key names.
+# $HOME is the snap's private home ($SNAP_USER_DATA, writable and readable).
+# A bare ~ here would be expanded from the passwd entry to the real home
+# directory, which the home interface does not expose, so the include would
+# silently do nothing.
+Include ${HOME}/.ssh/config
+# OpenSSH also expands ~ inside the included file from the passwd entry. Use
+# absolute paths under /home/<user>/snap/virt-manager/current/.ssh there for
+# non-default key names.
