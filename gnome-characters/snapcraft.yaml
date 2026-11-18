@@ -33,13 +33,13 @@ parts:
   gnome-characters:
     source: https://gitlab.gnome.org/GNOME/gnome-characters.git
     source-type: git
-    source-tag: '49.1'
+    source-tag: '51.0'
     source-depth: 1
     plugin: meson
     meson-parameters:
       - --buildtype=release
       - --prefix=/usr
-    parse-info: [usr/share/metainfo/org.gnome.Characters.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Characters.metainfo.xml]
     override-pull: |
       craftctl default
       sed -i -e 's|@GJS@|/usr/bin/gjs|g' src/org.gnome.Characters.in

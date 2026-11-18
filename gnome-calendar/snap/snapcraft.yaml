@@ -45,7 +45,7 @@ parts:
   evolution-data-server:
     # use the 26.04 archive's libical-glib 3.0 (as the gnome-calendar 50.0
     # and evolution-data-server debs do); evolution-data-server 3.62
-    # feature-detects the 3.x vs 4.x API, and gnome-calendar 49.x uses
+    # feature-detects the 3.x vs 4.x API, and gnome-calendar 51.x uses
     # the 3.x API
     after: [ geoclue ]
     source: https://gitlab.gnome.org/GNOME/evolution-data-server.git
@@ -122,10 +122,10 @@ parts:
     after: [ evolution-data-server, geoclue ]
     source: https://gitlab.gnome.org/GNOME/gnome-calendar.git
     source-type: git
-    source-tag: '49.0.1'
+    source-tag: '51.0'
     source-depth: 1
     plugin: meson
-    parse-info: [usr/share/metainfo/org.gnome.Calendar.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Calendar.metainfo.xml]
     meson-parameters:
       - --prefix=/usr
       - --buildtype=release

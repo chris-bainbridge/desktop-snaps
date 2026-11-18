@@ -49,14 +49,14 @@ parts:
   evince:
     source: https://gitlab.gnome.org/GNOME/evince.git
     source-type: git
-    source-tag: '48.1'
+    source-tag: '48.5'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
 #     lower-than: '49'
 #     no-9x-revisions: true
     plugin: meson
-    parse-info: [usr/share/metainfo/org.gnome.Evince.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Evince.metainfo.xml]
     build-environment:
       - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
     meson-parameters:
@@ -102,6 +102,18 @@ parts:
       - libarchive13
       - libnss3
       - libnspr4
+      # libevdocument3 links libxml2. It is in the gnome-core26-sdk build
+      # snap but not in the gnome-core26 content snap, so stage a runtime
+      # copy (see override-build for why it cannot stay in the multiarch dir).
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. Keep libxml2 in usr/lib, which
+      # is not an SDK path and is on the extension's LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
       - "usr/lib/*/libarchive.so.*"
       - "usr/lib/*/libnss3.so"
@@ -110,3 +122,4 @@ parts:
       - "usr/lib/*/libnspr4.so"
       - "usr/lib/*/libplc4.so"
       - "usr/lib/*/libplds4.so"
+      - "usr/lib/libxml2.so.*"

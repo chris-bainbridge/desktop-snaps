@@ -37,15 +37,19 @@ apps:
       - removable-media
     common-id: org.gnome.gedit.desktop
     environment:
+      # gnome-core26 doesn't ship libxml2, so the libraries part bundles it in
+      # usr/lib (the gnome extension only puts the platform on the library
+      # path). libgedit-gtksourceview links libxml2 directly.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
       GI_TYPELIB_PATH: $SNAP/usr/lib/girepository-1.0:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/gedit/girepository-1.0:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET/girepository-1.0
 
 parts:
   amtk:
 # ext:updatesnap
 #   version-format:
-#     lower-than: '5.10'
+#     lower-than: '5.12'
     source: https://gitlab.gnome.org/World/gedit/libgedit-amtk.git
-    source-tag: '5.9.1'
+    source-tag: '5.11.0'
     source-depth: 1
     source-type: git
     plugin: meson
@@ -54,12 +58,25 @@ parts:
       - -Dgtk_doc=false
 
 
+  libgedit-gfls:
+# ext:updatesnap
+#   version-format:
+#     lower-than: '0.6'
+    source: https://gitlab.gnome.org/World/gedit/libgedit-gfls.git
+    source-depth: 1
+    source-tag: '0.5.0'
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - -Dgtk_doc=false
+
   gedit-gtksourceview:
 # ext:updatesnap
 #   version-format:
-#     lower-than: '299.6'
+#     lower-than: '299.9'
+    after: [ amtk, libgedit-gfls ]
     source: https://gitlab.gnome.org/World/gedit/libgedit-gtksourceview.git
-    source-tag: '299.5.0'
+    source-tag: '299.8.0'
     source-depth: 1
     source-type: git
     plugin: meson
@@ -75,26 +92,14 @@ parts:
       - ninja-build
       - meson
 
-  libgedit-gfls:
-# ext:updatesnap
-#   version-format:
-#     lower-than: '0.4'
-    source: https://gitlab.gnome.org/World/gedit/libgedit-gfls.git
-    source-depth: 1
-    source-tag: '0.3.0'
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
-      - -Dgtk_doc=false
-
   tepl:
 # ext:updatesnap
 #   version-format:
-#     lower-than: '6.14'
+#     lower-than: '6.16'
     after: [ gedit-gtksourceview, amtk, libgedit-gfls ]
     source: https://gitlab.gnome.org/World/gedit/libgedit-tepl.git
     source-depth: 1
-    source-tag: '6.13.0'
+    source-tag: '6.15.0'
     plugin: meson
     meson-parameters:
       - --prefix=/usr
@@ -103,86 +108,61 @@ parts:
   gedit:
 # ext:updatesnap
 #   version-format:
-#     lower-than: '48.2'
+#     lower-than: '51.1'
     after: [ gedit-gtksourceview, amtk, tepl ]
     source: https://gitlab.gnome.org/World/gedit/gedit.git
-    source-tag: '48.1'
+    source-tag: '51.0'
     source-depth: 1
     source-type: git
     parse-info: [usr/share/metainfo/org.gnome.gedit.metainfo.xml]
     plugin: meson
-    # libpeas-gtk-1.0 is no longer in the gnome-core26-sdk (GNOME 49+ stack
-    # moved to libpeas-2); 26.04's libpeas-dev still ships it. The vendored
-    # patch (upstream gedit#614, as shipped by the gedit 48.1 deb) ports
-    # gedit to the girepository-2.0 API used by libpeas 1.38.
+    # gedit 51 still uses the libpeas 1.x plugin API (libpeas-gtk-1.0),
+    # which the GNOME 49+ gnome-core26-sdk no longer ships; the 26.04
+    # archive's libpeas-dev provides it. gedit >= 51 no longer touches
+    # girepository itself (libpeas loads the Gedit typelib), so the old
+    # girepository-2.0 port patch is obsolete and has been dropped.
     build-packages:
-      - libgirepository-2.0-dev
       - libpeas-dev
-      - patch
     meson-parameters:
       - --prefix=/usr
       - --buildtype=release
-      - -Dvala_args="--vapidir=$CRAFT_STAGE/usr/share/vala/vapi"
+      - -Dgtk_doc=false
     build-environment:
       - PYTHONPATH: /snap/gnome-core26-sdk/current/usr/lib/x86_64-linux-gnu/gobject-introspection${PYTHONPATH:+:$PYTHONPATH}
       #- PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig:$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
       #- LD_LIBRARY_PATH: /snap/gnome-core26-sdk/current/usr/lib:/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET:$CRAFT_STAGE/usr/lib:$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET${PKG_LIBRARY_PATH:+:$PKG_LIBRARY_PATH}
     override-build: |
       cd "$CRAFT_PART_SRC"
-      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/girepository-2.0-port.patch"
       sed -i.bak -e 's|Icon=org.gnome.gedit$|Icon=${SNAP}/meta/gui/org.gnome.gedit-symbolic.svg|g' $CRAFT_PART_SRC/data/org.gnome.gedit.desktop.in
       sed -i.bak -e "s|symlink_media: true|symlink_media: false|g" $CRAFT_PART_SRC/help/meson.build
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/org.gnome.gedit-symbolic.svg $CRAFT_PART_INSTALL/meta/gui/
 
-  gedit-plugins:
-# ext:updatesnap
-#   version-format:
-#     lower-than: '48.2'
-    after: [ gedit ]
-    source: https://gitlab.gnome.org/World/gedit/gedit-plugins.git
-    source-tag: '48.1'
-    source-depth: 1
-    source-type: git
-    plugin: meson
-    meson-parameters:
-      - --prefix=/snap/gedit/current/usr
-      - -Dplugin_bookmarks=true
-      - -Dplugin_bracketcompletion=true
-      - -Dplugin_charmap=true
-      - -Dplugin_codecomment=true
-      - -Dplugin_colorpicker=true
-      - -Dplugin_drawspaces=true
-      - -Dplugin_joinlines=true
-      - -Dplugin_multiedit=false
-      - -Dplugin_sessionsaver=true
-      - -Dplugin_smartspaces=true
-      - -Dplugin_terminal=true
-      - -Dplugin_wordcompletion=true
-      - --buildtype=release
-    organize:
-      snap/gedit/current/usr: usr
-    build-environment:
-      - LD_LIBRARY_PATH: $LD_LIBRARY_PATH:$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET/gedit
-      - PKG_CONFIG_PATH: $PKG_CONFIG_PATH:$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET/pkgconfig
-    build-packages:
-      - libgit2-glib-1.0-dev
-      - libgucharmap-2-90-dev
-      - libvte-2.91-dev
-
   libraries:
     plugin: nil
     stage-packages:
       # gnome-core26 does not ship libpeas (the 2404 content snap did), so
-      # stage it from the 26.04 archive for gedit's plugin engine
+      # stage it from the 26.04 archive for gedit's plugin engine. gedit 51
+      # still uses the libpeas 1.x API (libpeas-gtk-1.0), not libpeas-2.
       - gir1.2-peas-1.0
       - libpeas-1.0-1
-      - libuchardet0
       - libfribidi0
+      # libgedit-gtksourceview-300 links libxml2. It is in the gnome-core26-sdk
+      # build snap but not in the gnome-core26 content snap, so stage a runtime
+      # copy (see override-build for why it cannot stay in the multiarch dir).
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. Keep libxml2 in usr/lib, which
+      # is not an SDK path and is on the extension's/app's LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
       - usr/lib/*/girepository-1.0/Peas*
       - usr/lib/*/libpeas*
-      - usr/lib/*/libuchardet*
       - usr/lib/*/libfribidi*
+      - usr/lib/libxml2.so.*
 
