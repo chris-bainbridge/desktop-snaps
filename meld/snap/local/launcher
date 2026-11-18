@@ -1,0 +1,16 @@
+#!/bin/sh
+# Meld is a Python 3 + GTK 3 application. The core26 base has no /usr/bin/python3
+# and Meld's launcher would otherwise rely on the shebang; run it with the
+# interpreter from the GNOME platform snap that the gnome extension mounts at
+# $SNAP/gnome-platform (the same Python 3.14 as the SDK that built Meld).
+# Meld's module tree is at $SNAP/usr/lib/python3/dist-packages, which the app's
+# PYTHONPATH in snapcraft.yaml already points at.
+#
+# snapd starts strict snaps with HOME=$SNAP_USER_DATA, a private directory.
+# Point HOME at the user's real home so file choosers and "~" expansion reach
+# the files that the "home" interface exposes. Meld's settings do not use HOME:
+# they live under XDG_CONFIG_HOME, which the platform's desktop-launch
+# command-chain points at $SNAP_USER_DATA/.config.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" "$SNAP/usr/bin/meld" "$@"

@@ -24,7 +24,9 @@ slots:
 apps:
   meld:
     extensions: [gnome]
-    command: usr/bin/meld
+    # core26 has no /usr/bin/python3; the launcher execs Meld with the
+    # interpreter from the GNOME platform snap (see snap/local/launcher).
+    command: bin/meld-launcher
     common-id: org.gnome.Meld.desktop
     desktop: usr/share/applications/org.gnome.Meld.desktop
     plugs:
@@ -38,6 +40,12 @@ apps:
       PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
 
 parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      launcher: bin/meld-launcher
+
   meld:
     source: https://gitlab.gnome.org/GNOME/meld.git
     source-type: git
@@ -57,12 +65,24 @@ parts:
       # GtkSourceView 4 is not part of the GNOME 49 gnome-core26 SDK
       - libgtksourceview-4-dev
     override-build: |
-      # Don't symlink help media; it leaves dangling symlinks in the snap
-      sed -i.bak -e 's|media: media_files,|media: media_files, symlink_media: false,|' $CRAFT_PART_SRC/help/meson.build
+      # Don't symlink help media; copies are simpler inside a snap. Keep this
+      # idempotent: snapcraft reuses the pulled source tree between builds in
+      # the same LXD instance, and passing symlink_media twice is a Meson
+      # error as of Meson 2.0.
+      sed -i -e 's|, symlink_media: false||g' $CRAFT_PART_SRC/help/meson.build
+      sed -i -e 's|media: media_files,|media: media_files, symlink_media: false,|' $CRAFT_PART_SRC/help/meson.build
       craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so it never
+      # compiles the GSettings schema. Without gschemas.compiled, GSettings
+      # cannot resolve org.gnome.meld and Meld aborts on start-up.
+      glib-compile-schemas $CRAFT_PART_INSTALL/snap/meld/current/usr/share/glib-2.0/schemas
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Meld.svg $CRAFT_PART_INSTALL/meta/gui/
       sed -i -e 's|Icon=org.gnome.Meld$|Icon=${SNAP}/meta/gui/org.gnome.Meld.svg|' $CRAFT_PART_INSTALL/snap/meld/current/usr/share/applications/org.gnome.Meld.desktop
+      # The app launcher runs the platform interpreter explicitly, but keep
+      # direct invocation inside the snap working too (core26 has no
+      # /usr/bin/python3).
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' $CRAFT_PART_INSTALL/snap/meld/current/usr/bin/meld
 
   libraries:
     after: [meld]

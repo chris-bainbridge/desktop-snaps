@@ -84,6 +84,12 @@ parts:
       - libudisks2-dev
     stage-packages:
       - libdvdread8t64
+      # libpwquality1 links against libcrack.so.2, which is a hard Depends of
+      # the package but is not pulled into the snap by stage-packages (and is
+      # absent from gnome-core26), so name it explicitly. Without it the
+      # dynamic loader cannot resolve libpwquality.so.1 and gnome-disks does
+      # not start.
+      - libcrack2
       - libpwquality1
       - libudisks2-0
     override-pull: |
