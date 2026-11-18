@@ -19,7 +19,14 @@ export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
 # snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
 # LD_LIBRARY_PATH. Add the staged Qt, FFmpeg, INDI, Exiv2 and fontconfig
 # libraries, keeping the entries the gpu-2604 command chain prepared for Mesa.
-export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+#
+# libproxy.so.1 and libpulse.so.0 look up their private backends through an
+# absolute RUNPATH of /usr/lib/<triplet>/{libproxy,pulseaudio}. Inside the snap
+# /usr is the core26 base, which has neither, so the loader would fail on
+# libpxbackend-1.0.so (needed by libQt6Network) and libpulsecommon-17.0.so
+# (needed by libQt6Multimedia) before main() runs. LD_LIBRARY_PATH is searched
+# before RUNPATH, so naming the private directories here is enough.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib/$triplet/libproxy:$SNAP/usr/lib/$triplet/pulseaudio:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Core Desktop is Wayland-first. Prefer the staged Wayland plugin and fall
 # back to xcb on an X11 session or when no compositor is reachable.

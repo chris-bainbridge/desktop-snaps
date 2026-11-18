@@ -210,6 +210,10 @@ parts:
       - libprotobuf-dev
       - protobuf-compiler
       - libmsgsl-dev
+      # Production sources include gtest/gtest_prod.h to befriend the unit
+      # tests, so the headers are needed even with BUILD_TESTING=OFF. This is
+      # a build-only package; no test binary or GTest library is shipped.
+      - libgtest-dev
       - libsqlite3-dev
       - portaudio19-dev
       - libportmidi-dev
@@ -246,6 +250,15 @@ parts:
   runtime:
     after: [mixxx]
     plugin: nil
+    # The gnome extension adds its own gnome/cleanup part, which deletes every
+    # .so/.so.* file from prime that also exists in the gnome-core26 SDK. On
+    # core26 the gnome-core26 content snap does not carry the X11/Wayland
+    # client stack (libX11, libxcb, libwayland-client, libxml2, libva) or
+    # libEGL/libGLX; the mesa-2604 GPU content snap provides them, and its
+    # provider wrapper puts its lib directory on LD_LIBRARY_PATH before the
+    # app starts. Staging those libraries here is pointless: gnome/cleanup
+    # removes them from prime again. Everything listed below is missing from
+    # both core26 and gnome-core26 and absent from the SDK, so it survives.
     stage-packages:
       # Qt 6.10.2 from the 26.04 archive. libqt6gui6 ships the xcb platform
       # plugin; libqt6waylandclient6 and libqt6wlshellintegration6 provide the

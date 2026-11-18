@@ -19,7 +19,13 @@ export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
 # snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
 # LD_LIBRARY_PATH. Add the staged library directories, keeping the entries the
 # gpu-2604 command chain prepared for Mesa.
-export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+#
+# libproxy keeps its backend in a subdirectory and looks it up through the
+# absolute RUNPATH /usr/lib/$triplet/libproxy, which inside the sandbox is the
+# core26 base and therefore empty. libQt6Network links libproxy, which needs
+# libpxbackend-1.0.so, so the subdirectory has to be on the search path or the
+# application fails to start.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet/libproxy:$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Core Desktop is Wayland-first. Prefer the staged Wayland plugin and fall
 # back to xcb on an X11 session or when no compositor is reachable.
