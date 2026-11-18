@@ -3,7 +3,8 @@ snap: gnome-clocks
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-clocks (snap)
+upstream: https://gitlab.gnome.org/GNOME/gnome-clocks
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-clocks (snap)
 recipe-commit: 98904cfa9d9ae977f0f6102937c3b18cca7bb199
 merge-request: https://code.launchpad.net/~desktop-snappers/gnome-clocks/+git/snap/+merge/514122
 store:

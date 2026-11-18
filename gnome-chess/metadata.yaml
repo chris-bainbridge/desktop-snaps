@@ -3,7 +3,8 @@ snap: gnome-chess
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-chess (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-chess
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-chess (stable)
 recipe-commit: 1edbd69b1b3f269a527c931c51718f468a5da539
 imported: '2026-11-17'
 store:

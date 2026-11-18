@@ -3,7 +3,8 @@ snap: shotwell
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/shotwell (stable)
+upstream: https://gitlab.gnome.org/GNOME/shotwell
+recipe: https://git.launchpad.net/~desktop-snappers/shotwell (stable)
 recipe-commit: 8f67eed250cd14c5d8b8360a8ca6ea8bd8ce8c30
 imported: '2026-11-17'
 store:

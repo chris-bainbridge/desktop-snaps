@@ -3,7 +3,8 @@ snap: squirrelsql
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://github.com/jibel/squirrelsql-snap (master)
+upstream: https://github.com/squirrel-sql-client/squirrel-sql-code
+recipe: https://github.com/jibel/squirrelsql-snap (master)
 recipe-commit: b8b0113010ab87a7d2d6c7457db372a88928295e
 imported: '2026-11-17'
 store:

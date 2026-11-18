@@ -3,7 +3,8 @@ snap: gnome-weather
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/desktop (main)
+upstream: https://gitlab.gnome.org/GNOME/gnome-weather
+recipe: https://git.launchpad.net/~desktop-snappers/desktop (main)
 recipe-commit: bf384ea16227ed5fd7035a66179c44ea00e5ecda
 imported: '2026-11-17'
 store:

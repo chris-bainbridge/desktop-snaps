@@ -3,7 +3,8 @@ snap: eog
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/eog (snap)
+upstream: https://gitlab.gnome.org/GNOME/eog
+recipe: https://git.launchpad.net/~desktop-snappers/eog (snap)
 recipe-commit: 5ddc3bc8bcdd7600b077f68cd1dbe2f2e0130c02
 merge-request: https://code.launchpad.net/~desktop-snappers/eog/+git/snap/+merge/514116
 store:

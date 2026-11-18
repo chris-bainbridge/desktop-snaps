@@ -3,7 +3,8 @@ snap: sweethome3d-homedesign
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://github.com/jibel/sweethome3d-snap (master)
+upstream: https://www.sweethome3d.com/
+recipe: https://github.com/jibel/sweethome3d-snap (master)
 recipe-commit: 3dc7c43eaea74334420537e2a388caf23954db6a
 imported: '2026-11-17'
 store:

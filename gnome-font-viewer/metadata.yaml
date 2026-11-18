@@ -3,7 +3,8 @@ snap: gnome-font-viewer
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/desktop (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-font-viewer
+recipe: https://git.launchpad.net/~desktop-snappers/desktop (stable)
 recipe-commit: 95f97b97d97dde5dc268a3c2dfce9639205804c7
 imported: '2026-11-17'
 store:

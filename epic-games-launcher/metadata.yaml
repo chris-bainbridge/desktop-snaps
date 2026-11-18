@@ -3,7 +3,8 @@ snap: epic-games-launcher
 base: core26
 mode: vendored
 redistribution: canonical-published
-upstream: https://github.com/kenvandine/epic-games-launcher-snap (main)
+upstream: https://launcher.epicgames.com/
+recipe: https://github.com/kenvandine/epic-games-launcher-snap (main)
 recipe-commit: e7f781e4611a76d8e6f93fb0922df434182dd04e
 imported: '2026-11-17'
 store:

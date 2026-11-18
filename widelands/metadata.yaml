@@ -3,7 +3,8 @@ snap: widelands
 base: core22
 mode: vendored
 redistribution: open-source
-upstream: https://github.com/kenvandine/widelands (main)
+upstream: https://github.com/widelands/widelands
+recipe: https://github.com/kenvandine/widelands (main)
 recipe-commit: 1f05667590f601c44412bf9a5897b8eacc95cce9
 imported: '2026-11-17'
 store:

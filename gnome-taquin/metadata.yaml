@@ -3,7 +3,8 @@ snap: gnome-taquin
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-taquin (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-taquin
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-taquin (stable)
 recipe-commit: 40598473bc9e0e26afbdf70f650c6938d11a2c1b
 imported: '2026-11-17'
 store:

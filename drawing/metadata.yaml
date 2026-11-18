@@ -3,7 +3,8 @@ snap: drawing
 base: core22
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/drawing (stable)
+upstream: https://github.com/maoschanz/drawing
+recipe: https://git.launchpad.net/~desktop-snappers/drawing (stable)
 recipe-commit: 46262febce224e91121382392383b45d95d0e335
 imported: '2026-11-17'
 store:

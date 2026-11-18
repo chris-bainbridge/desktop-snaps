@@ -3,7 +3,8 @@ snap: cheese
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/cheese (stable)
+upstream: https://gitlab.gnome.org/GNOME/cheese
+recipe: https://git.launchpad.net/~desktop-snappers/cheese (stable)
 recipe-commit: 3f4cc367abab04a32a994bdf13c8c4e4c46655b7
 merge-request: https://code.launchpad.net/~desktop-snappers/cheese/+git/stable/+merge/514115
 store:

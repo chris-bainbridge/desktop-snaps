@@ -3,7 +3,8 @@ snap: iagno
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/iagno (stable)
+upstream: https://gitlab.gnome.org/GNOME/iagno
+recipe: https://git.launchpad.net/~desktop-snappers/iagno (stable)
 recipe-commit: 1b6f996da5d9ac54f9be24653de9ef543fbd61c5
 imported: '2026-11-17'
 store:

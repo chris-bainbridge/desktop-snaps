@@ -3,7 +3,8 @@ snap: thrive
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://github.com/kenvandine/thrive-snap (main)
+upstream: https://github.com/Revolutionary-Games/Thrive
+recipe: https://github.com/kenvandine/thrive-snap (main)
 recipe-commit: 0fc887e2667efc3e2a5a7498800357f3f628e454
 imported: '2026-11-17'
 store:

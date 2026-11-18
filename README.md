@@ -120,7 +120,8 @@ base: core26                     # snap base of the migrated recipe
 mode: vendored                   # vendored | overlay
 redistribution: open-source      # open-source | canonical-published
 
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-calculator (snap)
+upstream: https://gitlab.gnome.org/GNOME/gnome-calculator
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-calculator (snap)
 recipe-commit: 89048f8fae2e...   # commit these recipe files came from
 merge-request: https://code.launchpad.net/~desktop-snappers/gnome-calculator/+git/snap/+merge/514128
 
@@ -128,6 +129,11 @@ store:
   publisher: Canonical           # actual publisher on the store
   verified: true
 ```
+
+`upstream` is the project itself, where its source is developed, never a
+packaging repository. `recipe` is the packaging repository the vendored
+recipe came from (with its branch), and `recipe-commit` is the commit it was
+copied from.
 
 Overlay packages additionally set `overlay-repo`, `overlay-commit` and
 `overlay-to`; none currently do. Imported packages (2026-11-17) carry

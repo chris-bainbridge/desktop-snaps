@@ -3,7 +3,8 @@ snap: tali
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/tali (stable)
+upstream: https://gitlab.gnome.org/GNOME/tali
+recipe: https://git.launchpad.net/~desktop-snappers/tali (stable)
 recipe-commit: d6232c0f537b52a91ff02d63907bcec2a6fc4620
 imported: '2026-11-17'
 store:

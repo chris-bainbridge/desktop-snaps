@@ -3,7 +3,8 @@ snap: gnome-contacts
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-contacts (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-contacts
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-contacts (stable)
 recipe-commit: 32a56be3b96f1c4157e350b30f66f04e38455e49
 merge-request: https://code.launchpad.net/~desktop-snappers/gnome-contacts/+git/stable/+merge/514123
 store:

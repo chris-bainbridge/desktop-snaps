@@ -3,7 +3,8 @@ snap: gnome-sudoku
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-sudoku (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-sudoku
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-sudoku (stable)
 recipe-commit: b9d4e2a9410592fd892529f86cf4702905978c72
 imported: '2026-11-17'
 store:

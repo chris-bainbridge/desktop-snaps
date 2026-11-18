@@ -3,7 +3,8 @@ snap: gnome-2048
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-2048 (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-2048
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-2048 (stable)
 recipe-commit: 1e0bfa1af9e4af61c7d5c46e7c67d2a016ee5e2a
 imported: '2026-11-17'
 store:

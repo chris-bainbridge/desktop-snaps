@@ -3,7 +3,8 @@ snap: gnome-boxes
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/gnome-boxes (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-boxes
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-boxes (stable)
 recipe-commit: 775d76f691a177348338dd6ab904f29839ffbb39
 imported: '2026-11-17'
 store:

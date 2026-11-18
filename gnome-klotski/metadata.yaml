@@ -3,7 +3,8 @@ snap: gnome-klotski
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/desktop (stable)
+upstream: https://gitlab.gnome.org/GNOME/gnome-klotski
+recipe: https://git.launchpad.net/~desktop-snappers/desktop (stable)
 recipe-commit: f2c314655fb1dbd113c2c79f6635d39b44f45857
 imported: '2026-11-17'
 store:

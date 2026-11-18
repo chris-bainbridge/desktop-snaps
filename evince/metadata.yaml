@@ -3,7 +3,8 @@ snap: evince
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/evince (snap)
+upstream: https://gitlab.gnome.org/GNOME/evince
+recipe: https://git.launchpad.net/~desktop-snappers/evince (snap)
 recipe-commit: fdb72266257370c4ecc0b29e9c7743aba1cf1943
 merge-request: https://code.launchpad.net/~desktop-snappers/evince/+git/snap/+merge/514117
 store:

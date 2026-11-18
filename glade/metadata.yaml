@@ -3,7 +3,8 @@ snap: glade
 base: core24
 mode: vendored
 redistribution: open-source
-upstream: https://git.launchpad.net/~desktop-snappers/glade (stable)
+upstream: https://gitlab.gnome.org/GNOME/glade
+recipe: https://git.launchpad.net/~desktop-snappers/glade (stable)
 recipe-commit: aaf3018da03d776f98124cb8d58e2400afaab980
 imported: '2026-11-17'
 store:
