@@ -41,6 +41,12 @@ Dir::State::extended_states "$root/state/extended_states";
 Dir::Cache "$root/cache";
 Dir::Cache::archives "$root/cache/archives";
 Dir::Etc "$root/etc";
+# apt-pkg 3.x loads dpkg's architecture tables while it initialises the
+# package system, and fails with "Error reading the CPU table" if they are
+# missing. Neither core26 nor this snap ships them, but the gnome-core26
+# content snap (mounted at $SNAP/gnome-platform) does.
+Dir::dpkg::cputable "$SNAP/gnome-platform/usr/share/dpkg/cputable";
+Dir::dpkg::tupletable "$SNAP/gnome-platform/usr/share/dpkg/tupletable";
 Dir::Etc::main "$root/etc/apt.conf";
 Dir::Etc::parts "$root/etc/apt.conf.d";
 Dir::Etc::sourcelist "$root/etc/sources.list";

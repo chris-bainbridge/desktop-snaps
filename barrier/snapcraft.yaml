@@ -2,56 +2,50 @@ name: barrier
 version: '2.4.0'
 summary: Share one keyboard, mouse and clipboard between computers
 description: |
-  Barrier lets one keyboard and mouse control several computers on a desk:
+  Barrier lets one keyboard and mouse control several computers:
   the machine whose screen edge the pointer leaves (the server) forwards the
-  input over the network to the other machines (the clients), and the
-  clipboards are merged. It is a community fork of Symless's Synergy 1
-  codebase and speaks the same protocol on TCP port 24800.
+  input over the network to the others (the clients) and merges the
+  clipboards. It is a community fork of Symless's Synergy 1 codebase and
+  speaks the same protocol on TCP port 24800.
 
   The snap is strictly confined, as required on Core Desktop, which has no
   classic snaps. Barrier's only Linux backend is X11, and strict confinement
   cannot give that backend the access it needs:
 
   - Barrier captures input with XGrabKeyboard()/XGrabPointer() and injects it
-    with the XTEST extension. A strict snap can only use the X server socket
-    the x11 interface lets it reach, and on Core Desktop that server is
-    XWayland. XWayland is a nested X server: the Wayland compositor owns the
-    real keyboard, pointer and focus, so the grabs only apply while an
-    XWayland window has focus and XTEST requests only reach XWayland's own
-    clients. Running "barriers" as a server is therefore not usable on Core
-    Desktop, and a client cannot type or move the pointer in native Wayland
-    applications either. On a legacy X11 session, where DISPLAY is the real
-    X server, the same XTEST injection and grabs do work with the x11
+    with XTEST. A strict snap can only reach the X socket the x11 interface
+    exposes, and on Core Desktop that is XWayland. XWayland is a nested X
+    server: the Wayland compositor owns the real keyboard, pointer and focus,
+    so grabs apply only while an XWayland window has focus and XTEST requests
+    reach only XWayland's clients. Running "barriers" as a server is therefore
+    not usable on Core Desktop, and a client cannot type or move the pointer
+    in native Wayland applications either. On a legacy X11 session, where
+    DISPLAY is the real X server, injection and grabs do work with the x11
     interface connected.
-  - Beyond that X11 socket the snap has no access to the host display server.
-    Wayland has no protocol for global input capture or injection; the
+  - Wayland has no protocol for global input capture or injection; the
     supported route is the compositor's libei/RemoteDesktop portal, which
-    Barrier 2.4.0 does not implement. That is why the 3.x line of Input Leap
-    and Deskflow can drive a Wayland session and this snap cannot.
-  - /dev/uinput is not available. snapd's uinput interface is privileged,
-    not connected automatically and not declared here; Barrier 2.4.0 has no
-    uinput backend in any case.
-  - Raw input devices (/dev/input/event*, /dev/input/js*) are not exposed.
-    The joystick interface only covers game controllers and is not declared.
+    Barrier 2.4.0 does not implement. Input Leap 3.x and Deskflow can drive a
+    Wayland session; this snap cannot.
+  - /dev/uinput and raw input devices (/dev/input/event*, /dev/input/js*) are
+    not exposed. snapd's uinput interface is privileged and not connected
+    automatically, and Barrier 2.4.0 has no uinput backend in any case.
 
   What still works:
 
-  - The GUI starts through XWayland, and the server and client processes can
-    be configured and started from it, but they cannot control the session
-    as described above. Configurations, the generated SSL certificate and
-    the fingerprint database live in the snap's private area,
-    ~/snap/barrier/current/.local/share/barrier, and can be edited or copied
-    like any other file.
+  - The GUI starts through XWayland and can configure and start the server
+    and client processes, though it cannot control the session as described
+    above. Configurations, the generated SSL certificate and the fingerprint
+    database live in ~/snap/barrier/current/.local/share/barrier and can be
+    edited like any other file.
   - The network side works: the server binds TCP 24800 (network-bind) and
     clients connect to it (network). Two machines whose input Barrier can
-    actually reach, for example two legacy X11 sessions, can share a
-    keyboard, mouse and clipboard through this snap.
-  - Clipboard sharing uses X11 selections. Under XWayland the GNOME session
+    actually reach, for example two legacy X11 sessions, can share a keyboard,
+    mouse and clipboard through this snap.
+  - Clipboard sharing uses X11 selections; under XWayland the GNOME session
     bridges the X11 and Wayland clipboards, so cut-and-paste may work even
     though pointer and keyboard sharing do not.
-  - Service discovery (the "Auto config" screen) uses mDNS through the
-    host's avahi-daemon. The avahi interfaces are not connected
-    automatically:
+  - Service discovery (the "Auto config" screen) uses mDNS through the host's
+    avahi-daemon. The avahi interfaces are not connected automatically:
       sudo snap connect barrier:avahi-observe
       sudo snap connect barrier:avahi-control
     Without them, enter the peer's address manually.
@@ -60,9 +54,9 @@ description: |
 
   Other strict-confinement limits:
 
-  - The system-wide configuration /etc/barrier/barrier.conf is not read:
-    /etc inside the snap is the core26 base's, and the host's /etc is not
-    visible. Pass -c with a path in the home directory instead.
+  - /etc/barrier/barrier.conf is not read: /etc inside the snap is the
+    base's, and the host's is not visible. Pass -c with a path in the home
+    directory instead.
   - The GUI's "log to file" option writes to /var/log, which is read-only
     inside the sandbox; use the log pane instead.
   - There is no autostart service. Start the server from the GUI, or run
@@ -71,15 +65,15 @@ description: |
     so "minimize to tray" hides the window with no icon to restore it. Use
     the window itself.
   - Qt 5.15 is staged from the 26.04 archive because snapcraft's KDE
-    extension supports only core22 and core24. Host Qt and KDE themes are
-    not visible; Barrier uses Qt's built-in Fusion style.
+    extension supports only core22 and core24. Host Qt and KDE themes are not
+    visible; Barrier uses Qt's built-in Fusion style.
   - Settings are not shared with a distribution package of Barrier.
 
   Barrier 2.4.0 is the last upstream release (2021-11-01) and the project is
   unmaintained. Input Leap, the fork Barrier's maintainers started, was
-  archived in July 2026; Deskflow (https://github.com/deskflow/deskflow), the
-  maintained continuation of the same code, is the natural base for a snap
-  that has to work on Wayland.
+  archived in July 2026; Deskflow (https://github.com/deskflow/deskflow)
+  continues the code and is the natural base for a snap that has to work on
+  Wayland.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. Barrier is built from the pinned upstream
@@ -176,14 +170,31 @@ parts:
     prime:
       - -barrier.png
 
+  gulrak-filesystem:
+    # v2.4.0's GitHub archive has an empty ext/gulrak-filesystem: archives
+    # never contain git submodule contents, and Barrier includes
+    # <ghc/fs_fwd.hpp> and <ghc/fs_impl.hpp> from that tree. The submodule
+    # pointer recorded at tag v2.4.0 is commit 614bbe8; fetching that commit
+    # reproduces exactly the headers upstream builds against, and the
+    # checksum pins the archive.
+    source: https://github.com/gulrak/filesystem/archive/614bbe87b80435d87ab8791564370e0c1d13627d.tar.gz
+    source-checksum: sha256/203360b131364acd24eac25842cda5d1bcc53d12756bd7adfa1031f06aa5dabf
+    plugin: nil
+    override-build: |
+      install -d "$CRAFT_PART_INSTALL/usr/include"
+      cp -a include/ghc "$CRAFT_PART_INSTALL/usr/include/"
+    prime:
+      # Only the barrier part consumes these headers; they are not payload.
+      - -usr/include
+
   barrier:
     # v2.4.0 is the newest stable upstream release (2021-11-01); there has
-    # been no release since. The GitHub archive contains the bundled
-    # gulrak-filesystem headers that the tree uses, and the checksum pins
-    # exactly the tag.
+    # been no release since. The checksum pins exactly the tag; the
+    # gulrak-filesystem submodule the tree uses comes from the part above.
     source: https://github.com/debauchee/barrier/archive/refs/tags/v2.4.0.tar.gz
     source-checksum: sha256/20046cae7a831d9bb3740b6f04feb9bded4c794c11586a70089080e94ae2fe77
     plugin: cmake
+    after: [gulrak-filesystem]
     override-pull: |
       craftctl default
       # Missing <cstdint>/<cstddef> includes for GCC 13 and later, and the
@@ -224,6 +235,11 @@ parts:
       - libice-dev                  # session management, found by CMake
       - libsm-dev
     override-build: |
+      # The source archive's ext/gulrak-filesystem is empty; place the
+      # submodule headers where Barrier's CMakeLists.txt expects them.
+      install -d ext/gulrak-filesystem/include
+      cp -a "$CRAFT_STAGE/usr/include/ghc" ext/gulrak-filesystem/include/
+
       craftctl default
 
       # Qt's compiled-in Prefix is /usr, which inside the snap is the core26
@@ -306,9 +322,20 @@ parts:
       for package in ./*.deb; do
         dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
       done
+
+      # xkb-data 2.46 installs the keymaps in usr/share/xkeyboard-config-2
+      # and leaves usr/share/X11/xkb as the relative symlink
+      # ../xkeyboard-config-2. The layout mounts $SNAP/usr/share/X11 at
+      # /usr/share/X11, where that relative target resolves to the base's
+      # /usr/share/xkeyboard-config-2, which does not exist. Put the real
+      # tree at the path consumers open.
+      rm "$CRAFT_PART_INSTALL/usr/share/X11/xkb"
+      mv "$CRAFT_PART_INSTALL/usr/share/xkeyboard-config-2" \
+        "$CRAFT_PART_INSTALL/usr/share/X11/xkb"
     prime:
       - -usr/share/doc
       - -usr/share/man
+      - -usr/share/pkgconfig
 
   cleanup:
     # The staged Qt dependency tree contains copies of libraries that the
@@ -327,3 +354,13 @@ parts:
       find . -type f,l -name '*.so.*' -print |
         sed "s|^\./|$root/|" |
         xargs -r rm -f
+
+      # x11-common installs /usr/share/X11/rgb.txt as the relative symlink
+      # ../../../etc/X11/rgb.txt. In the sandbox /etc is the base's, which
+      # has no rgb.txt, so the symlink dangles behind the layout bind.
+      # Replace it with the staged copy, which is otherwise unreachable.
+      if [ -L "$root/usr/share/X11/rgb.txt" ] &&
+         [ -f "$root/etc/X11/rgb.txt" ]; then
+        rm -f "$root/usr/share/X11/rgb.txt"
+        cp "$root/etc/X11/rgb.txt" "$root/usr/share/X11/rgb.txt"
+      fi

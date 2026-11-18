@@ -3,9 +3,8 @@ version: '3.7.0'
 summary: Keyboard-driven, vim-like web browser
 description: |
   qutebrowser is a keyboard-driven web browser with a minimal GUI, built on
-  Python 3, Qt 6 and QtWebEngine. Almost every action is bound to a key, a
-  command or a shortcut, configuration is written in Python, and a command
-  line and a hint mode make it possible to browse without a mouse.
+  Python 3, Qt 6 and QtWebEngine. Almost every action is bound to a key or a
+  command, and configuration is written in Python.
 
   The snap is strictly confined, as required on Core Desktop, which has no
   classic snaps. That has visible consequences:
@@ -42,11 +41,10 @@ description: |
     so pages can play audio and video but cannot capture from the user.
   - QtWebEngine's Chromium sandbox is disabled. AppArmor does not grant
     unprivileged user namespaces to a strictly confined snap, and the
-    allow-sandbox attribute of browser-support is denied by snapd's base
-    declaration to snaps without a store-granted declaration. The launcher
-    therefore sets QTWEBENGINE_DISABLE_SANDBOX=1: renderer processes are not
-    sandboxed by Chromium, and only the snap's own confinement contains
-    them. Keep the snap up to date.
+    allow-sandbox attribute of browser-support is denied to snaps without a
+    store-granted declaration. The launcher sets QTWEBENGINE_DISABLE_SANDBOX=1:
+    renderer processes are not sandboxed by Chromium, and only the snap's own
+    confinement contains them. Keep the snap up to date.
   - DRM-protected media does not work out of the box. The proprietary
     Widevine CDM is not shipped, and the host locations where a
     distribution-installed CDM would live are not visible inside the snap.
@@ -57,7 +55,7 @@ description: |
   - PDF.js is not bundled. With content.pdfjs enabled, qutebrowser looks for
     a system PDF.js under paths such as /usr/share/pdf.js that are not
     visible in the snap. PDFs are downloaded and opened with the host's PDF
-    viewer through the desktop interface; alternatively, unpack PDF.js into
+    viewer; alternatively, unpack PDF.js into
     ~/snap/qutebrowser/current/.local/share/qutebrowser/pdfjs.
   - Qt 6.10, PyQt6 and the QtWebEngine runtime are staged from the 26.04
     archive. QtWebEngine accounts for most of the snap: libQt6WebEngineCore
