@@ -91,6 +91,29 @@ parts:
     source-tag: '5.13'
     source-depth: 1
     plugin: cmake
+    # The gnome extension points the build at gnome-core26-sdk, but that SDK
+    # only carries the GTK4/gtkmm-4 stack with GLib 2.90 headers. RawTherapee
+    # is a GTK3/gtkmm-3.24 application, and gtkmm 3 exists only in the 26.04
+    # archive: mixing the archive's gtkmm headers with the SDK's GLib 2.90
+    # headers fails to compile (giomm-2.4 declares the G*Class typedefs
+    # itself and G_DECLARE_FINAL_TYPE in GLib 2.90 declares them too), and
+    # mixing the archive's Pango 1.57 libraries with the SDK's Pango 1.58
+    # libraries fails to link (pango_font_description_get_width). Build
+    # against the archive's stack throughout, as the cpu-x recipe does: its
+    # GTK3 is 3.24.52, the same version the gnome-core26 content snap
+    # provides at run time.
+    build-environment:
+      # The SDK compiler's specs put the SDK libdir ahead of the archive's.
+      - PATH: /usr/bin:$PATH
+      # Resolve GLib, GTK, gtkmm and pkg-config modules from the archive.
+      - PKG_CONFIG_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH
+      # Keep the archive's libraries first for anything the link step loads.
+      - LD_LIBRARY_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$LD_LIBRARY_PATH
+      # The extension puts the SDK on CMAKE_PREFIX_PATH. A library found
+      # there adds the SDK libdir to the executable's RUNPATH, which is how
+      # the SDK Pango libraries leaked into the link in the first place, so
+      # let CMake find JPEG/PNG/TIFF/ZLIB/fmt/lcms2 in the archive instead.
+      - CMAKE_PREFIX_PATH: /usr
     cmake-parameters:
       # The data directory is compiled into the binary (DATA_SEARCH_PATH) and
       # has no runtime override, so install under the path where the snap is
@@ -100,9 +123,9 @@ parts:
       # Without this CMake downloads fmt from GitHub at configure time.
       # Build against the archive's fmt (10.1.1, which has fmt::println).
       - -DWITH_SYSTEM_FMT=ON
-      # The gnome-core26 platform ships libjxl 0.12; the SDK provides its
-      # headers. Enable JPEG XL support explicitly, as upstream's release
-      # builds do.
+      # The 26.04 archive's libjxl is 0.11; the gnome-core26 platform ships
+      # libjxl.so.0.11 (and 0.12). Enable JPEG XL support explicitly, as
+      # upstream's release builds do.
       - -DWITH_JXL=ON
       # lensfun's default database search path is the base's
       # /usr/share/lensfun, not the copy staged in the snap. The path is
@@ -111,12 +134,12 @@ parts:
     organize:
       snap/rawtherapee/current/usr: usr
     build-packages:
-      # The gnome-core26-sdk build snap provides the GTK3, GLib/GIO,
-      # gdk-pixbuf, lcms2, librsvg, libcanberra-gtk3, libjxl, libjpeg,
-      # libpng, libtiff, zlib, expat and sigc++-2.0 development files, but
-      # no gtkmm-3.0 (it only carries the gtkmm-4.0/glibmm-2.68 stack), no
-      # CMake, make or git, and no exiv2, lensfun, libiptcdata, fftw3f or
-      # fmt development files.
+      # Everything is built against the archive (see build-environment):
+      # GTK3, GLib/GIO, gdk-pixbuf and the gtkmm 3 wrappers come with
+      # libgtkmm-3.0-dev; the SDK is only used at run time through the
+      # gnome extension. Note that libjxl-dev pulls in libhwy-dev, whose
+      # libhwy.pc is required by libjxl.pc's Requires.private (pkgconf 2.x
+      # insists on resolving it even for a non-static query).
       - cmake
       - make
       - git # UpdateInfo.cmake runs git describe/rev-parse at build time
@@ -125,14 +148,25 @@ parts:
       # the SDK nor the base provides.
       - libtool
       - libgtkmm-3.0-dev
+      # Libraries that the SDK's pkg-config/CMake files used to provide and
+      # that the archive's gtkmm3 dependency chain does not pull in. They
+      # have to be requested explicitly now that the SDK is only used for
+      # the runtime extension.
+      - libtiff-dev
+      - libpng-dev
+      - libexpat1-dev
+      - liblcms2-dev
+      - librsvg2-dev
+      - libcanberra-gtk3-dev
       - libexiv2-dev
       - liblensfun-dev
       - libiptcdata0-dev
       - libfftw3-dev
       - libfmt-dev
+      - libjxl-dev
       # LibRaw's autotools configure checks for jpeglib.h and -ljpeg using
-      # the default compiler paths, which do not include the SDK; provide the
-      # archive files for lossy (JPEG-compressed) DNG support.
+      # the default compiler paths; provide the archive files for lossy
+      # (JPEG-compressed) DNG support.
       - libjpeg-dev
     override-build: |
       craftctl default

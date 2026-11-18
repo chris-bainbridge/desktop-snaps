@@ -108,14 +108,19 @@ parts:
       # the C/C++ toolchain, meson, ninja, pkg-config, python3, autoconf and
       # gettext. Its paths are not in the compiler's default search path,
       # which matters for the probes below. The SDK has only the versioned
-      # automake/aclocal scripts and no libtool, and it lacks patch, nasm,
-      # FFmpeg, x264, x265, SVT-AV1, libdvdread, libdvdnav, libbluray,
+      # automake/aclocal scripts, no libtool and no cmake, and it lacks patch,
+      # nasm, FFmpeg, x264, x265, SVT-AV1, libdvdread, libdvdnav, libbluray,
       # libass, libjpeg-turbo, jansson, ogg, theora and vorbis development
       # files.
       - patch
       - nasm # configure aborts without it, even though libhb asm is disabled
       - automake # configure probes the unversioned 'automake' command
-      - libtool  # configure probes 'libtool' even with no contrib modules
+      # configure probes 'libtool' and 'cmake' unconditionally, even with no
+      # contrib modules and QSV disabled. The 'libtool' package only ships
+      # libtoolize, the 'libtool' command is in libtool-bin (which depends on
+      # libtool for the m4 macros).
+      - libtool-bin
+      - cmake
       # configure checks for zlib, bzip2 and xz with the compiler's default
       # search paths, which do not include the SDK; give it the archive's
       # development files so the probes pass and libhb links the system
