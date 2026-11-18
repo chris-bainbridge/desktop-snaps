@@ -312,3 +312,14 @@ parts:
     # library and interpreter, not a second copy of the stdlib.
     stage:
       - -usr/lib/python3*
+    # libblas3 and liblapack3, pulled in through libgdal (staged for
+    # OpenSceneGraph's GDAL/OGR model plugins), install their libraries in the
+    # blas/ and lapack/ subdirectories and are selected through
+    # /etc/alternatives. The snap has no /etc/alternatives, so snapcraft drops
+    # those absolute symlinks and libarmadillo would fail to load with
+    # "libblas.so.3: cannot open shared object file". Link the sonames that
+    # libarmadillo and libarpack look for to the staged implementations.
+    override-prime: |
+      craftctl default
+      ln -sfn blas/libblas.so.3 "$CRAFT_PRIME/usr/lib/x86_64-linux-gnu/libblas.so.3"
+      ln -sfn lapack/liblapack.so.3 "$CRAFT_PRIME/usr/lib/x86_64-linux-gnu/liblapack.so.3"

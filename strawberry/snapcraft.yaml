@@ -43,8 +43,8 @@ description: |
     decoders, the snap adds AAC (faad), Musepack, AIFF and ASF demuxing.
     ALAC, Monkey's Audio (APE), WMA and TTA are not available: their only
     decoder is gst-libav, whose FFmpeg dependency set is far larger than
-    this snap. MP3 tag writing during transcoding uses the staged id3tag
-    plugin.
+    this snap. MP3 transcoding uses the platform's lame, xingmux and
+    TagLib-based id3v2mux elements.
   - The application uses Qt's Fusion style, so it follows neither the GNOME
     theme nor its accent colours.
 
@@ -144,12 +144,14 @@ parts:
       - pkg-config
       - qt6-base-dev       # Core, Concurrent, Gui, Widgets, Network, Sql, DBus
       - qt6-tools-dev      # Qt6LinguistTools (lrelease for the translations)
+      - qt6-base-private-dev # Qt6::GuiPrivate for QX11Application (X11 shortcuts)
       # The configure step runs a QSQLITE smoke test; without the driver it
       # only warns, but the driver belongs in the build environment anyway.
       - libqt6sql6-sqlite
       - libkdsingleapplication-qt6-dev # single-instance handling (>= 1.1)
       - libtag-dev         # TagLib 2.2: tag reading and writing
       - libboost-dev       # header-only multi_index and operators
+      - libsparsehash-dev  # header-only, required by the stream tagreader
       - libssl-dev         # OpenSSL Crypto, used by the Spotify/Tidal code
       - libicu-dev
       - libasound2-dev     # ALSA device enumeration and the optional backend
@@ -197,7 +199,7 @@ parts:
   # HTTP stream and PulseAudio/PipeWire elements that Strawberry uses) but no
   # bad, ugly or libav plugins. Staging the full gstreamer1.0-plugins-bad
   # package would drag in its ONNX/TensorFlow/OpenCV dependencies, so fetch
-  # the package without them and keep only the five plugins the player needs.
+  # the package without them and keep only the four plugins the player needs.
   gst-extras:
     plugin: nil
     override-build: |
@@ -211,7 +213,6 @@ parts:
       - usr/lib/*/gstreamer-1.0/libgstaiff.so     # AIFF demuxing
       - usr/lib/*/gstreamer-1.0/libgstasf.so      # ASF/WMA demuxing
       - usr/lib/*/gstreamer-1.0/libgstfaad.so     # AAC/HE-AAC decoding
-      - usr/lib/*/gstreamer-1.0/libgstid3tag.so   # id3v2mux for MP3 transcoding
       - usr/lib/*/gstreamer-1.0/libgstmusepack.so # Musepack (MPC) decoding
 
   # The gnome extension's desktop-launch already puts the platform first in

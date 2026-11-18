@@ -1,6 +1,6 @@
 #!/bin/sh
 # Strawberry is a Qt 6 application. Qt, KDSingleApplication and the codecs the
-# gnome-core26 content snap lacks (faad, Musepack, AIFF, ASF demux, id3tag) are
+# gnome-core26 content snap lacks (faad, Musepack, AIFF, ASF demux) are
 # staged inside this snap; everything else comes from the platform's content
 # snap through the desktop-launch command chain the gnome extension installs.
 #
