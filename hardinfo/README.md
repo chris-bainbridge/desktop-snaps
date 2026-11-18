@@ -48,9 +48,11 @@ CMake options:
   and Vulkan/libdecor/glslang stacks. core26 has no Qt extension, and those
   stacks are disproportionate for two benchmark panels.
 
-Only `libsensors5` is staged at run time (`usr/lib/*/libsensors.so.*`). Every
-other runtime library is in `gnome-core26`, `mesa-2604` (through the GNOME
-extension's `gpu-2604` plug) or the `core26` base.
+Only `libsensors5` is staged at run time (`usr/lib/libsensors.so.*`, moved out
+of the multiarch directory because the GNOME extension's cleanup deletes
+libraries that also exist in the SDK). Every other runtime library is in
+`gnome-core26`, `mesa-2604` (through the GNOME extension's `gpu-2604` plug) or
+the `core26` base.
 
 ## Strict-confinement limitations
 

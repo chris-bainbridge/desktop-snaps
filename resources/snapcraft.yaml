@@ -67,8 +67,12 @@ layout:
   # in gnome-core26, so the staged copies are mounted where it looks.
   /usr/share/hwdata:
     bind: $SNAP/usr/share/hwdata
+  # amdgpu.ids cannot live under $SNAP/usr/share/libdrm: the gnome extension's
+  # gpu-2604-cleanup part deletes usr/share/libdrm/* (the mesa-2604 content
+  # snap provides that directory), so the staged file is kept under
+  # usr/share/resources instead and bound here.
   /usr/share/libdrm:
-    bind: $SNAP/usr/share/libdrm
+    bind: $SNAP/usr/share/resources/libdrm
 
 slots:
   # for GtkApplication registration: the single-instance GtkApplication
@@ -137,6 +141,14 @@ parts:
         data/net.nokyan.Resources.desktop.in.in
     override-build: |
       craftctl default
+      # Meson's gnome.post_install() skips glib-compile-schemas when DESTDIR is
+      # set, which is how snapcraft installs. The gnome extension's
+      # desktop-launch does compile the schema on first run, but relying on
+      # that means GSettings cannot resolve net.nokyan.Resources if it fails
+      # (the app aborts with "Settings schema ... is not installed"), so
+      # compile it here.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/resources/current/usr/share/glib-2.0/schemas"
       mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
       cp "$CRAFT_PART_SRC/data/icons/net.nokyan.Resources.svg" \
         "$CRAFT_PART_INSTALL/meta/gui/net.nokyan.Resources.svg"
@@ -159,6 +171,11 @@ parts:
       # while Resources opens /usr/share/hwdata/pci.ids (the hwdata path).
       install -D -m 0644 "$CRAFT_PART_INSTALL/usr/share/misc/pci.ids" \
         "$CRAFT_PART_INSTALL/usr/share/hwdata/pci.ids"
+      # The gpu extension deletes usr/share/libdrm/* at prime time (mesa-2604
+      # provides it), so keep amdgpu.ids under usr/share/resources, where the
+      # layout above binds it over /usr/share/libdrm.
+      install -D -m 0644 "$CRAFT_PART_INSTALL/usr/share/libdrm/amdgpu.ids" \
+        "$CRAFT_PART_INSTALL/usr/share/resources/libdrm/amdgpu.ids"
     prime:
       - usr/share/hwdata/pci.ids
-      - usr/share/libdrm/amdgpu.ids
+      - usr/share/resources/libdrm/amdgpu.ids

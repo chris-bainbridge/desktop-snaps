@@ -69,6 +69,15 @@ platforms:
   amd64:
   arm64:
 
+layout:
+  # libpci has the /usr/share/misc/pci.ids.gz path compiled in and, when
+  # that does not exist, falls back to /usr/share/misc/pci.ids (verified
+  # with strace against the archive's libpci 3.14). Both path names resolve
+  # to the core26 base, which ships neither, so expose the pci.ids database
+  # staged by the libraries part at the path libpci looks for.
+  /usr/share/misc/pci.ids:
+    symlink: $SNAP/usr/share/misc/pci.ids
+
 apps:
   cpu-x:
     extensions: [gnome]
@@ -88,6 +97,28 @@ parts:
     source: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X/archive/refs/tags/v5.4.1.tar.gz
     source-checksum: sha256/40c34c0ac14eead0f9626518e0783fd9f365af84aa05761e39795c07086f3fef
     plugin: cmake
+    # The gnome extension points the build at the gnome-core26 SDK, but that
+    # SDK only has the GTK4/gtkmm-4 stack with GLib 2.90 headers. CPU-X needs
+    # GTK3/gtkmm-3.24, which only exists in the 26.04 archive; mixing the
+    # archive's gtkmm headers with the SDK's GLib 2.90 headers fails to
+    # compile (giomm-2.4 declares the G*Class typedefs itself and
+    # G_DECLARE_FINAL_TYPE in GLib 2.90 declares them too), and mixing the
+    # archive's Pango 1.57 libraries with the SDK's Pango 1.58 libraries
+    # fails to link (pango_font_description_get_width). Build against the
+    # archive's stack throughout: its GTK3 is 3.24.52, the same version the
+    # gnome-core26 content snap provides at run time.
+    build-environment:
+      # The SDK compiler's specs put the SDK libdir ahead of the archive's.
+      - PATH: /usr/bin:$PATH
+      # Resolve GLib, GTK, gtkmm and pkg-config modules from the archive.
+      - PKG_CONFIG_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH
+      # Keep the archive's libraries first for anything the link step loads.
+      - LD_LIBRARY_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$LD_LIBRARY_PATH
+      # The extension puts the SDK on CMAKE_PREFIX_PATH. A library found
+      # there adds the SDK libdir to the executable's RUNPATH, which is how
+      # the SDK Pango libraries leaked into the link in the first place, so
+      # let CMake find EGL/OpenGL/Vulkan in the archive instead.
+      - CMAKE_PREFIX_PATH: /usr
     cmake-parameters:
       # CPU-X compiles its data directory (the GTK UI/CSS/logos) and its
       # gettext locale directory into the binary; the data directory has no
@@ -112,6 +143,12 @@ parts:
       # The SDK has no ncurses headers; the wide library itself is in the
       # core26 base at run time.
       - libncurses-dev
+      # EGL/OpenGL/Vulkan headers and import libraries, so CMake finds the
+      # archive's (not the SDK's) copies.
+      - libegl-dev
+      - libgl-dev
+      - libopengl-dev
+      - libvulkan-dev
       # The built-in x86 memory benchmark (bandwidth) is assembled with NASM.
       - on amd64:
           - nasm

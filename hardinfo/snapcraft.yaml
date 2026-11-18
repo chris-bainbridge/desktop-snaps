@@ -159,5 +159,18 @@ parts:
       # as a dependency, but its /etc/sensors3.conf would land in the base's
       # /etc rather than the snap's, so only the library is primed.
       - libsensors5
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk, assuming the content snap
+      # provides it. The SDK has libsensors (pulled in by its -dev packages)
+      # but gnome-core26 does not, so a copy left in the multiarch directory
+      # is removed and devices.so, which links libsensors.so.5 directly,
+      # would fail to load. Move it out of the SDK's path layout;
+      # $SNAP/usr/lib is part of the LD_LIBRARY_PATH that snapcraft generates
+      # for the snap, so the library is still found.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libsensors.so.5* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
-      - usr/lib/*/libsensors.so.*
+      - usr/lib/libsensors.so.*
