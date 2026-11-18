@@ -46,7 +46,7 @@ parts:
 
   gnome-clocks:
     source: https://gitlab.gnome.org/GNOME/gnome-clocks.git
-    source-tag: '49.0'
+    source-tag: '51.0'
     source-depth: 1
     source-type: git
     plugin: meson
@@ -57,6 +57,7 @@ parts:
     build-packages:
       - libgnome-desktop-4-dev
       - libgeoclue-2-dev
+      - vorbis-tools
     build-environment: *buildenv
     stage-packages:
       - libgeoclue-2-0
