@@ -3,95 +3,71 @@ version: '9.19'
 summary: PostgreSQL administration and development platform
 description: |
   pgAdmin 4 is the most popular open source administration and development
-  platform for PostgreSQL. It provides a browser-based interface for managing
-  servers, databases, schemas, tables and functions; a query tool with a
-  results grid, charting and explain plans; backup, restore and maintenance
-  wizards; a PSQL terminal; ERD and schema-diff tools; and support for
-  PostgreSQL 14 through 18, EDB Advanced Server and cloud PostgreSQL
-  services.
+  platform for PostgreSQL: a browser-based interface for servers, databases,
+  schemas, tables and functions; a query tool with results grid, charting and
+  explain plans; backup, restore and maintenance wizards; a PSQL terminal;
+  ERD and schema-diff tools; and support for PostgreSQL 14 through 18, EDB
+  Advanced Server and cloud PostgreSQL services.
 
-  The snap is strictly confined, as required on Core Desktop, which has no
-  classic snaps. pgAdmin's current desktop runtime (9.19) is Electron 44,
-  not the old QtWebEngine runtime. Shipping Electron would mean
-  downloading a prebuilt Electron/Chromium binary (no vendor binaries are
-  embedded in this repository) and disabling its sandbox, which snapd denies
-  to a strictly confined snap. This snap therefore packages pgAdmin's Flask
-  backend and renders it in a small QtWebEngine shell, the same approach as
-  the qutebrowser snap. The shell starts the server in desktop mode on a
-  random loopback port with a random access key, exactly as the Electron
-  runtime does, and opens a normal pgAdmin window. Expect these limitations:
+  The snap is strictly confined, as required on Core Desktop. pgAdmin 9.19's
+  desktop runtime is Electron; shipping it would mean a prebuilt
+  Electron/Chromium binary and a disabled sandbox, which snapd denies to a
+  strictly confined snap. This snap packages pgAdmin's Flask backend and
+  renders it in a small QtWebEngine shell, the same approach as the
+  qutebrowser snap. The shell starts the server in desktop mode on a random
+  loopback port with a random access key and opens a normal pgAdmin window.
+  Expect these limitations:
 
-  - Configuration, the SQLite settings database, saved server definitions,
-    sessions, storage, logs and the QtWebEngine cache live in the snap's
-    private per-user area, under
-    ~/snap/pgadmin4/current/.pgadmin. They are not shared with a
-    distribution-packaged pgAdmin or with pgAdmin on another machine. An
-    existing ~/.pgadmin can be copied there by hand before the first start.
-    The snap is single-user desktop mode: it is not a multi-user pgAdmin
-    server, and the local web server listens on 127.0.0.1 only.
-  - Only non-hidden paths in your real home directory are visible through the
-    home interface. Top-level dotfiles and dot-directories such as ~/.config,
-    ~/.local and ~/.ssh are not reachable. The file chooser, backup and
-    restore dialogs can use ~/Documents, ~/Downloads and other non-hidden
-    directories; type /home/<user> or add a bookmark to reach the real home.
-    Downloads from the query tool are written to the snap's private
-    ~/Downloads, not the real one.
-  - The root filesystem is the snap's core26 base, the GNOME runtime and the
-    snap's own staged tree, not the host's. Host-installed programs are not
-    on PATH and cannot be started. PostgreSQL's client utilities are staged:
-    pg_dump, pg_dumpall, pg_restore and psql come from PostgreSQL 18.6 inside
-    the snap, and Backup/Restore are preconfigured to use them. Host copies of
-    those tools are not visible. The snap does not include a PostgreSQL
-    server; install one separately.
-  - A local PostgreSQL server is reachable over TCP only. Unix domain sockets
-    such as /var/run/postgresql/.s.PGSQL.5432 and /run/postgresql are outside
-    the sandbox. Create the server connection with host 127.0.0.1, not the
-    literal localhost, which libpq may resolve to a Unix socket. Ensure
-    postgresql.conf has listen_addresses = 'localhost' and a TCP pg_hba.conf
-    entry for 127.0.0.1/32 (for example scram-sha-256), and enter a password.
-    The snap cannot read a ~/.pgpass file: it is a hidden file and the home
-    interface excludes it. Peer authentication over a Unix socket cannot
-    work. Local peer authentication is unavailable even though the server is
-    on the same machine.
-  - SSH tunnels use the bundled Paramiko/sshtunnel stack. The host's ssh-agent
-    and ~/.ssh directory are not visible, so an identity file must be in a
-    non-hidden directory that the home interface exposes, and a passphrase
-    must be entered in pgAdmin. Agent-based authentication is not available.
-    Host ssh_config aliases and ProxyJump settings are not read.
-  - Kerberos authentication is not usable: the host's /etc/krb5.conf, keytab
-    and credential cache are not visible, and the snap has no way to acquire
-    a ticket. LDAP authentication works over the network when the LDAP server
-    is reachable. OAuth2 redirects are handled inside the snap's QtWebEngine
-    window; provider flows that open the system browser use the desktop
-    interface, and their loopback callback is allowed by network-bind.
-  - The host keyring and Secret Service are not available. pgAdmin's saved
-    database passwords are encrypted in its own SQLite database with its
-    master password, not stored in the desktop keyring. A pgAdmin master
-    password is therefore required to save passwords.
-  - QtWebEngine's Chromium sandbox is disabled. AppArmor does not grant
-    unprivileged user namespaces to a strictly confined snap, and snapd
-    denies the allow-sandbox attribute of browser-support to snaps without a
-    store-granted declaration. Renderer processes are contained only by the
-    snap's confinement. Keep the snap up to date.
-  - QtWebEngine uses its own Chromium network stack. Host proxy settings and
-    host CA certificates added outside the base are not used; configure a
-    proxy in pgAdmin or in the desktop environment's schema if needed.
-    Hardware video decoding is not enabled and DRM-protected media is not
-    supported. PDFs are downloaded and can be opened with the host viewer
-    through the desktop interface.
-  - Printing from the embedded browser is not wired to the host's CUPS.
-    Query results can be exported to CSV, JSON or XML, and the host browser
-    can print a saved page. The cups-control interface is not declared.
+  - Configuration, the SQLite settings database, saved servers, sessions,
+    storage, logs and the QtWebEngine cache live in the snap's private
+    ~/snap/pgadmin4/current/.pgadmin, not in ~/.pgadmin; copy an existing
+    ~/.pgadmin there before the first start. The snap is single-user desktop
+    mode, and its web server listens on 127.0.0.1 only.
+  - Only non-hidden paths in your home are visible through the home
+    interface; ~/.config, ~/.local and ~/.ssh are not. Backups, restores and
+    uploads can use ~/Documents and similar; type /home/<user> or bookmark it
+    to reach the real home. Query tool downloads go to the snap's private
+    ~/Downloads.
+  - The root filesystem is the core26 base, the GNOME platform and this
+    snap's tree, not the host's. Host programs are not on PATH. PostgreSQL
+    18's pg_dump, pg_dumpall, pg_restore and psql are staged and
+    preconfigured for Backup, Restore and the PSQL tool. No server is
+    included; install one separately.
+  - A local PostgreSQL server is reachable over TCP only. Unix sockets such
+    as /var/run/postgresql are outside the sandbox. Connect to 127.0.0.1
+    rather than localhost, which libpq may resolve to a socket; set
+    listen_addresses and a TCP pg_hba.conf entry for 127.0.0.1/32 and enter a
+    password. ~/.pgpass is hidden and excluded, so peer authentication is not
+    available.
+  - SSH tunnels use the bundled Paramiko/sshtunnel stack. The host ssh-agent
+    and ~/.ssh are not visible; use an identity file in a non-hidden
+    directory and type its passphrase. Host ssh_config aliases and agent
+    authentication are unavailable.
+  - Kerberos is not usable: /etc/krb5.conf, keytabs and the credential cache
+    are not visible. LDAP works over the network. OAuth2 redirects are
+    handled inside the snap's window, or in the host browser when a provider
+    requires it.
+  - The host keyring and Secret Service are unavailable. Saved database
+    passwords are encrypted in pgAdmin's own SQLite storage, so a pgAdmin
+    master password is required to save passwords.
+  - QtWebEngine's Chromium sandbox is disabled: AppArmor does not grant
+    unprivileged user namespaces to a strictly confined snap and snapd
+    denies the allow-sandbox browser-support attribute without a
+    store-granted declaration. Renderers are contained only by the snap's
+    confinement; keep the snap up to date.
+  - QtWebEngine uses its own Chromium network stack, so host proxy settings
+    and host CAs are not used; configure a proxy in pgAdmin if needed.
+    Hardware video decoding and DRM media are unsupported. PDFs download and
+    open with the host viewer.
+  - Printing is not wired to CUPS; export query results to CSV, JSON or XML
+    instead. The cups-control interface is not declared.
   - Removable drives need the removable-media interface, which is not
-    connected automatically:
+    connected automatically; run:
       sudo snap connect pgadmin4:removable-media
-    Without it, backups and restores cannot use /media or /mnt.
-  - The snap cannot change the host's default applications or MIME
-    associations; those writes are outside the sandbox. It can open mailto:
-    links through the desktop interface.
-  - The snap updates through the Snap Store. pgAdmin's Electron auto-updater
-    is not present, and a running instance is not restarted automatically
-    after a refresh.
+  - The snap cannot change host default applications or MIME associations,
+    though it can open mailto: links. Updates come from the Snap Store;
+    pgAdmin's auto-updater is not present, and running instances are not
+    restarted after a refresh.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. pgAdmin 4 is built from the pinned upstream
@@ -197,7 +173,19 @@ parts:
 
       # Build pgAdmin's React client bundle with the Yarn version pinned in
       # web/package.json. The bundle is generated output, not a vendor binary.
-      npm install --global --silent yarn@4.15.0
+      # Yarn 4 is not published as the "yarn" npm package (that one is Yarn
+      # Classic 1.x); the Berry CLI is @yarnpkg/cli-dist, which installs the
+      # same "yarn" command.
+      #
+      # Yarn also bootstraps git dependencies by running "npm install" and
+      # "npm pack" in the clone. One dependency, the react-data-grid fork, has
+      # an npm: alias (npm:rolldown-vite) in its package-lock.json that the
+      # 26.04 npm 9.2 cannot parse ("Invalid comparator"). Use current npm;
+      # it installs under /usr/local, which precedes /usr/bin on PATH.
+      npm install --global --silent npm@11.21.3
+      npm install --global --silent @yarnpkg/cli-dist@4.15.0
+      npm --version
+      yarn --version
       cd web
       yarn install --immutable
       NODE_ENV=production NODE_OPTIONS=--max-old-space-size=3072 \
@@ -286,6 +274,14 @@ parts:
       - libqt6waylandclient6      # the libqwayland platform plugin
       - libqt6wlshellintegration6 # xdg-shell and friends
       - qt6-svg-plugins           # SVG icons in the UI
+    stage:
+      # python3-psycopg depends on python3-typing-extensions, which installs
+      # typing_extensions.py into the same dist-packages directory the
+      # pgadmin4 part populates from PyPI (SQLAlchemy requires it, and the
+      # PyPI copy is newer). Drop the archive copy while staging; otherwise
+      # the two parts collide on the same path and staging aborts.
+      - -usr/lib/python3/dist-packages/typing_extensions.py
+      - -usr/lib/python3/dist-packages/typing_extensions-*.dist-info
     prime:
       - -usr/include
       - -usr/lib/*.la

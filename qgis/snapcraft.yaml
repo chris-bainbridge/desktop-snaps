@@ -5,87 +5,56 @@ description: |
   QGIS is a professional geographic information system for viewing, editing,
   analysing and publishing spatial data. It reads vector, raster, mesh and
   point-cloud formats through GDAL/OGR, reprojects on the fly with PROJ, runs
-  hundreds of Processing algorithms, and composes print maps. PostGIS and
-  PostgreSQL, SpatiaLite, GeoPackage, WMS/WMTS/WFS/WCS, XYZ tiles, GPS
-  traces, 3D map views and Python plugins are supported.
+  hundreds of Processing algorithms, and composes print maps. PostGIS,
+  SpatiaLite, GeoPackage, WMS/WMTS/WFS/WCS, XYZ tiles, GPS traces, 3D map
+  views and Python plugins are supported.
 
   The snap is strictly confined, as required on Core Desktop, which has no
   classic snaps. That has visible consequences:
 
   - Settings, plugins, the authentication database and the default profile
-    live in the snap's private per-user directory
-    (~/snap/qgis/current/.local/share/QGIS4), not in ~/.local/share/QGIS4.
-    They are not shared with a distribution-packaged QGIS; an existing
-    profile can be copied into the snap's directory by hand.
-  - Only non-hidden paths in your real home directory are visible through
-    the home interface. Top-level dotfiles and dot-directories such as
-    ~/.config, ~/.local and ~/.ssh are not reachable. The file chooser starts
-    in the private home, so type /home/<user> or add a bookmark to reach the
-    real one. Projects and data in ~/Documents, ~/Downloads and other
-    non-hidden directories work normally.
-  - The root filesystem is the snap's core26 base and the GNOME runtime, not
-    the host's. Host-installed programs are not on PATH and cannot be
-    started, and host Python modules are not importable. This affects
-    everything that shells out: GRASS, SAGA, OTB and R providers, gpsbabel,
-    external editors and helper scripts. The GDAL utilities used by the GDAL
-    Processing algorithms are bundled inside the snap, but host copies are
-    not visible.
+    live in ~/snap/qgis/current/.local/share/QGIS4, not ~/.local/share/QGIS4.
+  - Only non-hidden paths in your real home directory are visible through the
+    home interface, so ~/.config, ~/.local and ~/.ssh are unreachable. The
+    file chooser starts in the private home; type /home/<user> to reach the
+    real one. Projects in ~/Documents and ~/Downloads work normally.
+  - The root filesystem is the snap's base and the GNOME runtime, not the
+    host's. Host programs are not on PATH and cannot be started, and host
+    Python modules are not importable. GRASS, SAGA, OTB and R providers,
+    gpsbabel, external editors and helper scripts are therefore unavailable;
+    the GDAL utilities are bundled in the snap.
   - Database and web services on the same machine are reachable over TCP
-    (for PostgreSQL/PostGIS use host=localhost), but Unix domain sockets and
-    the host's service directories are not visible. A local PostgreSQL
-    reached through /run/postgresql is not available.
-  - Printing needs the cups-control interface, which is not connected
-    automatically:
-      sudo snap connect qgis:cups-control
-    Without it, layouts can still be exported to PDF, SVG or images.
-  - USB drives, camera cards and other removable media need the
-    removable-media interface:
-      sudo snap connect qgis:removable-media
-  - GPS receivers on a serial port need the serial-port interface, which is
-    not connected automatically:
-      sudo snap connect qgis:serial-port
-    A GPS reachable through gpsd on the host is not available: the gpsd
-    socket is outside the sandbox. Bluetooth GPS devices are not reachable.
-  - Credentials stored in the host keyring are not available unless the
-    password-manager-service interface is connected:
-      sudo snap connect qgis:password-manager-service
-    Without it, QGIS asks for the authentication-database master password
-    each session and cannot use the host's Secret Service.
-  - QGIS Server is not built. It runs as a CGI/FastCGI application under a
-    web server, and a strictly confined snap cannot expose its binary or
-    socket to the host's web server. The desktop application and the
-    qgis_process command-line tool (the qgis-process app) are included.
-  - The GRASS provider and plugin are not built: they need a complete GRASS
-    GIS installation, which would add a second GIS and hundreds of
-    megabytes, and the plugin runs GRASS modules as subprocesses. QGIS 4 has
-    no SAGA provider any more; external SAGA, OTB and R installations cannot
-    be used because host executables are invisible.
-  - The PDAL point-cloud provider is not built because 26.04 has no PDAL
-    development package. EPT and COPC point clouds work through the built-in
-    laz-perf decoder. Oracle and SAP HANA providers are not built (no
-    proprietary client libraries), and the MSSQL provider has no ODBC driver
-    for SQL Server in the archive.
-  - QtWebEngine is not bundled. HTML layout items and HTML annotations use
-    Qt's plain text browser, and links that need a real browser are handed to
-    the host through the desktop interface. This avoids a second Chromium
-    (about 250 MB) and its unusable sandbox in a strict snap.
-  - Python is the platform's Python 3.14 with the modules staged in the snap
-    (PyQt6, numpy, pyproj, psycopg2, OWSLib, lxml, requests, Pygments,
-    plotly, python3-gdal and their dependencies). Plugins installed through
-    the QGIS plugin manager work if they are pure Python and only use those
-    modules. pip installs into the host's site-packages are not visible, and
-    plugins that need matplotlib, scipy, pandas or compiled extensions must
-    be installed into a writable path inside the snap's private home and
-    added to PYTHONPATH by hand.
-  - OpenCL is built in, but the host's ICD registry (/etc/OpenCL/vendors) is
-    not visible. Unless an ICD is shipped inside the snap, OpenCL algorithms
-    fall back to the CPU.
-  - Qt 6.10 and its plugins are staged from the 26.04 archive. Host Qt and
-    KDE themes are not visible; Qt uses its GNOME theme integration and the
-    Fusion fallback, with the icon themes supplied by gtk-common-themes.
-  - Snap desktop entries cannot add MIME types to the host's shared-mime-info
-    database, so .qgs/.qgz files are not associated with the snap on the
-    host. The snap's own file filters know the QGIS formats.
+    (for PostgreSQL/PostGIS use host=localhost), but not through Unix sockets
+    such as /run/postgresql.
+  - Printing needs cups-control, which is not connected automatically:
+    sudo snap connect qgis:cups-control
+    Layouts can always be exported to PDF, SVG or images.
+  - USB drives need removable-media: sudo snap connect qgis:removable-media
+  - Serial GPS receivers need serial-port: sudo snap connect qgis:serial-port
+    A GPS reachable through gpsd on the host is not available.
+  - The host keyring needs password-manager-service:
+    sudo snap connect qgis:password-manager-service
+  - QGIS Server is not built: a strictly confined snap cannot expose a CGI
+    binary or socket to the host's web server. The desktop application and
+    the qgis_process tool (the qgis-process app) are included.
+  - The GRASS provider is not built (a second GIS would add hundreds of
+    megabytes and its plugin runs GRASS modules as subprocesses). QGIS 4 has
+    no SAGA provider. PDAL, Oracle and SAP HANA are not built; the archive
+    has no ODBC driver for SQL Server. EPT and COPC point clouds use the
+    bundled laz-perf decoder.
+  - QtWebEngine is not bundled, which would add a second Chromium. HTML items
+    use Qt's plain text browser; links open in the host browser.
+  - Python is the platform's Python 3.14 with the staged modules (PyQt6,
+    numpy, pyproj, psycopg2, OWSLib, lxml, requests, Pygments, plotly and
+    python3-gdal). Pure-Python plugins using those modules work; plugins that
+    need matplotlib, scipy, pandas or compiled extensions must be installed
+    into a writable path and added to PYTHONPATH by hand.
+  - OpenCL is built in, but the host's ICD registry is not visible, so
+    algorithms fall back to the CPU.
+  - Qt 6.10 and its plugins are staged from the 26.04 archive; host Qt and
+    KDE themes are not visible.
+  - Snap entries cannot add MIME types to the host database, so .qgs/.qgz
+    files are not associated with the snap; the snap's own filters know them.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. QGIS is built from the pinned upstream release
@@ -263,9 +232,13 @@ parts:
       # Install the bindings into the upstream data directory; the launcher
       # puts share/qgis/python on PYTHONPATH.
       - -DBINDINGS_GLOBAL_INSTALL=OFF
-      # Byte-compile the installed Python plugins and bindings so the
-      # read-only snap does not need to write .pyc files at first start.
-      - -DWITH_PY_COMPILE=ON
+      # WITH_PY_COMPILE is broken in 4.2.3: PY_COMPILE() attaches POST_BUILD
+      # commands to the staged-plugins and pyutils targets from the plugins,
+      # testing and processing subdirectories, and CMake rejects custom
+      # commands for targets created in another directory. The option only
+      # byte-compiles the build tree anyway, so leave it off and compile the
+      # installed tree in override-build instead.
+      - -DWITH_PY_COMPILE=OFF
       # Generate the PyQGIS API file used by the Python console.
       - -DWITH_QSCIAPI=ON
       - -DWITH_QGIS_PROCESS=ON
@@ -405,6 +378,12 @@ parts:
       # algorithms that cannot run.
       rm -rf "$install/usr/share/qgis/python/plugins/grassprovider"
 
+      # Byte-compile the installed Python bindings and plugins. WITH_PY_COMPILE
+      # only covers the build tree and does not configure with 4.2.3, so do it
+      # here: without .pyc files a read-only snap would attempt (and fail) to
+      # write them into its squashfs on every start.
+      /usr/bin/python3 -m compileall -q "$install/usr/share/qgis/python" || true
+
       # Development and test binaries that the Debian package also omits.
       rm -f "$install/usr/bin/qgis_bench" \
         "$install/usr/bin/test_provider_wcs" \
@@ -444,6 +423,7 @@ parts:
       - libqt6quickcontrols2-6
       - libqt6quicktemplates2-6
       - libqt6quickwidgets6
+      - libqt6uitools6           # QUiLoader, used by the GUI and some providers
       - libqt6qmlmodels6
       - libqt6qmlworkerscript6
       - libqt63dcore6
@@ -500,6 +480,7 @@ parts:
       - libsqlite3-mod-spatialite # for plugins that load it through sqlite3
       - libzip5
       - libprotobuf32t64
+      - libprotobuf-lite32t64   # QGIS links the lite runtime for vector tiles
       - libpq5
       - libgsl28
       - libdraco9
@@ -522,6 +503,9 @@ parts:
       - python3-pyqt6.qtsvg
       - python3-pyqt6.qsci
       - python3-pyqt6.sip
+      # PyQt6.uic is not part of python3-pyqt6; it ships in pyqt6-dev-tools
+      # and is imported by QGIS Processing's GUI modules (uic loadUiType).
+      - pyqt6-dev-tools
       - python3-jinja2
       - python3-markupsafe
       - python3-yaml
@@ -585,3 +569,17 @@ parts:
       find . -type f,l -name '*.so.*' -print |
         sed "s|^\./|$root/|" |
         xargs -r rm -f
+
+      # libblas3 and liblapack3 are update-alternatives packages: the staged
+      # trees only contain usr/lib/<triplet>/blas/libblas.so.3 and
+      # usr/lib/<triplet>/lapack/liblapack.so.3, and the top-level symlinks
+      # that the alternatives mechanism normally creates are only made by the
+      # packages' maintainer scripts, which do not run for stage-packages.
+      # libgdal pulls in libarmadillo, which links both by soname, so recreate
+      # the links where the dynamic loader searches.
+      triplet="${CRAFT_ARCH_TRIPLET_BUILD_FOR:-$CRAFT_ARCH_TRIPLET}"
+      for lib in blas/libblas.so.3 lapack/liblapack.so.3; do
+        if [ -e "$root/usr/lib/$triplet/$lib" ]; then
+          ln -sf "$lib" "$root/usr/lib/$triplet/${lib##*/}"
+        fi
+      done

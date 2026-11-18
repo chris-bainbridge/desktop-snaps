@@ -244,6 +244,22 @@ parts:
       # "odbc-config" helper, which 26.04's unixodbc-dev does not ship (it
       # ships pkg-config files instead), so provide the library and include
       # values directly and select unixODBC over iODBC.
+      #
+      # Build the whole GTK3 stack against the 26.04 archive, not the GNOME
+      # SDK. The SDK carries no gtkmm-3.0, so gtkmm comes from the archive
+      # anyway; the SDK's GLib 2.90 moved the GObject class types to
+      # G_DECLARE_FINAL_TYPE while gtkmm's giomm headers declare them with
+      # C++ aliases, which makes every includer of gtkmm.h fail. Mixing the
+      # two also breaks linking: the SDK's libxml2 adds an SDK rpath, so the
+      # linker resolves the SDK's pangoft2 against the archive's pango.
+      # Use the archive's pkg-config and CMake search paths only. The
+      # runtime is unaffected: the snap's libs that the platform also ships
+      # are removed by the cleanup part, and the platform's 2.90 GLib/pango
+      # are ABI-compatible with binaries built against 2.88/1.57.
+      export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      unset LD_LIBRARY_PATH PKG_CONFIG_PATH
+      export PKG_CONFIG_LIBDIR="/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+      export CMAKE_PREFIX_PATH="$CRAFT_STAGE/usr:/usr"
       cmake -S . -B "$CRAFT_PART_BUILD" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \

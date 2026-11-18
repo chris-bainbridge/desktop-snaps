@@ -3,88 +3,75 @@ version: '26.08.3'
 summary: Office and document suite with Words, Sheets, Stage and a converter
 description: |
   Calligra Suite is a set of office and document applications built on a
-  common KDE Frameworks platform. This snap provides the three productivity
-  applications and the command-line converter:
+  common KDE Frameworks platform. This snap provides three applications and
+  a command-line converter:
 
-  - Calligra Words is a word processor for ODF text documents. It imports
-    DOC, DOCX, WordPerfect, Microsoft Works, RTF and plain text, and exports
-    DOCX, EPUB2, Mobi, HTML, wiki and plain text.
+  - Calligra Words is a word processor for ODF text documents, importing
+    DOC, DOCX, WordPerfect, Microsoft Works, RTF and plain text and exporting
+    DOCX, EPUB2, Mobi, HTML and wiki.
   - Calligra Sheets is a spreadsheet with formula editing, charts, cell
-    styles and the GSL solver. It imports XLS/XLSX, CSV, Gnumeric,
-    OpenDocument, Applix, dBASE and Quattro Pro files and exports XLS, CSV,
-    Gnumeric, OpenDocument, HTML and LaTeX.
+    styles and the GSL solver, importing and exporting XLS/XLSX, CSV,
+    Gnumeric, OpenDocument, dBASE and Quattro Pro files.
   - Calligra Stage is a presentation program with master slides, layouts,
-    animations and page effects. It imports ODP, PPT/PPTX, Apple Keynote and
-    KPresenter files and exports PDF.
+    animations and page effects, importing ODP, PPT/PPTX, Apple Keynote and
+    KPresenter files and exporting PDF.
   - calligraconverter (run it as "snap run calligra.convert") converts
     documents between every format the three applications support and
     exports PDF in batch mode.
 
-  Documents use the OpenDocument formats natively. The snap includes the
-  shared Calligra libraries, the text, picture, vector, path, formula, chart,
-  artistic-text, plugin-shape, variable and stencil plugins, the dockers and
-  text-editing plugins, and the import/export filters listed above.
+  The snap includes the shared Calligra libraries, shape, docker, text-editing
+  and import/export plugins.
 
   The snap is strictly confined, as required on Core Desktop, which has no
   classic snaps. That has visible consequences:
 
-  - HOME is the snap's private per-user directory (~/snap/calligra/<revision>),
-    not your real home. Configuration, recent documents, autosave files,
-    user templates and spell-check settings live there and are not shared
-    with a distribution-packaged Calligra. Files in non-hidden paths of the
-    real home are reachable through the home interface, but top-level hidden
-    entries such as ~/.config, ~/.local, ~/.ssh and ~/.fonts are not. The
-    file dialog starts in the private home; type /home/<user> or add a
-    bookmark to reach the real one.
+  - HOME is the snap's private directory (~/snap/calligra/<revision>), not
+    your real home: configuration, recent documents, autosave files and
+    templates live there and are not shared with a packaged Calligra.
+    Non-hidden paths of the real home are reachable, but hidden entries such
+    as ~/.config and ~/.ssh are not; type /home/<user> in the file dialog to
+    reach it.
   - Only the bundled fonts are available: DejaVu, Liberation, Carlito,
-    Caladea and the LyX fonts. Host fonts are not visible, so documents that
-    use other fonts are rendered with a substitute. Additional fonts can be
-    copied to ~/snap/calligra/current/.local/share/fonts.
+    Caladea and the LyX fonts. Others are substituted; more can be copied
+    to ~/snap/calligra/current/.local/share/fonts.
   - Spell checking uses Sonnet with Hunspell and a US English dictionary
-    only. Other dictionaries and the WordNet thesaurus are not shipped.
-  - Sheets' external data sources use Qt SQL with the SQLite driver only.
-    The PostgreSQL, MySQL/MariaDB and ODBC drivers are not staged.
+    only; other dictionaries and the WordNet thesaurus are not shipped.
+  - Sheets' external data sources use Qt SQL with the SQLite driver only;
+    the PostgreSQL, MySQL/MariaDB and ODBC drivers are not staged.
   - Printing to a physical printer needs the cups interface, which is not
     connected automatically:
         sudo snap connect calligra:cups
-    It routes print jobs to the CUPS snap. Without it, File > Print to File
-    and PDF export still work.
+    It routes print jobs to the CUPS snap; without it, Print to File and PDF
+    export still work.
   - USB drives, camera cards and other removable media need the
     removable-media interface:
         sudo snap connect calligra:removable-media
-  - Stored passwords for encrypted documents need the desktop keyring, which
-    is only reachable when the password-manager-service interface is
-    connected:
+  - Stored passwords for encrypted documents need the desktop keyring, only
+    when password-manager-service is connected:
         sudo snap connect calligra:password-manager-service
     Without it, encrypted ODF documents still open after typing the password.
-  - Local documents are read and written directly, without a helper process.
-    Remote KIO URLs use the staged kioworker for http, https, webdav and ftp;
-    protocols provided by kio-extras (smb, sftp, nfs) are not available, and
-    the trash:// browser sees only the snap's private trash.
-  - Programs installed on the host are not visible. Help > Calligra Handbook
-    needs khelpcenter, which is not part of the snap, and the handbooks
-    themselves are not built, so there is no offline help. Links opened with
-    Qt's desktop services are handed to the host's browser through the
-    desktop interface. External editors and other helper programs cannot be
-    started from inside the snap.
+  - Local documents are read and written directly. Remote KIO URLs use the
+    staged kioworker for http, https, webdav and ftp; protocols from
+    kio-extras (smb, sftp, nfs) are unavailable, and trash:// sees only the
+    snap's private trash.
+  - Host programs are not visible. Help > Calligra Handbook needs
+    khelpcenter, which is not shipped, so there is no offline help. Links
+    opened with Qt's desktop services go to the host's browser through the
+    desktop interface; external editors and other helpers cannot run.
   - The host's MIME database is not extended by the snap. The three desktop
-    entries are exported, so associations work for file types the host
-    already knows; otherwise open the document from the application's file
-    dialog.
+    entries are exported, so associations work for types the host already
+    knows; otherwise open the document from the file dialog.
   - Qt 6.10.2 and KDE Frameworks 6.24.0 are staged from the 26.04 archive.
     The host's Qt/KDE theme and settings are not visible: the snap ships the
-    Breeze icon theme and uses Qt's Fusion widget style, and it does not
-    follow the GNOME theme or its accent colours.
-  - Audio and video clips embedded in presentations are not played. Phonon
-    and its VLC backend are not staged, so the video shape plugin is not
-    built.
+    Breeze icon theme and uses Qt's Fusion style, and it does not follow the
+    GNOME theme or its accent colours.
+  - Embedded audio and video clips are not played: Phonon and its VLC backend
+    are not staged, so the video shape is not built.
   - RDF metadata and the contact, event and location semantic-item plugins
     are not built: Soprano has no Qt 6 port.
-  - The Karbon vector editor, Braindump, Gemini, the Calligra Launcher start
-    centre, the Okular generators and the file-manager thumbnailer,
-    properties-dialog, quick-print and "Create new" template plugins are not
-    shipped. Each of the three applications is started from its own desktop
-    entry.
+  - The Karbon editor, Braindump, Gemini, the Calligra Launcher start centre,
+    the Okular generators and the file-manager thumbnailer, properties-dialog,
+    quick-print and "Create new" template plugins are not shipped.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. No prebuilt Calligra binaries are embedded: the
@@ -164,8 +151,14 @@ platforms:
 layout:
   /etc/fonts:
     bind: $SNAP/etc/fonts
+  # The data lives in usr/share/X11-data rather than usr/share/X11: the
+  # gpu-2604-cleanup helper deletes usr/share/X11/locale to deduplicate
+  # against the mesa-2604 content snap, and snapd rejects a second layout
+  # nested below this one, so the bind source is kept outside the cleaned
+  # path. Without the staged Compose/XLC_LOCALE files libX11 and
+  # libxkbcommon-compose find no locale data.
   /usr/share/X11:
-    bind: $SNAP/usr/share/X11
+    bind: $SNAP/usr/share/X11-data
   /usr/share/fontconfig:
     bind: $SNAP/usr/share/fontconfig
   /usr/share/fonts:
@@ -295,8 +288,10 @@ parts:
       # product set (the default ALL set builds them), but CMYK and EXR
       # colour spaces are needed for print-oriented documents. The product
       # sets are a space-separated list; CMake splits it with
-      # separate_arguments().
-      - "-DPRODUCTSET=WORDS SHEETS STAGE PLUGIN_COLORENGINES APP_CONVERTER"
+      # separate_arguments(). craft-parts joins cmake-parameters into a shell
+      # command verbatim, so the inner quotes are required: without them the
+      # spaces start new arguments and only WORDS is configured.
+      - '-DPRODUCTSET="WORDS SHEETS STAGE PLUGIN_COLORENGINES APP_CONVERTER"'
       # Release configuration: no unmaintained or experimental components.
       - -DRELEASE_BUILD=TRUE
       # Put plugins below the Qt plugin directory, so qt.conf and
@@ -546,6 +541,17 @@ parts:
       for package in ./*.deb; do
         dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
       done
+
+      # xkb-data 2.46 installs the keymaps under usr/share/xkeyboard-config-2
+      # and leaves usr/share/X11/xkb as a relative symlink to
+      # ../xkeyboard-config-2. Move the whole X11 tree away from
+      # usr/share/X11 (see the layout comment) and materialise the keymaps
+      # inside it, otherwise the symlink would resolve to the base's
+      # /usr/share/xkeyboard-config-2, which does not exist.
+      mv "$CRAFT_PART_INSTALL/usr/share/X11" "$CRAFT_PART_INSTALL/usr/share/X11-data"
+      rm "$CRAFT_PART_INSTALL/usr/share/X11-data/xkb"
+      mv "$CRAFT_PART_INSTALL/usr/share/xkeyboard-config-2" \
+        "$CRAFT_PART_INSTALL/usr/share/X11-data/xkb"
     prime:
       - -usr/share/doc
 
