@@ -86,3 +86,9 @@ parts:
         "$CRAFT_PART_INSTALL/usr/bin/terminator" \
         "$CRAFT_PART_INSTALL/usr/bin/remotinator"
       rm -rf "$CRAFT_PART_INSTALL"/usr/lib/python3/dist-packages/terminator-*.egg-info
+      # setup.py installs the theme-specific CSS tree under
+      # /usr/share/terminator/terminatorlib/themes, but terminatorlib looks for
+      # it in a "themes" directory beside its own modules. Bridge the two so
+      # the per-theme CSS fixes are actually applied.
+      ln -s ../../../../share/terminator/terminatorlib/themes \
+        "$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/terminatorlib/themes"
