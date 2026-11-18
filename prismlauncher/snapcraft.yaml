@@ -213,7 +213,14 @@ parts:
                                  # Xml, OpenGL, DBus and Test
       - qt6-networkauth-dev      # Qt6::NetworkAuth, the Microsoft OAuth flow
       - libcmark-dev             # the About/changelog Markdown renderer
+      # libcmark-dev's cmark-targets.cmake defines the imported cmark::cmark_exe
+      # target and errors out at configure time when the cmark binary is
+      # missing; the binary lives in the separate cmark package.
+      - cmark
       - gamemode-dev             # gamemode_client.h and gamemode.pc
+      # gamemode.pc says -lgamemode, but the unversioned libgamemode.so
+      # development symlink is shipped by libgamemode0, not gamemode-dev.
+      - libgamemode0
       - libqrencode-dev          # the MSA device-code QR code
       - libarchive-dev           # modpack and instance import/export
       - libtomlplusplus-dev      # launcher.cfg and instance config parsing
@@ -323,6 +330,16 @@ parts:
       for package in ./*.deb; do
         dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
       done
+
+      # xkb-data 2.46 installs the keymaps under usr/share/xkeyboard-config-2
+      # and leaves usr/share/X11/xkb as a relative symlink to ../xkeyboard-
+      # config-2. The layout above binds only /usr/share/X11, so the kernel
+      # would resolve that symlink to the base's /usr/share/xkeyboard-config-2,
+      # which does not exist. Materialise the keymaps inside the bound
+      # directory instead.
+      rm "$CRAFT_PART_INSTALL/usr/share/X11/xkb"
+      mv "$CRAFT_PART_INSTALL/usr/share/xkeyboard-config-2" \
+        "$CRAFT_PART_INSTALL/usr/share/X11/xkb"
     prime:
       - -usr/share/doc
 
@@ -353,3 +370,14 @@ parts:
       find . -type f,l -name '*.so.*' -print |
         sed "s|^\./|$root/|" |
         xargs -r rm -f
+
+      # x11-common (staged by the runtime part through libx11) installs
+      # usr/share/X11/rgb.txt as a relative symlink to ../../../etc/X11/rgb.txt.
+      # /etc/X11 is not one of the layout binds, so inside the sandbox that
+      # symlink would resolve into the base, which has no /etc/X11. Replace it
+      # with the file it points at, which is primed by the same package.
+      if [ -L "$root/usr/share/X11/rgb.txt" ] &&
+        [ -f "$root/etc/X11/rgb.txt" ]; then
+        rm "$root/usr/share/X11/rgb.txt"
+        cp "$root/etc/X11/rgb.txt" "$root/usr/share/X11/rgb.txt"
+      fi

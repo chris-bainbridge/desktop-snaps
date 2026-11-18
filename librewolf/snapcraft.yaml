@@ -4,85 +4,55 @@ version: '160.0-1'
 summary: Privacy-focused web browser based on Firefox
 description: |
   LibreWolf is a community fork of Firefox focused on privacy, security and
-  freedom. It removes telemetry and sponsored content, enables strict
-  tracking protection, ships uBlock Origin, and turns off DRM, WebRTC leaks
-  and AI integrations by default.
+  freedom. It removes telemetry and sponsored content, enables strict tracking
+  protection, ships uBlock Origin, and turns off DRM, WebRTC leaks and AI
+  integrations by default.
 
-  This snap packages the official LibreWolf Linux binary release. It is
-  strictly confined, as required on Core Desktop, which has no classic snaps.
-  That has visible consequences:
+  This snap repackages the official LibreWolf Linux binary release and is
+  strictly confined, as required on Core Desktop, which has no classic snaps:
 
-  - The profile lives in ~/snap/librewolf/common/.librewolf, not in
-    ~/.librewolf, ~/.config/librewolf or ~/.mozilla/firefox. Existing
-    LibreWolf and Firefox profiles in those hidden directories cannot be
-    imported by the snap: the home interface hides top-level dotfiles and
-    dot-directories, and this recipe deliberately declares no personal-files
-    plug for them. To migrate, copy the contents of ~/.librewolf or
-    ~/.config/librewolf/librewolf into ~/snap/librewolf/common/.librewolf on
-    the host before the first start; a Firefox profile can be copied the same
-    way when it comes from the same major version, but absolute paths in
-    profiles.ini may need updating.
-  - Only non-hidden paths in the real home directory are visible. Top-level
-    hidden entries such as ~/.config, ~/.local, ~/.ssh, ~/.mozilla and
-    ~/.librewolf are not reachable, apart from a few desktop-specific files
-    that the desktop interfaces expose (GTK bookmarks, user-dirs, dconf and
-    fonts), so the browser cannot read host profiles, native-messaging
-    manifests or files kept in hidden directories. Files in Documents,
-    Downloads, Pictures and other visible paths can be opened and saved.
-  - The default download directory is the snap's private
-    ~/snap/librewolf/common/Downloads. Set a real path such as
-    /home/<user>/Downloads in Settings > General > Files and Applications to
-    save into the host home directory.
+  - The profile lives in ~/snap/librewolf/common/.librewolf. Because the home
+    interface hides top-level dotfiles, existing profiles in ~/.librewolf,
+    ~/.config/librewolf or ~/.mozilla/firefox cannot be imported; copy them into
+    ~/snap/librewolf/common/.librewolf on the host before the first start (for
+    Firefox only from the same major version, and fix absolute paths in
+    profiles.ini).
+  - Only non-hidden paths in the real home are visible, apart from the GTK
+    bookmarks, user-dirs, dconf and font files that the desktop interfaces
+    expose. Native-messaging manifests and other hidden files are unreachable.
+  - Downloads default to ~/snap/librewolf/common/Downloads. Pick a real path
+    such as /home/<user>/Downloads in Settings > General > Files and
+    Applications to save into the host home directory.
   - Files on USB drives and other removable media need the removable-media
-    interface:
-      sudo snap connect librewolf:removable-media
-  - The snap cannot make itself the default browser. LibreWolf's "Set as
-    default" button writes ~/.config/mimeapps.list, which is outside the
-    sandbox. Select LibreWolf in the desktop's Settings > Default
-    Applications instead; the exported desktop entry registers http and
-    https links.
-  - The Gecko content sandbox cannot use its user-namespace layer. AppArmor
-    does not grant unprivileged user namespaces to a strictly confined snap,
-    and snapd's base declaration denies the allow-sandbox attribute of
-    browser-support to snaps without a store-granted declaration. The snap's
-    seccomp filter and AppArmor profile still contain the whole process tree,
-    but the user-namespace layer is missing; about:support reports
-    "User Namespaces: false". Keep the snap up to date.
-  - DRM-protected media does not work. LibreWolf disables EME and Widevine in
-    its shipped defaults (media.eme.enabled=false,
-    media.gmp-widevinecdm.enabled=false), and no Widevine CDM is included.
-    Netflix, Spotify, Amazon Prime Video and other services that require a
-    proprietary CDM cannot play. ClearKey is disabled as well.
-  - OpenH264 is disabled in LibreWolf's defaults, and the Cisco plugin is not
-    bundled. WebRTC works with the bundled VP8/VP9 codecs, but H.264 WebRTC or
-    screen sharing that needs OpenH264 is unavailable.
-  - H.264, AAC, MP3, VP8, VP9, AV1, Opus, Vorbis, Theora and HEVC decoding
-    work through the bundled ffvpx codecs and the FFmpeg 8 libraries staged
-    from the 26.04 archive. Hardware-accelerated decoding depends on the GPU
-    and driver; software decoding is used as a fallback. No proprietary
-    codecs or CDMs are shipped.
-  - Printing is not available: the cups-control interface is not declared, so
-    no printers are visible. Print to PDF works.
-  - Audio playback works through the audio-playback interface, but the
-    microphone and camera are not granted. WebRTC calls can receive media but
-    cannot capture from the local camera or microphone.
-  - Security keys and smartcards are not available: the u2f-devices and pcscd
-    interfaces are not declared. WebAuthn with a hardware key and smartcard
-    client certificates do not work.
-  - The host Secret Service is not visible because password-manager-service is
-    not declared. Firefox's built-in password manager still works, with its
-    encrypted store inside the profile.
-  - Native messaging is limited to helpers shipped inside the snap. Browser
-    extensions that need a host application, such as KeePassXC or a password
-    manager companion, cannot launch it, because host executables and their
-    manifests in hidden directories are outside the sandbox.
-  - Web pages, extensions and updates use the network interface. Extensions
-    install from addons.mozilla.org; LibreWolf's policy allows dictionaries,
-    extensions, site permissions and themes. Spell-check dictionaries are not
-    bundled; install them as add-ons.
-  - LibreWolf's own updater is disabled by its policies
-    (DisableAppUpdate=true). Updates come from the snap store: use
-    "snap refresh librewolf".
+    interface: sudo snap connect librewolf:removable-media
+  - The snap cannot make itself the default browser: LibreWolf's "Set as
+    default" writes ~/.config/mimeapps.list, outside the sandbox. Choose
+    LibreWolf in the desktop's default applications instead.
+  - The Gecko content sandbox has no user-namespace layer. AppArmor does not
+    grant unprivileged user namespaces to a strictly confined snap and the base
+    declaration withholds browser-support's allow-sandbox. Seccomp and AppArmor
+    still contain the process tree; about:support reports
+    "User Namespaces: false".
+  - DRM-protected media does not work: EME and Widevine are disabled in
+    LibreWolf's defaults and no CDM is bundled, so Netflix, Spotify and similar
+    services cannot play. ClearKey and OpenH264 are disabled as well, so H.264
+    WebRTC and screen sharing that needs OpenH264 are unavailable.
+  - H.264, AAC, MP3, VP8, VP9, AV1, Opus, Vorbis, Theora and HEVC decode through
+    the bundled ffvpx codecs and the FFmpeg 8 libraries staged from the 26.04
+    archive. Hardware decoding depends on the GPU and driver; software decoding
+    is the fallback. No proprietary codecs or CDMs are shipped.
+  - No printing: cups-control is not declared, so no printers are visible;
+    print to PDF works. Audio plays through audio-playback, but the microphone
+    and camera are not granted, so WebRTC calls can receive media only.
+  - Security keys, smartcards and the host Secret Service are not available
+    (u2f-devices, pcscd and password-manager-service are not declared).
+    Firefox's built-in password manager still works inside the profile.
+  - Native messaging is limited to helpers shipped in the snap; extensions that
+    need a host application, such as KeePassXC, cannot launch it.
+  - Pages, extensions and updates use the network interface; extensions install
+    from addons.mozilla.org, and spell-check dictionaries are not bundled.
+  - LibreWolf's own updater is disabled (DisableAppUpdate=true); updates come
+    from the snap store with "snap refresh librewolf".
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
 # which has no classic snaps. There is no classic fallback and none is
