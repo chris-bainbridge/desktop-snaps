@@ -1,6 +1,6 @@
-# Build metadata for gnome-boxes (imported 2026-11-17; core26 migration pending).
+# Build metadata for gnome-boxes (core26 migration, 2026-11).
 snap: gnome-boxes
-base: core24
+base: core26
 mode: vendored
 redistribution: open-source
 upstream: https://gitlab.gnome.org/GNOME/gnome-boxes

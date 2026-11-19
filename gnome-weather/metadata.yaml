@@ -1,6 +1,6 @@
-# Build metadata for gnome-weather (imported 2026-11-17; core26 migration pending).
+# Build metadata for gnome-weather (imported 2026-11-17).
 snap: gnome-weather
-base: core24
+base: core26
 mode: vendored
 redistribution: open-source
 upstream: https://gitlab.gnome.org/GNOME/gnome-weather

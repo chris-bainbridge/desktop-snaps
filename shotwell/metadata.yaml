@@ -1,6 +1,7 @@
-# Build metadata for shotwell (imported 2026-11-17; core26 migration pending).
+# Build metadata for shotwell (imported 2026-11-17; migrated to core26,
+# upstream 33.2).
 snap: shotwell
-base: core24
+base: core26
 mode: vendored
 redistribution: open-source
 upstream: https://gitlab.gnome.org/GNOME/shotwell

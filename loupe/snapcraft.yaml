@@ -1,93 +1,57 @@
 name: loupe
-base: core24
+base: core26
 adopt-info: loupe
 grade: stable
 confinement: strict
 compression: lzo
 
-layout:
-  /usr/share/loupe:
-    symlink: $SNAP/usr/share/loupe
-  /usr/libexec/glycin-loaders:
-    bind: $SNAP/usr/libexec/glycin-loaders
+platforms:
+  amd64:
+  arm64:
 
 parts:
-  heif:
-    source: https://github.com/strukturag/libheif.git
-    source-tag: 'v1.17.6'
-    source-depth: 1
-    plugin: cmake
-    cmake-parameters:
-      - -DCMAKE_INSTALL_PREFIX=/usr
-      - -Doptimization=3
-      - -Ddebug=false
-      - -DWITH_EXAMPLES=false
-  glycin-loaders:
-    after: [heif]
-    plugin: meson
-    source: https://gitlab.gnome.org/sophie-h/glycin.git
-    source-tag: '1.0.1'
-# ext:updatesnap
-#   version-format:
-#     ignore: true
-    build-environment:
-      - RUSTUP_HOME: $CRAFT_STAGE/usr/share/rust
-      - CARGO_HOME: $CRAFT_STAGE/usr/share/rust
-      - CARGO_BUILD_JOBS: $CRAFT_PARALLEL_BUILD_COUNT
-    meson-parameters:
-      - --prefix=/usr
-      - -Dloaders=glycin-heif,glycin-image-rs,glycin-svg
-    build-packages:
-      - libclang-18-dev
-    build-snaps:
-      - rustup
-    override-build: |
-      rustup default stable
-      craftctl default
-
   loupe:
-    after: [heif]
     plugin: meson
     source: https://gitlab.gnome.org/GNOME/loupe.git
-    source-tag: '46.2'
+    source-tag: '51.2'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
-#     lower-than: 47.0
-    build-environment:
-      - RUSTUP_HOME: $CRAFT_STAGE/usr/share/rust
-      - CARGO_HOME: $CRAFT_STAGE/usr/share/rust
-      - CARGO_BUILD_JOBS: $CRAFT_PARALLEL_BUILD_COUNT
+#     lower-than: '52.0'
     build-packages:
-      - libyaml-dev
-      - libxmlb-dev
-    build-snaps:
-      - rustup
+      # Rust 1.93 from 26.04 satisfies the 1.93 MSRV (edition 2024).
+      # cargo/rustc are not part of gnome-core26-sdk.
+      - cargo
+      - rustc
+      # libseccomp is a hard dependency of the glycin Rust crate
+      - libseccomp-dev
     meson-parameters:
-      - --prefix=/usr
-      - -Doptimization=3
-      - -Ddisable-glycin-sandbox=true
+      # The prefix is the runtime mount path, not /usr: LOCALEDIR is compiled
+      # into the binary and a /usr prefix would resolve it to the core26 base.
+      # organize moves the installed tree back under usr/.
+      - --prefix=/snap/loupe/current/usr
+      - --buildtype=release
+    organize:
+      snap/loupe/current/usr: usr
     parse-info: [ usr/share/metainfo/org.gnome.Loupe.metainfo.xml ]
-    override-pull: |
-      craftctl default
-      patch -p1 < $CRAFT_PROJECT_DIR/patches/gtk417.patch
-    override-build: |
-      rustup default stable
-      craftctl default
 
   libraries:
     plugin: nil
     stage-packages:
-      - libx265-199
-      - libde265-0
-      - libdav1d7
-      - libaom3
-      - libnuma1
+      # gnome-core26 has no libxml2, but libgweather (linked by loupe)
+      # needs it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
-      - usr/lib/*/lib*265.so.*
-      - usr/lib/*/libdav1d.so.*
-      - usr/lib/*/libaom.so.*
-      - usr/lib/*/libnuma.so.*
+      - usr/lib/libxml2.so.*
 
 slots:
   loupe:
@@ -101,7 +65,13 @@ apps:
     desktop: usr/share/applications/org.gnome.Loupe.desktop
     extensions: [ gnome ]
     common-id: org.gnome.Loupe
+    environment:
+      # gnome-core26 doesn't ship libxml2, so the libraries part bundles it
+      # in usr/lib. The gnome extension only puts the platform on the
+      # library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
     plugs:
+      - gsettings
       # Required for Next/Previous Image to work
       - home
       - removable-media

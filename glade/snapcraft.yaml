@@ -3,7 +3,11 @@ adopt-info: glade
 license: "GPL-3.0+"
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -17,8 +21,12 @@ apps:
     extensions: [gnome]
     environment:
       GLADE_CATALOG_SEARCH_PATH: "$SNAP/usr/share/glade/catalogs"
-      GLADE_MODULE_SEARCH_PATH: "$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/glade/modules"
+      GLADE_MODULE_SEARCH_PATH: "$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/glade/modules"
       GLADE_PIXMAP_DIR: "$SNAP/usr/share/glade/pixmaps"
+      # gnome-core26 does not ship libxml2, so the libraries part below
+      # bundles it in usr/lib (the gnome extension only puts the platform
+      # on the library path). Both glade and libgladeui link libxml2.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
     plugs:
       - home
       - network
@@ -38,6 +46,14 @@ parts:
       - --prefix=/usr
       - --buildtype=release
       - -Dman=false
+      # The GJS and Python catalogs need libgjs / libpython plus PyGObject
+      # typelibs at runtime; gnome-core26 ships none of them, so the modules
+      # would be unloadable. Keep the built-in GTK+ catalog only.
+      - -Dgjs=disabled
+      - -Dpython=disabled
+    build-packages:
+      # gnome.yelp needs yelp-build; gnome-core26-sdk only ships itstool
+      - yelp-tools
     override-build: |
       sed -i.bak -e 's|=org.gnome.Glade$|=snap.$CRAFT_PROJECT_NAME.org.gnome.Glade|g' $CRAFT_PART_SRC/data/org.gnome.Glade.desktop.in.in
       sed -i.bak '\|<id>org.gnome.Glade</id>|a<icon type="stock">snap.$CRAFT_PROJECT_NAME.org.gnome.Glade</icon>' $CRAFT_PART_SRC/data/org.gnome.Glade.appdata.xml.in
@@ -52,3 +68,21 @@ parts:
       do
         mv $i "`dirname $i`/snap.$CRAFT_PROJECT_NAME.`basename $i`"
       done
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has no libxml2, but glade's UI library and binary link
+      # it directly (project files are XML).
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*

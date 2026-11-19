@@ -1,5 +1,9 @@
 name: tali
 adopt-info: tali
+title: Tali
+license: GPL-2.0+
+contact: https://gitlab.gnome.org/GNOME/tali/-/issues
+source-code: https://gitlab.gnome.org/GNOME/tali
 summary: Roll dice and score points
 description: |
   A variation on poker with dice and less money, this game is a family classic.
@@ -11,7 +15,11 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -29,7 +37,24 @@ apps:
     command: usr/bin/tali
     extensions: [gnome]
     desktop: usr/share/applications/org.gnome.Tali.desktop
+    common-id: org.gnome.Tali.desktop
+    plugs:
+      - gsettings
+    environment:
+      # gnome-core26 does not ship libxml2, which its librsvg links against;
+      # the libraries part below bundles it in usr/lib. The gnome extension
+      # only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib/tali:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      # The dice faces are SVG. gnome-core26 only has gdk-pixbuf's built-in
+      # PNG support, not the librsvg SVG loader, so the libraries part stages
+      # the loader and points gdk-pixbuf at it (desktop-launch regenerates
+      # the loader cache from GDK_PIXBUF_MODULEDIR on first start).
+      GDK_PIXBUF_MODULEDIR: $SNAP/usr/lib/tali/gdk-pixbuf-2.0/2.10.0/loaders
 
+# 40.9 (2023-01-07) is the latest stable upstream release and matches the
+# 26.04 archive's 1:40.9-5; the project has had no new release since and
+# master still declares 40.9. It is a GTK3 + libgnome-games-support-1
+# application.
 parts:
   tali:
 # ext:updatesnap
@@ -38,9 +63,16 @@ parts:
     source-tag: '40.9'
     source-depth: 1
     parse-info: [usr/share/metainfo/org.gnome.Tali.appdata.xml]
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
     override-build: |
       sed -i.bak -e 's|=org.gnome.Tali$|=${SNAP}/meta/gui/org.gnome.Tali.svg|g' $CRAFT_PART_SRC/data/org.gnome.Tali.desktop.in
       craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set; Tali creates its
+      # Gio.Settings object at start-up, so make sure gschemas.compiled exists
+      # even if the desktop-launch helper has not run yet.
+      glib-compile-schemas $CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/scalable/org.gnome.Tali.svg $CRAFT_PART_INSTALL/meta/gui/
     plugin: meson
@@ -48,5 +80,43 @@ parts:
       - --prefix=/usr
     build-packages:
       - libgnome-games-support-1-dev
+
+  libraries:
+    plugin: nil
     stage-packages:
+      # gnome-core26 ships libgnome-games-support-2 (GTK4), not the GTK3
+      # -1 ABI this release links; stage it from the 26.04 archive.
       - libgnome-games-support-1-3
+      # only for the gdk-pixbuf SVG loader; see below why its librsvg is
+      # bundled together with it
+      - librsvg2-common
+      # gnome-core26's librsvg links libxml2.so.16, which neither the content
+      # snap nor core26 ships
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome/cleanup part deletes every primed library whose path also
+      # exists in gnome-core26-sdk. Keep the loader, its librsvg and libxml2
+      # (in the SDK but not the content snap) at paths the SDK does not use.
+      # $SNAP/usr/lib and $SNAP/usr/lib/tali are on LD_LIBRARY_PATH; the
+      # loader is found via GDK_PIXBUF_MODULEDIR.
+      #
+      # The archive's librsvg must be bundled with its own loader: 2.61 still
+      # exports rsvg_handle_get_pixbuf_and_error, which the content snap's
+      # 2.63 librsvg dropped, so the loader fails against the platform copy.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib/tali/gdk-pixbuf-2.0/2.10.0/loaders" \
+               "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader_svg.so \
+         "$CRAFT_PART_INSTALL/usr/lib/tali/gdk-pixbuf-2.0/2.10.0/loaders/"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/librsvg-2.so.2* \
+         "$CRAFT_PART_INSTALL/usr/lib/tali/"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      # everything else staged by these packages (GTK3, cairo, pango, libgee,
+      # ...) is provided by gnome-core26; keep only what it lacks
+      - usr/lib/*/libgnome-games-support*
+      - usr/share/locale/*/LC_MESSAGES/libgnome-games-support.mo
+      - usr/lib/libxml2.so.*
+      - usr/lib/tali/librsvg-2.so.*
+      - usr/lib/tali/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader_svg.so

@@ -2,7 +2,11 @@ name: shotwell
 adopt-info: shotwell
 grade: stable
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -12,16 +16,22 @@ slots:
     name: org.gnome.Shotwell
 
 layout:
-  /usr/libexec:
-    bind: $SNAP/usr/libexec
-  /usr/share/shotwell:
-    bind: $SNAP/usr/share/shotwell
+  # Shotwell looks its helper binaries (video thumbnailer, settings migrator)
+  # up through their absolute build-time path. Only bind the shotwell
+  # subdirectory: the gnome extension already binds /usr/libexec/glycin-loaders.
+  /usr/libexec/shotwell:
+    bind: $SNAP/usr/libexec/shotwell
+  # Same for the builtin plugin directory (publishing and transitions): it is
+  # resolved as $prefix/lib/$triplet/shotwell/plugins, an absolute path.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/shotwell:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/shotwell
 
 apps:
   shotwell:
-    command: launch.sh $SNAP/usr/bin/shotwell
+    command: usr/bin/shotwell
     extensions: [gnome]
     desktop: usr/share/applications/org.gnome.Shotwell.desktop
+    common-id: org.gnome.Shotwell.desktop
     environment:
       HOME: $SNAP_USER_COMMON
     plugs: &pluglist
@@ -32,123 +42,114 @@ apps:
       - hardware-observe
       - removable-media
   shotwell-viewer:
-    command: launch.sh $SNAP/usr/bin/shotwell
+    command: usr/bin/shotwell
     extensions: [gnome]
     desktop: usr/share/applications/org.gnome.Shotwell-Viewer.desktop
+    common-id: org.gnome.Shotwell-Viewer.desktop
     environment:
       HOME: $SNAP_USER_COMMON
     plugs: *pluglist
 
 parts:
-  scripts:
-    plugin: dump
-    source: ./scripts
+  # Shotwell 33.x requires gexiv2 0.16 (pkg-config name gexiv2-0.16), but the
+  # 26.04 archive still ships gexiv2 0.14.6, so build the released 0.16.2
+  # from source and link shotwell against it.
+  gexiv2:
+    plugin: meson
+    source: https://gitlab.gnome.org/GNOME/gexiv2.git
+    source-type: git
+    source-tag: '0.16.2'
+    source-depth: 1
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dtests=false
+      - -Dtools=false
+      - -Dpython3=false
+      - -Dgtk_doc=false
+    build-packages:
+      - libexiv2-dev
+    stage-packages:
+      - libexiv2-28
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/doc
+      - -usr/share/man
 
   shotwell:
 # ext:updatesnap
 #   version-format:
-#     format: "shotwell-%M.%m.%R"
+#     format: "%M.%m"
+    after: [gexiv2]
     plugin: meson
     source: https://gitlab.gnome.org/GNOME/shotwell.git
-    source-tag: 'shotwell-0.32.15'
+    source-type: git
+    source-tag: '33.2'
     source-depth: 1
     meson-parameters:
       - --prefix=/usr
-      - -Dunity_support=true
-      - -Dface_detection=true
+      - --buildtype=release
+      - -Dinstall_apport_hook=false
     build-environment:
-      - LD_LIBRARY_PATH: "${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}\
-                          /snap/gnome-46-2404-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libunity"
-    parse-info: [usr/share/metainfo/org.gnome.Shotwell.appdata.xml]
+      # The gexiv2 built in the part above is not installed in the build
+      # environment, so point valac at its vapi and the linker at the staged
+      # copy (craft-parts already adds the -L/-isystem flags).
+      - VALAFLAGS: --vapidir=$CRAFT_STAGE/usr/share/vala/vapi
+    parse-info: [usr/share/metainfo/org.gnome.Shotwell.metainfo.xml]
     build-packages:
-      - cmake
-      - libgstreamer1.0-dev
-      - libgstreamer-plugins-base1.0-dev
+      # The gnome-core26-sdk provides GTK4, GLib/GIO, GStreamer, libsoup-3.0,
+      # libsecret, libgee, gudev, libportal and libxml2 development files.
+      # It does not ship gexiv2 (built above), libexif, libgphoto2, libraw,
+      # gcr-4 (the SDK still has gcr-3) or yelp-build.
+      - libexif-dev
       - libgphoto2-dev
-      - libgexiv2-dev
       - libraw-dev
-      - libmtp-dev
-      - libopencv-dev
+      - libgcr-4-dev
+      - yelp-tools
     stage-packages:
       - libexif12
-      - libgcr-ui-3-1
-      - libgdata22
-      - libgexiv2-2
       - libgphoto2-6t64
       - libgphoto2-port12t64
       - libraw23t64
-      - libmtp9t64
-      - libopencv-core406t64
-      - libxerces-c3.2t64
-      - liburiparser1
-      - libsz2
-      - libarmadillo12
-      - libopenexr-3-1-30
-      - libpq5
-      - libprotobuf32t64
-      - libqhull-r8.0
-      - libsnappy1v5
-      - libblosc1
-      - libcfitsio10t64
-      - libcharls2
-      - libhdf4-0-alt
-      - libfreexl1
-      - libfyba0t64
-      - libfyba0t64
-      - libfyba0t64
-      - libgdal34t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgdcm3.0t64
-      - libgeos3.12.1t64
-      - libgeos-c1t64
-      - libgeotiff5
-      - libgif7
-      - libhdf5-103-1t64
-      - libhdf5-hl-100t64
-      - libkmlbase1t64
-      - libkmldom1t64
-      - libkmlengine1t64
-      - libhdf4-0-alt
-      - libminizip1t64
-      - libmysqlclient21
-      - libnetcdf19t64
-      - libodbc2
-      - libodbcinst2
-      - libogdi4.1
-      - libopencv-calib3d406t64
-      - libopencv-dnn406t64
-      - libopencv-features2d406t64
-      - libopencv-flann406t64
-      - libopencv-imgcodecs406t64
-      - libopencv-imgproc406t64
-      - libopencv-objdetect406t64
-      - libproj25
-      - librttopo1
-      - libspatialite8t64
+      - libgcr-4-4
+    override-build: |
+      # gnome.yelp's media symlinks would dangle in the snap.
+      sed -i.bak -e 's|symlink_media: true|symlink_media: false|' \
+        $CRAFT_PART_SRC/help/meson.build
+      craftctl default
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/gtk-doc
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/lib/*/*.la
+      # shotwell links the plain libraw, not the reentrant libraw_r
+      - -usr/lib/*/libraw_r.so*
+      # libpsl is only dragged in as a dependency of libcurl, which
+      # gnome-core26 already provides and nothing in the snap links.
+      - -usr/lib/*/libpsl.so*
 
-  cleanup:
+  libraries:
     after: [shotwell]
     plugin: nil
-    build-snaps: [core24, gtk-common-themes]
-    override-prime: |
-      set -eux
-      for snap in "core24" "gtk-common-themes" "gnome-46-2404"; do
-        cd "/snap/$snap/current" && find . -type f,l -name *.so.* \
-          -exec rm -f "$CRAFT_PRIME/{}" \;
-      done
-      for snap in "core24" "gnome-46-2404"; do
-        cd "/snap/$snap/current/usr/lib"
-        for filename in [ *.so* ]; do
-          rm -f "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$filename"
-        done
-        cd "/snap/$snap/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
-        for filename in [ *.so* ]; do
-          rm -f "$CRAFT_PRIME/usr/lib/$filename"
-        done
-      done
+    stage-packages:
+      # gnome-core26 has no libxml2, but shotwell, libgphoto2 and gexiv2 link
+      # it directly.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the
+      # extension's LD_LIBRARY_PATH includes $SNAP/usr/lib.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*

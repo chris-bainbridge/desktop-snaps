@@ -1,5 +1,6 @@
 name: gnome-system-monitor
 adopt-info: gnome-system-monitor
+contact: https://gitlab.gnome.org/GNOME/gnome-system-monitor/-/issues
 summary: System Monitor
 description: |
   GNOME System Monitor is a GNOME process viewer and system monitor with
@@ -12,10 +13,11 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
 
-build-snaps:
-  - gnome-46-2404/latest/candidate
+platforms:
+  amd64:
+  arm64:
 
 plugs:
   run-systemd-sessions:
@@ -34,8 +36,13 @@ apps:
   gnome-system-monitor:
     extensions: [ gnome ]
     command: usr/bin/gnome-system-monitor
+    environment:
+      # gnome-core26 doesn't ship libXau, which libgtop links directly.
+      # libXau is staged in usr/lib so the extension's cleanup does not drop
+      # it, and $SNAP/usr/lib is put on the library path for the same reason;
+      # the gnome extension only puts the platform there.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
     plugs:
-      - unity7
       - mount-observe
       - network-observe
       - hardware-observe
@@ -45,21 +52,28 @@ apps:
     desktop: usr/share/applications/org.gnome.SystemMonitor.desktop
     common-id: org.gnome.SystemMonitor.desktop
 
+# System Monitor 51.1 is a GTK4 + libadwaita + gtkmm application. GTK 4,
+# libadwaita, gtkmm, glibmm and libsigc++ are provided by the gnome extension
+# (gnome-core26 SDK/content snaps); libgtop is not in the platform, so it is
+# staged from the 26.04 archive by the libraries part below.
+#
+# Strict confinement limits the privileged actions: the process list only
+# shows the snap's own view of the system unless system-observe,
+# hardware-observe and process-control are connected, and "renice/kill as
+# root" uses pkexec, which cannot escalate from inside the snap.
 parts:
   gnome-system-monitor:
 # ext:updatesnap
     source: https://gitlab.gnome.org/GNOME/gnome-system-monitor.git
     source-type: git
-    source-tag: '48.1'
+    source-tag: '51.1'
     source-depth: 1
     plugin: meson
-    parse-info: [usr/share/metainfo/gnome-system-monitor.metainfo.xml]
+    parse-info: [usr/share/metainfo/org.gnome.SystemMonitor.metainfo.xml]
     meson-parameters:
-      - --prefix=/snap/gnome-system-monitor/current/usr
+      - --prefix=/usr
       - --buildtype=release
       - -Dsystemd=true
-    organize:
-      snap/gnome-system-monitor/current/usr: usr
     override-pull: |
       craftctl default
       craftctl set version=$(git describe --tags --abbrev=10)
@@ -68,37 +82,32 @@ parts:
     override-build: |
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
-      cp $CRAFT_PART_BUILD/data/org.gnome.SystemMonitor.desktop $CRAFT_PART_INSTALL/meta/gui/
-      cp $CRAFT_PART_SRC/data/icons/public/hicolor/scalable/apps/org.gnome.SystemMonitor.svg $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.SystemMonitor.svg $CRAFT_PART_INSTALL/meta/gui/
+      # D-Bus activation is provided by the dbus slot above (snapd writes a
+      # service file that runs "snap run"). Upstream's own service file has a
+      # host-absolute Exec and would launch the host application instead of
+      # the confined snap, so do not ship it.
+      rm -f $CRAFT_PART_INSTALL/usr/share/dbus-1/services/org.gnome.SystemMonitor.service
     build-packages:
-      - catch2 # Renamed to libcatch2-dev after Ubuntu 24.04 LTS
       - libgtop2-dev
-      - libsigc++-2.0-dev
-      - libsystemd-dev
-      - policykit-1
-    stage-packages:
-      - libsigc++-2.0-0v5
-    build-snaps:
-      - gnome-46-2404-sdk/latest/candidate
 
-  # workaround snapcraft trying to outsmart us by copying ldd listed libraries
   libraries:
     after: [gnome-system-monitor]
     plugin: nil
     stage-packages:
+      # gnome-core26 doesn't ship these, but gnome-system-monitor links them
       - libgtop-2.0-11
+      # libgtop links libXau directly
+      - libxau6
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libXau is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libXau.so.6"* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
-      - "usr/lib/*/libgtop*"
-      - "usr/lib/*/libsigc-2.0.so.0*"
-
-  # Find files provided by the base and platform snap and ensure they aren't
-  # duplicated in this snap
-  cleanup:
-    after: [libraries]
-    plugin: nil
-    build-snaps: [core24, gnome-46-2404]
-    override-prime: |
-      set -eux
-      for snap in "core24" "gnome-46-2404"; do
-        cd "/snap/$snap/current" && find . -type f,l -exec rm -f "$CRAFT_PRIME/{}" \;
-      done
+      - usr/lib/*/libgtop*
+      - usr/lib/libXau.so.*

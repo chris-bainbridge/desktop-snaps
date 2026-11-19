@@ -1,0 +1,226 @@
+name: polari
+adopt-info: polari
+summary: An Internet Relay Chat client for GNOME
+description: |
+  Polari is a simple IRC client that is designed to integrate seamlessly with
+  GNOME. It features a simple and beautiful interface which allows you to
+  focus on your conversations.
+
+  You can use Polari to publicly chat with people in a channel, and to have
+  private one-to-one conversations. Notifications make sure that you never
+  miss an important message.
+
+  IRC connectivity is provided by the Telepathy mission-control and idle
+  services bundled in the snap, so no Telepathy packages need to be installed
+  on the host. Account passwords are stored in the desktop keyring.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+contact: https://gitlab.gnome.org/GNOME/polari/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+# Upstream spawns gjs for the URL thumbnailer. The gnome extension puts the
+# platform's gjs in $SNAP/gnome-platform, which is not on $PATH.
+layout:
+  /usr/bin/gjs:
+    symlink: $SNAP/gnome-platform/usr/bin/gjs
+  # libtinysparql (stage-package, built for /usr) looks for its FTS parser
+  # modules in the absolute $libdir/tinysparql-3.0 path. Point that at the
+  # copy bundled in the snap.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/tinysparql-3.0:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/tinysparql-3.0
+
+slots:
+  # for GtkApplication registration
+  polari:
+    interface: dbus
+    bus: session
+    name: org.gnome.Polari
+
+  # Polari talks to Telepathy, which is not part of gnome-core26 and not
+  # reachable on the host through any snapd interface. telepathy-idle and
+  # mission-control are therefore bundled in the snap (see the telepathy
+  # part) and started by usr/bin/polari-launch. Every well-known name they
+  # acquire needs a slot for the confined app to be allowed to bind it.
+  telepathy-account-manager:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.AccountManager
+  telepathy-channel-dispatcher:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.ChannelDispatcher
+  telepathy-mission-control:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.MissionControl5
+  telepathy-connection-manager-idle:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.ConnectionManager.idle
+  # Idle registers each IRC connection under a well-known name derived from
+  # the account; snapd grants the whole org.freedesktop.Telepathy.Connection.
+  # idle.irc.* prefix for this slot.
+  telepathy-connection-idle-irc:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.Connection.idle.irc
+  telepathy-client-polari:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.Client.Polari
+  # telepathy-glib's per-client request handler.
+  telepathy-client-tpglib:
+    interface: dbus
+    bus: session
+    name: org.freedesktop.Telepathy.Client.TpGLibRequestAndHandle
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - org.gnome.Polari
+
+apps:
+  polari:
+    extensions: [gnome]
+    command: usr/bin/polari-launch
+    desktop: usr/share/applications/org.gnome.Polari.desktop
+    common-id: org.gnome.Polari.desktop
+    environment:
+      # The gnome extension only puts the platform on the library path;
+      # add the bundle for libpolari, telepathy-glib and tinysparql.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      # The extension's desktop-launch only looks for the gjs typelibs in
+      # usr/lib/gjs, but gnome-core26 has them in the multiarch dir. GJS needs
+      # GjsPrivate-1.0 from there for its built-in gettext module.
+      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/polari/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gjs/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}
+    plugs:
+      - browser-support
+      - gsettings
+      - home
+      - network
+      - network-status
+      # Not auto-connected: account passwords are stored in the host's
+      # keyring. The app runs without it, but cannot save passwords.
+      - password-manager-service
+
+parts:
+  polari:
+    source: https://gitlab.gnome.org/GNOME/polari.git
+    source-type: git
+    source-tag: '50.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Polari.metainfo.xml]
+    meson-parameters:
+      # The launcher embeds this prefix in config.h and prepends
+      # $prefix/lib/$triplet/polari to the GI search path.
+      - --prefix=/snap/polari/current/usr
+      - --buildtype=release
+    organize:
+      snap/polari/current/usr: usr
+    build-packages:
+      - libtelepathy-glib-dev
+      - libtracker-sparql-3.0-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=0)
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so it also shows outside the theme.
+      sed -i 's|^Icon=org.gnome.Polari$|Icon=${SNAP}/meta/gui/org.gnome.Polari.svg|' \
+        $CRAFT_PART_INSTALL/snap/polari/current/usr/share/applications/org.gnome.Polari.desktop
+      # Upstream uses "gapplication launch"; snapd would rewrite only the
+      # first word and pass "launch org.gnome.Polari" as arguments. Use the
+      # app command directly, which snapd rewrites to /snap/bin/polari.
+      sed -i 's|^Exec=gapplication launch org.gnome.Polari %U$|Exec=polari %U|' \
+        $CRAFT_PART_INSTALL/snap/polari/current/usr/share/applications/org.gnome.Polari.desktop
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Polari.svg \
+        $CRAFT_PART_INSTALL/meta/gui/
+      # Start the bundled Telepathy services before the application. The
+      # tree is still below the configured /snap/polari/current prefix here;
+      # organize is applied after this script.
+      cat > $CRAFT_PART_INSTALL/snap/polari/current/usr/bin/polari-launch <<'EOF'
+      #!/bin/sh
+      set -u
+      SELF_DIR=$(dirname "$(readlink -f "$0")")
+      SNAP=${SNAP:-$(dirname "$(dirname "$SELF_DIR")")}
+
+      has_name() {
+          dbus-send --session --dest=org.freedesktop.DBus \
+              --type=method_call --print-reply \
+              /org/freedesktop/DBus \
+              org.freedesktop.DBus.NameHasOwner "string:$1" 2>/dev/null |
+              grep -q 'boolean true'
+      }
+
+      start_service() {
+          name=$1
+          shift
+          has_name "$name" && return 0
+          "$@" >/dev/null 2>&1 &
+          i=0
+          while [ "$i" -lt 50 ]; do
+              has_name "$name" && return 0
+              i=$((i + 1))
+              sleep 0.1
+          done
+          echo "polari-launch: $name did not appear" >&2
+      }
+
+      # telepathy-idle exits after five seconds without a connection unless
+      # told to persist. There is no D-Bus activation file for it on the
+      # host bus, so it would not be startable on demand later.
+      export IDLE_PERSIST=1
+      start_service org.freedesktop.Telepathy.AccountManager \
+          "$SNAP/usr/lib/telepathy/mission-control-5"
+      start_service org.freedesktop.Telepathy.ConnectionManager.idle \
+          "$SNAP/usr/lib/telepathy/telepathy-idle"
+
+      exec "$SNAP/usr/bin/polari" "$@"
+      EOF
+      chmod 0755 $CRAFT_PART_INSTALL/snap/polari/current/usr/bin/polari-launch
+
+  telepathy:
+    after: [polari]
+    plugin: nil
+    stage-packages:
+      # Polari links telepathy-glib and tracker-sparql directly (through
+      # libpolari) and loads their typelibs at runtime. None of them is in
+      # gnome-core26.
+      - libtelepathy-glib0t64
+      - gir1.2-telepathyglib-0.12
+      - libtinysparql-3.0-0
+      - gir1.2-tracker-3.0
+      # Bundled IRC stack, started by polari-launch.
+      - telepathy-idle
+      - telepathy-mission-control-5
+      # gnome-core26 has no libxml2, but libtinysparql links it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup deletes every primed library whose path
+      # also exists in the SDK. libxml2 is in the SDK but not in the content
+      # snap, so move it out of the SDK's multiarch path; the app puts
+      # $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0/TelepathyGLib-0.12.typelib
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0/Tracker-3.0.typelib
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libtelepathy-glib.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libtinysparql-3.0.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/tinysparql-3.0/*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libmission-control-plugins.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libnm.so.*
+      - usr/lib/telepathy/mission-control-5
+      - usr/lib/telepathy/telepathy-idle
+      - usr/share/telepathy/managers/idle.manager
+      - usr/share/glib-2.0/schemas/im.telepathy.MissionControl.FromEmpathy.gschema.xml

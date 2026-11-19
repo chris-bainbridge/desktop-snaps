@@ -2,9 +2,15 @@ name: gnome-weather
 adopt-info: gnome-weather
 grade: stable
 confinement: strict
-base: core24
+base: core26
+contact: https://gitlab.gnome.org/GNOME/gnome-weather/-/issues
+
+platforms:
+  amd64:
+  arm64:
 
 layout:
+  # Upstream's launcher script is executed with gjs from the platform.
   /usr/bin/gjs:
     symlink: $SNAP/gnome-platform/usr/bin/gjs
 
@@ -20,23 +26,35 @@ plugs:
     desktop-file-ids:
       - org.gnome.Weather
 
+# libgeoclue is loaded by gjs through GObject introspection at runtime, so
+# the library linter cannot see its user and reports it as unused. libxml2 is
+# only needed by the platform's libgweather.
+lint:
+  ignore:
+    - unused-library:
+        - usr/lib/*/libgeoclue-2.so.*
+        - usr/lib/libxml2.so.*
+
 apps:
   gnome-weather:
-    command: usr/share/org.gnome.Weather/org.gnome.Weather
+    command: usr/bin/gnome-weather
     extensions: [gnome]
     plugs:
+      - gsettings
+      - location-observe
       - network
       - network-status
     environment:
-      LD_LIBRARY_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/org.gnome.Weather:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib:$SNAP/gnome-platform/usr/lib:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
-      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/org.gnome.Weather/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gjs/girepository-1.0:$SNAP/gnome-platform/usr/lib/girepository-1.0:$SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0
+      # libgeoclue and libxml2 are bundled in the snap; the gnome extension
+      # only exposes the content snap's library paths.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0
 
 parts:
   gnome-weather:
-    after: [geoclue]
     source: https://gitlab.gnome.org/GNOME/gnome-weather.git
     source-type: git
-    source-tag: '48.0'
+    source-tag: '50.0'
     source-depth: 1
     plugin: meson
     meson-parameters:
@@ -45,7 +63,10 @@ parts:
     build-packages:
       - meson
       - ninja-build
-    parse-info: [usr/share/metainfo/org.gnome.Weather.appdata.xml]
+      # gnome-core26 has neither libgeoclue nor a TypeScript compiler.
+      - libgeoclue-2-dev
+      - node-typescript
+    parse-info: [usr/share/metainfo/org.gnome.Weather.metainfo.xml]
     organize:
       snap/gnome-weather/current/usr: usr
     override-pull: |
@@ -53,42 +74,61 @@ parts:
       craftctl set version=$(git describe --tags --abbrev=10)
       sed -i -e 's|@GJS@|/usr/bin/gjs|g' src/org.gnome.Weather.in
       sed -i -e 's|@GJS@|/usr/bin/gjs|g' src/org.gnome.Weather.BackgroundService.in
-      sed -i.bak -e 's|Icon=@APP_ID@$|Icon=snap.gnome-weather.icon|g' data/org.gnome.Weather.desktop.in.in
+      sed -i.bak -e 's|Icon=@APP_ID@$|Icon=${SNAP}/meta/gui/org.gnome.Weather.svg|g' data/org.gnome.Weather.desktop.in.in
       sed -i.bak -e 's|Exec=gapplication launch @APP_ID@$|Exec=gnome-weather|g' data/org.gnome.Weather.desktop.in.in
-      # Invalid metadata
-      sed -i -e 's|<project_license.*||g' data/org.gnome.Weather.appdata.xml.in.in
     override-build: |
       craftctl default
-      mkdir -p ${CRAFT_PART_INSTALL}/meta/gui/icons/hicolor/scalable/apps
-      cp ../src/data/icons/hicolor/scalable/apps/org.gnome.Weather.svg ${CRAFT_PART_INSTALL}/meta/gui/icons/hicolor/scalable/apps/snap.gnome-weather.icon.svg
-      cp data/org.gnome.Weather.desktop ${CRAFT_PART_INSTALL}/meta/gui/
+      # meson's post-install script creates an absolute symlink below /snap,
+      # which snapd rejects when packing; replace it with a launcher that also
+      # sets up the libgweather location database (see below).
+      rm -f "$CRAFT_PART_INSTALL/snap/gnome-weather/current/usr/bin/gnome-weather"
+      cat > "$CRAFT_PART_INSTALL/snap/gnome-weather/current/usr/bin/gnome-weather" <<'LAUNCHER'
+      #!/bin/sh
+      # gnome-core26's libgweather was built with the location database path
+      # from the SDK build tree instead of an install path, and the platform
+      # launcher points at a path that does not exist in the content snap.
+      # Point it at the copy shipped in gnome-platform.
+      case "${SNAP_ARCH}" in
+          amd64) arch=x86_64-linux-gnu ;;
+          arm64) arch=aarch64-linux-gnu ;;
+          *) arch="${SNAP_ARCH}-linux-gnu" ;;
+      esac
+      export LIBGWEATHER_LOCATIONS_PATH="$SNAP/gnome-platform/usr/lib/$arch/gweather-locations/Locations.bin"
+      exec "$SNAP/usr/share/org.gnome.Weather/org.gnome.Weather" "$@"
+      LAUNCHER
+      chmod 755 "$CRAFT_PART_INSTALL/snap/gnome-weather/current/usr/bin/gnome-weather"
+      # Export the desktop file under its real ID so that it matches the
+      # desktop-file-ids entry above.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/snap/gnome-weather/current/usr/share/applications/org.gnome.Weather.desktop" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Weather.desktop"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.Weather.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
     prime:
+      # There currently isn't a way to use snaps in GNOME Shell search
       - -usr/share/gnome-shell/search-providers
+      # The desktop file is exported from meta/gui
       - -usr/share/applications/org.gnome.Weather.desktop
 
-  geoclue:
-    source: https://gitlab.freedesktop.org/geoclue/geoclue.git
-    source-type: git
-    source-tag: '2.7.2'
-    source-depth: 1
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
-      - -Dgtk-doc=false
-      - -D3g-source=false
-      - -Dcdma-source=false
-      - -Dmodem-gps-source=false
-      - -Dnmea-source=false
-      - -Ddemo-agent=false
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 doesn't ship libgeoclue, but the app uses Geoclue
+      # through GObject introspection.
+      - gir1.2-geoclue-2.0
+      - libgeoclue-2-0
+      # gnome-core26 has no libxml2, but libgweather-4 links it directly.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
-      - -etc/dbus-1
-      - -etc/geoclue
-      - -etc/xdg/autostart
-      - -lib/systemd/service
-      - -usr/include
-      - -usr/lib/pkgconfig
-      - -usr/lib/*/pkgconfig
-      - -usr/share/dbus-1/interfaces
-      - -usr/share/dbus-1/system-services
-      - -usr/share/man
-      - -usr/share/pkgconfig
+      - usr/lib/libxml2.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libgeoclue-2.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0/Geoclue-2.0.typelib

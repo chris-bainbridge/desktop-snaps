@@ -2,7 +2,11 @@ name: gnome-boxes
 adopt-info: gnome-boxes
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 layout:
   /usr/share/OVMF:
@@ -21,6 +25,10 @@ layout:
     symlink: $SNAP/usr/share/libosinfo/usb.ids
   /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvirt:
     bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvirt
+  # QEMU loads the SPICE and OpenGL display backends as modules from its
+  # compiled-in module directory, which is outside $SNAP.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qemu:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qemu
   /usr/share/libvirt:
     bind: $SNAP/usr/share/libvirt
   /usr/lib/libvirt:
@@ -31,6 +39,10 @@ layout:
     bind: $SNAP/usr/lib/ipxe
   /usr/bin/qemu-system-x86_64:
     bind-file: $SNAP/usr/bin/qemu-system-x86_64
+  /usr/bin/qemu-system-aarch64:
+    bind-file: $SNAP/usr/bin/qemu-system-aarch64
+  /usr/bin/qemu-img:
+    symlink: $SNAP/usr/bin/qemu-img
   /usr/sbin/virtchd:
     symlink: $SNAP/usr/sbin/virtchd
   /usr/sbin/virtinterfaced:
@@ -90,6 +102,7 @@ apps:
       - audio-record
       - audio-playback
       - camera
+      - gsettings
       - hardware-observe
       - home
       - kvm
@@ -108,7 +121,11 @@ apps:
     desktop: usr/share/applications/org.gnome.Boxes.desktop
     common-id: org.gnome.Boxes.desktop
     environment:
-      LD_LIBRARY_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-boxes
+      # The gnome extension's desktop-launch only adds the gnome-core26
+      # runtime to LD_LIBRARY_PATH; the libraries shipped in $SNAP/usr/lib
+      # (libvirt, libosinfo, spice-gtk, gtk-vnc and libxml2) and the private
+      # libovf build need to be on the path explicitly.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-boxes
       GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-boxes/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}
       GTK_USE_PORTAL: '0'
       LIBVIRT_DEFAULT_URI: 'qemu+unix:///session'
@@ -146,7 +163,7 @@ parts:
       - libpciaccess
     build-packages:
       - libxml2-dev
-      - libncurses5-dev
+      - libncurses-dev
       - libreadline-dev
       - zlib1g-dev
       - libgcrypt20-dev
@@ -167,7 +184,7 @@ parts:
       - libnuma-dev
       - libsanlock-dev
       - libaudit-dev
-      - libselinux1-dev
+      - libselinux-dev
       - libapparmor-dev
       - libdbus-1-dev
       - systemtap-sdt-dev
@@ -190,31 +207,31 @@ parts:
       - libaudit1
       - libblkid1
       - libcap-ng0
-      - libcurl3-gnutls
+      - libcurl3t64-gnutls
       - libdbus-1-3
       - libdevmapper1.02.1
-      - libfuse2
+      - libfuse2t64
       - libgcc-s1
       - libgfapi0
       - libgfrpc0
       - libgfxdr0
-      - libglib2.0-0
+      - libglib2.0-0t64
       - libglusterfs0
-      - libgnutls30
+      - libgnutls30t64
       - libjson-c5
       - libnl-3-200
       - libnuma1
-      - libparted2
-      - libpcap0.8
+      - libparted2t64
+      - libpcap0.8t64
       - librados2
       - librbd1
       - libsanlock-client1
       - libsasl2-2
       - libselinux1
-      - libtirpc3
+      - libtirpc3t64
       - libudev1
       - libxencall1
-      - libxenmisc4.17t64
+      - libxenmisc4.20
       - libxendevicemodel1
       - libxenevtchn1
       - libxenforeignmemory1
@@ -222,7 +239,6 @@ parts:
       - libxenstore4
       - libxentoolcore1
       - libxentoollog1
-      - libxml2
       - libyajl2
     build-environment:
       - CFLAGS: "-Wno-error"
@@ -236,35 +252,6 @@ parts:
       - -Ddocs=disabled
       - -Dtests=disabled
       - -Dwireshark_dissector=disabled
-    stage:
-      - -usr/lib/*/ceph/libceph-common.so.* # conflicts with qemu part
-      - -usr/lib/*/ceph/librbd/libceph_librbd_parent_cache.so.* # conflicts with qemu part
-      - -usr/lib/*/ceph/librbd/libceph_librbd_pwl_cache.so.* # conflicts with qemu part
-      - -usr/lib/*/libboost_*.so.* # conflicts with qemu part
-      - -usr/lib/*/libdaxctl.so.* # conflicts with the qemu part
-      - -usr/lib/*/libgfapi.so.* # conflicts with qemu part
-      - -usr/lib/*/libgfrpc.so.* # conflicts with qemu part
-      - -usr/lib/*/libgfxdr.so.* # conflicts with qemu part
-      - -usr/lib/*/libglusterfs.so.* # conflicts with qemu part
-      - -usr/lib/*/libibverbs.so.* # conflicts with the qemu part
-      - -usr/lib/*/libndctl.so.* # conflicts with the qemu part
-      - -usr/lib/*/libnuma.so.* # conflicts with the qemu part
-      - -usr/lib/*/libpmem.so.* # conflicts with the qemu part
-      - -usr/lib/*/libpmemobj.so.* # conflicts with the qemu part
-      - -usr/lib/*/librados.so.* # conflicts with qemu part
-      - -usr/lib/*/librbd.so.* # conflicts with qemu part
-      - -usr/lib/*/librdmacm.so.* # conflicts with the qemu part
-      - -usr/lib/*/libxen*.so.* # conflicts with qemu part
-      - -usr/lib/*/libxml2.so.* # conflicts with qemu part
-      - -usr/lib/*/libyajl.so.* # conflicts with qemu part
-      - -usr/lib/*/rsocket # conflicts with qemu part
-      - -usr/share/doc/libboost-* # conflicts with qemu part
-      - -usr/share/doc/libdaxctl* # conflicts with qemu part
-      - -usr/share/doc/libibverbs* # conflicts with qemu part
-      - -usr/share/doc/libndctl* # conflicts with qemu part
-      - -usr/share/doc/libnghttp* # conflicts with qemu part
-      - -usr/share/doc/libsasl* # conflicts with qemu part
-      - -usr/share/doc/libyajl* # conflicts with qemu part
     prime:
       - -usr/include
       - -usr/lib/*/pkgconfig
@@ -286,6 +273,12 @@ parts:
     source-commit: 08f0772b7da207acc6015eec2d873c6ada3c2f8e
     source-depth: 1
     plugin: meson
+    # Let meson find the ID databases in the build environment instead of
+    # downloading them during configure; they are installed below
+    # /usr/share/libosinfo and are looked up through the layout at run time.
+    build-packages:
+      - pci.ids
+      - usb.ids
     meson-parameters:
       - --prefix=/usr
       - -Denable-gtk-doc=false
@@ -312,8 +305,25 @@ parts:
       - -usr/lib/*/pkgconfig
       - -usr/share/pkgconfig
 
+  gst-gir:
+    # GStreamer 1.28 ships Gst-1.0.gir and GstAudio-1.0.gir in the
+    # arch-specific gir-1.0 directory, but g-ir-scanner only looks in
+    # $CRAFT_STAGE/usr/share/gir-1.0 (where the SDK keeps the other Gst
+    # girs). Publish them there for spice-gtk's introspection build; they
+    # are build-only and are not primed into the snap.
+    plugin: nil
+    build-packages:
+      - libgstreamer-plugins-base1.0-dev
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/usr/share/gir-1.0"
+      cp /usr/lib/"$CRAFT_ARCH_TRIPLET_BUILD_FOR"/gir-1.0/*.gir \
+         "$CRAFT_PART_INSTALL/usr/share/gir-1.0/"
+    prime:
+      - -usr/share/gir-1.0
+
   libspice-gtk:
-    after: [ libspice-protocol ]
+    after: [ libspice-protocol, gst-gir ]
     source: https://gitlab.freedesktop.org/spice/spice-gtk.git
     source-tag: 'v0.43'
     source-depth: 1
@@ -341,6 +351,7 @@ parts:
       - libcacard-dev
       - libgstreamer-plugins-base1.0-dev
       - libgstreamer1.0-dev
+      - libjpeg-turbo8-dev # jconfig.h, the SDK only ships jpeglib.h
       - libopus-dev
       - libphodav-3.0-dev
       - libusb-1.0-0-dev
@@ -348,13 +359,21 @@ parts:
       - libusbredirparser-dev
       - libva-dev
     stage-packages:
+      # spice-gtk is built from source, so its runtime dependencies are not
+      # pulled in by an archive spice package. gnome-core26 does not ship any
+      # of these.
+      - libcacard0
+      - liblz4-1
       - libopus0
       - libphodav-3.0-0
+      - libusb-1.0-0
+      - libusbredirhost1t64
+      - libusbredirparser1t64
       - libva-x11-2
       - libva-wayland2
       - usb.ids
     stage:
-      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.* # conflicts with qemu
+      - -usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.* # provided by runtime-libs
     prime:
       - -usr/include
       - -usr/lib/*/pkgconfig
@@ -392,8 +411,8 @@ parts:
       git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-recommended-downloads.patch
       git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-explain-usb-error.patch
       # Downloader hardcodes /var/tmp, which isn't writable in strict
-      # confinement; use $XDG_DOWNLOAD_DIR instead when available (exported
-      # by the gnome-46-2404 content snap's desktop-launch script)
+      # confinement; use the user's Downloads directory instead when
+      # available (resolved through glib, see the patch)
       git apply $CRAFT_PROJECT_DIR/patches/gnome-boxes-snap-tmp-dir.patch
     build-environment:
       - C_INCLUDE_PATH: ${C_INCLUDE_PATH:+$C_INCLUDE_PATH:}$CRAFT_STAGE/usr/include/libvirt-gconfig-1.0:$CRAFT_STAGE/usr/include/libvirt-glib-1.0:$CRAFT_STAGE/usr/include/libvirt-gobject-1.0
@@ -405,7 +424,7 @@ parts:
     after: [ gnome-boxes ]
     plugin: nil
     stage-packages:
-      - libcurl3-gnutls
+      - libcurl3t64-gnutls
       - libgtk-vnc-2.0-0
       - libgvnc-1.0-0
       - libldap2
@@ -421,7 +440,7 @@ parts:
     prime:
       - usr/lib/*/libcaca*.so.*
       - usr/lib/*/libcurl*.so.*
-      - usr/lib/*/libgss**.so.*
+      - usr/lib/*/libgss*.so.*
       - usr/lib/*/libgtk-vnc*.so.*
       - usr/lib/*/libgvnc*.so.*
       - usr/lib/*/libhcrypt*.so.*
@@ -450,6 +469,7 @@ parts:
 
   osinfo-db:
     source: https://gitlab.com/libosinfo/osinfo-db.git
+    source-tag: v20260812
     source-depth: 1
     plugin: make
     build-packages:
@@ -492,11 +512,64 @@ parts:
     prime:
       - usr/share/osinfo
 
+  runtime-libs:
+    after: [ gnome-boxes, libspice-gtk, libosinfo ]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has no libxml2 at all (the SDK ships the library and
+      # the python binding, the platform ships neither). libvirt, libosinfo
+      # and gnome-boxes link the 2.15 soname from the 26.04 archive.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every primed library whose path also exists in
+      # gnome-core26-sdk. The SDK carries libxml2 below usr/lib/<triplet>,
+      # the platform does not ship it anywhere, so keep the staged copy at
+      # usr/lib/libxml2.so.16 (which is on the runtime library path set by
+      # the app environment) where the cleanup does not match it.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+      # The layout binds these paths; make sure the bind targets exist even
+      # though the session libvirt instance writes below $HOME.
+      mkdir -p "$CRAFT_PART_INSTALL/var/lib/libvirt" \
+               "$CRAFT_PART_INSTALL/usr/lib/libvirt" \
+               "$CRAFT_PART_INSTALL/usr/lib/ipxe"
+
   qemu:
     plugin: nil
-    stage-snaps: [ qemu-virgil/latest/edge ]
+    # The old recipe staged the third-party qemu-virgil snap, which only
+    # exists for amd64 and was built for an old base. The 26.04 archive
+    # provides QEMU 10.2.1 for amd64 and arm64, which is the version libvirt
+    # 12.6 is developed and tested against, so stage it from the archive.
     stage-packages:
+      - qemu-system-x86
+      - qemu-system-arm
+      # Ubuntu ships the SPICE and OpenGL (virgl) display backends as
+      # separate modules. Boxes' guest display needs the SPICE one.
+      - qemu-system-modules-spice
+      - qemu-utils
+      - seabios
+      - ipxe-qemu
+      - ovmf-generic
+      # libvirt picks the UEFI firmware through the JSON descriptors in
+      # /usr/share/qemu/firmware; the aarch64 ones come from this package.
+      - qemu-efi-aarch64
       - dnsmasq-base
+    # Ubuntu 26.04 makes every qemu binary depend on the ubuntu-virt
+    # metapackage, which pulls in the ubuntu_virt apt helper and python3.
+    # Neither is used at run time; prune them so the snap does not grow a
+    # second python interpreter next to the one in gnome-core26.
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+      - -usr/bin/ubuntu_virt_helper
+      - -usr/bin/apt_hook_ubuntu_virt
+      - -usr/bin/python3*
+      - -usr/lib/python3*
+      - -usr/share/python3*
+      - -etc/apt
 
   launcher:
     plugin: dump
