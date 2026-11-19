@@ -1,27 +1,107 @@
 name: dippi
-base: core22
+title: Dippi
+summary: Calculate display info like DPI and aspect ratio
+description: |
+  Analyze any display. Input a few simple details and figure out the aspect
+  ratio, DPI, and other details of a particular display. Great for deciding
+  which laptop or external monitor to purchase, and if it would be considered
+  HiDPI.
+
+  Handy features:
+
+  - Find out if a display is a good choice based on its size and resolution
+  - Get advice about different densities
+  - Learn the logical resolution
+  - Differentiate between laptops and desktop displays
+  - Stupid simple: all in a cute li'l window
+
+  Tells you if a display's density is very low DPI, fairly low DPI, ideal for
+  LoDPI, potentially problematic, ideal for HiDPI, fairly high for HiDPI, or
+  too high DPI.
+license: GPL-3.0-or-later
+website: https://cassidyjames.com/dippi
+source-code: https://github.com/cassidyjames/dippi
+issues: https://github.com/cassidyjames/dippi/issues
+contact: https://cassidyjames.com
+base: core26
 adopt-info: dippi
 grade: stable
 confinement: strict
-issues: https://github.com/kenvandine/dippi-snap/issues
-contact: https://cassidyjames.com/dippi
 
-architectures:
-  - build-on: amd64
-  - build-on: arm64
+platforms:
+  amd64:
+  arm64:
 
+slots:
+  # for GtkApplication registration
+  dippi:
+    interface: dbus
+    bus: session
+    name: com.cassidyjames.dippi
+
+apps:
+  dippi:
+    extensions: [gnome]
+    command: usr/bin/com.cassidyjames.dippi
+    common-id: com.cassidyjames.dippi.desktop
+    desktop: usr/share/applications/com.cassidyjames.dippi.desktop
+    environment:
+      # gnome-core26 doesn't ship libxml2, which its librsvg links directly.
+      # The app renders its SVG icons through librsvg, so the libraries part
+      # below bundles libxml2 in usr/lib. The gnome extension only puts the
+      # platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings
+
+# Dippi 5.0.4 is a GTK4 + libadwaita application written in Vala (meson
+# build, Blueprint UI). GTK 4, libadwaita, valac and gettext come from the
+# gnome extension (gnome-core26 SDK/content snaps); blueprint-compiler is not
+# part of the SDK and comes from the 26.04 archive.
+#
+# The prefix is the runtime mount path, not /usr: the binary has LOCALEDIR
+# compiled in from the meson prefix (src/Config.vala.in), and a /usr prefix
+# would make gettext look in the core26 base instead of the snap. organize
+# moves the installed tree back under usr/.
 parts:
   dippi:
     plugin: meson
     source: https://github.com/cassidyjames/dippi.git
-    source-tag: 5.0.3
+    source-type: git
+    source-tag: '5.0.4'
+    source-depth: 1
+    parse-info: [usr/share/metainfo/com.cassidyjames.dippi.metainfo.xml]
     meson-parameters:
-      - --prefix=/usr
-    parse-info: [usr/share/metainfo/com.github.cassidyjames.dippi.metainfo.xml]
+      - --prefix=/snap/dippi/current/usr
+      - --buildtype=release
+    organize:
+      snap/dippi/current/usr: usr
+    build-packages:
+      - blueprint-compiler
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i 's|^Icon=com.cassidyjames.dippi$|Icon=${SNAP}/meta/gui/com.cassidyjames.dippi.svg|' \
+        "$CRAFT_PART_INSTALL/snap/dippi/current/usr/share/applications/com.cassidyjames.dippi.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/snap/dippi/current/usr/share/icons/hicolor/scalable/apps/com.cassidyjames.dippi.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/com.cassidyjames.dippi.svg"
 
-apps:
-  dippi:
-    command: usr/bin/com.github.cassidyjames.dippi
-    extensions: [ gnome ]
-    common-id: com.github.cassidyjames.dippi.desktop
-    desktop: usr/share/applications/com.github.cassidyjames.dippi.desktop
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26's librsvg links libxml2 directly, but the content snap
+      # does not ship libxml2. The app renders its SVG icons through it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*

@@ -1,6 +1,6 @@
-# Build metadata for dippi (imported 2026-11-17; core26 migration pending).
+# Build metadata for dippi (core26 migration, 2026-11).
 snap: dippi
-base: core22
+base: core26
 mode: vendored
 redistribution: open-source
 upstream: https://github.com/cassidyjames/dippi
