@@ -31,8 +31,8 @@ description: |
     game. Fonts installed only on the host are not visible.
 
 # Strict confinement is a hard requirement: these snaps target Core Desktop,
-# which has no classic snaps. Widelands 1.3.1 is staged unmodified from the
-# 26.04 archive, where it is the current upstream release.
+# which has no classic snaps. Widelands is built from the upstream source at
+# the latest stable release.
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
 base: core26
@@ -46,18 +46,11 @@ platforms:
   amd64:
   arm64:
 
-# The binary has the Debian install prefix compiled in and looks for its data
-# under /usr/share/games/widelands, which does not exist in core26 or the
-# platform.
+# The binary has the install prefix compiled in and looks for its data under
+# /usr/share/games/widelands, which does not exist in core26 or the platform.
 layout:
   /usr/share/games/widelands:
     bind: $SNAP/usr/share/games/widelands
-  # The 26.04 widelands-data package replaces the font directories under
-  # data/i18n/fonts with relative symlinks into /usr/share/fonts. The game
-  # opens those paths directly (it does not use fontconfig), so the staged
-  # font packages have to be visible at their canonical location as well.
-  /usr/share/fonts:
-    bind: $SNAP/usr/share/fonts
 
 apps:
   widelands:
@@ -71,12 +64,37 @@ apps:
 
 parts:
   widelands:
-    plugin: nil
-    parse-info: [usr/share/metainfo/widelands.metainfo.xml]
-    stage-packages:
-      # widelands-data is pulled in as a dependency and carries the fonts
-      # package dependencies too.
-      - widelands
+    plugin: cmake
+    source: https://github.com/widelands/widelands.git
+    source-tag: v1.3.1
+    source-depth: 1
+    parse-info: [usr/share/metainfo/org.widelands.Widelands.metainfo.xml]
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      # The binary hardcodes these paths, so they must match the snap root
+      # rather than snapcraft's staging prefix.
+      - -DWL_INSTALL_BINDIR=/usr/games
+      - -DWL_INSTALL_DATADIR=/usr/share/games/widelands
+      - -DWL_INSTALL_BASEDIR=/usr/share/games/widelands
+      - -DOPTION_BUILD_TESTS=OFF
+      - -DOPTION_BUILD_WEBSITE_TOOLS=OFF
+      - -DOPTION_BUILD_CODECHECK=OFF
+    build-packages:
+      - build-essential
+      - cmake
+      - libasio-dev
+      - libglew-dev
+      - libicu-dev
+      - libminizip-dev
+      - libpng-dev
+      - libsdl2-dev
+      - libsdl2-image-dev
+      - libsdl2-mixer-dev
+      - libsdl2-ttf-dev
+      - pkg-config
+      - python3
+      - zlib1g-dev
     override-build: |
       craftctl default
       # Copy over the icon
@@ -89,10 +107,6 @@ parts:
       - usr/share/games/widelands
       - usr/share/applications/org.widelands.Widelands.desktop
       - usr/share/metainfo
-      - usr/share/fonts
-      # fonts-freefont-ttf is an unconditional dependency of widelands-data,
-      # but no font set in data/i18n/fonts.lua uses it.
-      - -usr/share/fonts/truetype/freefont
       - meta/gui
 
   libraries:
