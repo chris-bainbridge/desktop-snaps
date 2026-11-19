@@ -1,0 +1,144 @@
+name: vocalis
+adopt-info: vocalis
+summary: Record sound via the microphone and play it back
+description: |
+  Vocalis is a simple and modern sound recorder for GNOME. It records audio
+  from the microphone, saves it automatically and lets you rename, play back
+  and delete the recordings in a list. Opus, FLAC, MP3 and MOV output are
+  supported.
+
+  Vocalis is the actively maintained TypeScript/GJS continuation of the
+  dormant GNOME Sound Recorder. Recordings are kept in the snap's private
+  per-user data directory.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+contact: https://gitlab.gnome.org/World/vocalis/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Upstream's launcher script is executed with gjs from the platform.
+  /usr/bin/gjs:
+    symlink: $SNAP/gnome-platform/usr/bin/gjs
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  vocalis:
+    interface: dbus
+    bus: session
+    name: app.drey.Vocalis
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - app.drey.Vocalis
+
+# libgstplayer is loaded by gjs through GObject introspection, so the library
+# linter cannot see its user and reports it as unused.
+lint:
+  ignore:
+    - unused-library: [usr/lib/*/libgstplayer-1.0.so.*]
+
+apps:
+  vocalis:
+    extensions: [gnome]
+    command: usr/bin/vocalis
+    desktop: usr/share/applications/app.drey.Vocalis.desktop
+    common-id: app.drey.Vocalis.desktop
+    environment:
+      # libgstplayer is bundled in the snap; the gnome extension only exposes
+      # the content snap's library paths.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings
+      - audio-record
+      - audio-playback
+
+parts:
+  vocalis:
+    source: https://gitlab.gnome.org/World/vocalis.git
+    source-type: git
+    # There is no release after the inherited 43.beta; pin the current main.
+    source-commit: 902c7ee099f63c91d5c8b901987825b869c0fffa
+    source-depth: 1
+    # gi-types is a git submodule and provides the GJS TypeScript typings.
+    source-submodules:
+      - gi-types
+    plugin: meson
+    parse-info: [usr/share/metainfo/app.drey.Vocalis.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/vocalis/current/usr
+      - --buildtype=release
+    organize:
+      snap/vocalis/current/usr: usr
+    build-packages:
+      # gnome-core26-sdk has no TypeScript compiler, and it ships GStreamer
+      # without the GstPlayer development files used by the pkg-config check.
+      - node-typescript
+      - libgstreamer-plugins-bad1.0-dev
+    override-pull: |
+      craftctl default
+      # Use the platform's gjs, which the layout above points at.
+      sed -i '1s|^#!.*|#!/usr/bin/gjs -m|' src/app.drey.Vocalis.in
+      # GApplication.run() expects argv[0] to be the program name; passing
+      # only the program arguments makes "--version" be taken as the program
+      # name and ignored. Prepend pkg.name so --version works.
+      sed -i 's|return app.runAsync(argv);|return app.runAsync([pkg.name, ...argv]);|' \
+        src/main.ts
+      # Upstream's tsc custom target passes neither input files nor a
+      # tsconfig and is run from the build tree, so tsc just prints its help
+      # and fails. Compile the TypeScript at configure time instead.
+      python3 - <<'PY'
+      from pathlib import Path
+      path = Path('src/meson.build')
+      build = path.read_text()
+      old = """typescript = custom_target(
+        'typescript-compile',
+        input: sources,
+        build_by_default: true,
+        build_always_stale: true,
+        command: [ tsc, '--outDir', tsc_out ],
+        output: ['tsc-output'],
+      )"""
+      new = """tsc_result = run_command(
+        tsc,
+        '-p', meson.project_source_root() / 'tsconfig.json',
+        '--outDir', tsc_out,
+        check: true,
+      )"""
+      assert old in build, 'typescript custom target not found'
+      build = build.replace(old, new)
+      build = build.replace('  dependencies: typescript,\n', '')
+      path.write_text(build)
+      PY
+    override-build: |
+      craftctl default
+      # Meson skips gnome.post_install() when DESTDIR is set, so compile the
+      # GSettings schema here.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/vocalis/current/usr/share/glib-2.0/schemas"
+      # meson install_symlink() writes an absolute target below the snap
+      # mount point, which snapd rejects when packing; make it relative.
+      ln -sfn ../share/app.drey.Vocalis/app.drey.Vocalis \
+        "$CRAFT_PART_INSTALL/snap/vocalis/current/usr/bin/vocalis"
+      # Use the icon bundled in the snap so it also shows outside the theme.
+      sed -i 's|^Icon=app.drey.Vocalis$|Icon=${SNAP}/meta/gui/app.drey.Vocalis.svg|' \
+        "$CRAFT_PART_INSTALL/snap/vocalis/current/usr/share/applications/app.drey.Vocalis.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/app.drey.Vocalis.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships GStreamer itself, but neither the GstPlayer
+      # library nor its typelib, which the playback UI imports.
+      - gir1.2-gst-plugins-bad-1.0
+      - libgstreamer-plugins-bad1.0-0
+    prime:
+      - usr/lib/*/libgstplayer-1.0.so.*
+      - usr/lib/*/girepository-1.0/GstPlayer-1.0.typelib
