@@ -1,10 +1,11 @@
 use std::env;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use regex::Regex;
+use reqwest::header::HeaderMap;
 use reqwest::{Client, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -15,6 +16,9 @@ use tokio::time::sleep;
 use crate::metadata::{Provider, Upstream};
 use crate::version;
 
+const REQUEST_DELAY: Duration = Duration::from_secs(1);
+const MAX_COOLDOWN: Duration = Duration::from_secs(120);
+
 #[derive(Debug, Clone)]
 pub struct HttpConfig {
     github_token: Option<String>,
@@ -24,19 +28,34 @@ pub struct HttpConfig {
 
 #[derive(Debug)]
 struct RequestLimiter {
-    delay: Duration,
     next: Mutex<Option<Instant>>,
+    blocked_until: Mutex<Option<Instant>>,
 }
 
 impl RequestLimiter {
-    fn new(delay: Duration) -> Self {
+    fn new() -> Self {
         Self {
-            delay,
             next: Mutex::new(None),
+            blocked_until: Mutex::new(None),
         }
     }
 
-    async fn wait(&self) {
+    async fn wait(&self, delay: Duration) -> Result<()> {
+        {
+            let mut blocked = self.blocked_until.lock().await;
+            if let Some(until) = *blocked {
+                let now = Instant::now();
+                if until > now {
+                    let remaining = until - now;
+                    if remaining > MAX_COOLDOWN {
+                        bail!("rate limited for another {}s", remaining.as_secs());
+                    }
+                    sleep(remaining).await;
+                }
+                *blocked = None;
+            }
+        }
+
         let mut next = self.next.lock().await;
         let now = Instant::now();
         if let Some(at) = *next
@@ -44,7 +63,19 @@ impl RequestLimiter {
         {
             sleep(at - now).await;
         }
-        *next = Some(Instant::now() + self.delay);
+        *next = Some(Instant::now() + delay);
+        Ok(())
+    }
+
+    async fn cooldown(&self, delay: Duration) {
+        if delay.is_zero() {
+            return;
+        }
+        let mut blocked = self.blocked_until.lock().await;
+        let until = Instant::now() + delay;
+        if blocked.is_none_or(|current| current < until) {
+            *blocked = Some(until);
+        }
     }
 }
 
@@ -53,12 +84,27 @@ impl HttpConfig {
         Self {
             github_token: github_token(),
             gitlab_token: env::var("GITLAB_TOKEN").ok(),
-            limiter: Arc::new(RequestLimiter::new(Duration::from_millis(250))),
+            limiter: Arc::new(RequestLimiter::new()),
         }
     }
 
-    async fn wait(&self) {
-        self.limiter.wait().await;
+    async fn wait(&self) -> Result<()> {
+        self.limiter.wait(REQUEST_DELAY).await
+    }
+
+    async fn note_rate_limit(&self, response: &reqwest::Response) {
+        let status = response.status();
+        let primary_github_limit = status == StatusCode::FORBIDDEN
+            && response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .and_then(|value| value.to_str().ok())
+                == Some("0");
+        if status == StatusCode::TOO_MANY_REQUESTS || primary_github_limit {
+            let delay =
+                rate_limit_delay(response.headers()).unwrap_or_else(|| Duration::from_secs(60));
+            self.limiter.cooldown(delay).await;
+        }
     }
 
     pub fn client(&self) -> Result<Client> {
@@ -161,8 +207,9 @@ async fn github_latest_release(
     let request = github_request(client.get(&url), config)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");
-    config.wait().await;
+    config.wait().await?;
     let response = request.send().await.context("GitHub request failed")?;
+    config.note_rate_limit(&response).await;
     if response.status() == StatusCode::NOT_FOUND {
         return Ok(None);
     }
@@ -185,11 +232,12 @@ async fn gitlab_releases(
         .context("gitlab project missing")?;
     let encoded = utf8_percent_encode(project, NON_ALPHANUMERIC).to_string();
     let url = format!("https://{host}/api/v4/projects/{encoded}/releases?per_page=100");
-    config.wait().await;
+    config.wait().await?;
     let response = gitlab_request(client.get(&url), config, host)
         .send()
         .await
         .context("GitLab request failed")?;
+    config.note_rate_limit(&response).await;
     if response.status() == StatusCode::NOT_FOUND {
         return Ok(Vec::new());
     }
@@ -212,13 +260,12 @@ async fn gitlab_repository_tags(
         .context("gitlab project missing")?;
     let encoded = utf8_percent_encode(project, NON_ALPHANUMERIC).to_string();
     let url = format!("https://{host}/api/v4/projects/{encoded}/repository/tags?per_page=100");
-    config.wait().await;
-    let tags: Vec<GitlabTag> = parse_json(
-        gitlab_request(client.get(&url), config, host)
-            .send()
-            .await?,
-    )
-    .await?;
+    config.wait().await?;
+    let response = gitlab_request(client.get(&url), config, host)
+        .send()
+        .await?;
+    config.note_rate_limit(&response).await;
+    let tags: Vec<GitlabTag> = parse_json(response).await?;
     Ok(tags.into_iter().map(|tag| tag.name).collect())
 }
 
@@ -276,6 +323,35 @@ fn gitlab_request(request: RequestBuilder, config: &HttpConfig, host: &str) -> R
     }
 }
 
+fn rate_limit_delay(headers: &HeaderMap) -> Option<Duration> {
+    if let Some(seconds) = header_seconds(headers, "retry-after") {
+        return Some(Duration::from_secs(seconds));
+    }
+    if let Some(reset) = header_seconds(headers, "x-ratelimit-reset") {
+        return Some(until_epoch(reset));
+    }
+    if let Some(reset) = header_seconds(headers, "ratelimit-reset") {
+        return Some(if reset > 1_000_000_000 {
+            until_epoch(reset)
+        } else {
+            Duration::from_secs(reset)
+        });
+    }
+    None
+}
+
+fn header_seconds(headers: &HeaderMap, name: &str) -> Option<u64> {
+    headers.get(name)?.to_str().ok()?.parse().ok()
+}
+
+fn until_epoch(epoch: u64) -> Duration {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    Duration::from_secs(epoch.saturating_sub(now))
+}
+
 async fn parse_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T> {
     let status = response.status();
     let text = response.text().await.context("cannot read HTTP response")?;
@@ -307,8 +383,45 @@ struct GitlabTag {
 
 #[cfg(test)]
 mod tests {
-    use super::select_latest;
+    use super::{rate_limit_delay, select_latest};
     use regex::Regex;
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn parses_retry_after() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("retry-after"),
+            HeaderValue::from_static("30"),
+        );
+        assert_eq!(rate_limit_delay(&headers), Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn parses_github_reset_epoch() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("x-ratelimit-reset"),
+            HeaderValue::from_str(&(now + 120).to_string()).unwrap(),
+        );
+        let delay = rate_limit_delay(&headers).unwrap().as_secs();
+        assert!((118..=120).contains(&delay), "unexpected delay: {delay}");
+    }
+
+    #[test]
+    fn parses_gitlab_reset_seconds() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("ratelimit-reset"),
+            HeaderValue::from_static("45"),
+        );
+        assert_eq!(rate_limit_delay(&headers), Some(Duration::from_secs(45)));
+    }
 
     #[test]
     fn picks_the_numerically_latest_tag() {
