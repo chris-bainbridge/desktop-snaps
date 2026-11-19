@@ -17,8 +17,11 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
 
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -29,42 +32,59 @@ slots:
 
 apps:
   gnome-sudoku:
-    extensions: [ gnome ]
+    extensions: [gnome]
     command: usr/bin/gnome-sudoku
     desktop: usr/share/applications/org.gnome.Sudoku.desktop
+    common-id: org.gnome.Sudoku.desktop
+    environment:
+      # gnome-core26 ships librsvg (GTK's SVG icon loader) and GTK 4, and
+      # librsvg links libxml2.so.16, which the content snap does not ship.
+      # The libraries part below bundles it in usr/lib. The gnome extension
+      # only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings
 
+# GNOME Sudoku is a GTK4 + libadwaita application written in Vala with a
+# small C++ wrapper around qqwing. GTK 4, libadwaita, valac, libgee and
+# json-glib come from the gnome extension (gnome-core26 SDK/content snaps).
+# qqwing is not part of the platform, so its headers come from the 26.04
+# archive at build time and its library is staged by the libraries part.
 parts:
-  blueprint-compiler:
-    source-depth: 1
-    source: https://gitlab.gnome.org/jwestman/blueprint-compiler.git
-    source-tag: 'v0.16.0'
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
-    override-prime: ''
-
   gnome-sudoku:
-    after: [blueprint-compiler]
     source: https://gitlab.gnome.org/GNOME/gnome-sudoku.git
     source-type: git
-    source-tag: '48.1'
+    source-tag: '51.0.1'
     source-depth: 1
     plugin: meson
     parse-info: [usr/share/metainfo/org.gnome.Sudoku.metainfo.xml]
     meson-parameters:
       - --prefix=/usr
-    build-environment:
-      - PYTHONPATH: $CRAFT_STAGE/usr/lib/python3/dist-packages:$PYTHONPATH
+      - --buildtype=release
     build-packages:
+      - blueprint-compiler
       - libqqwing-dev
     override-pull: |
       craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # The help media symlinks would dangle in the snap.
       sed -i.bak -e 's|help_media,|help_media, symlink_media: false,|g' help/meson.build
 
-  # workaround snapcraft trying to outsmart us by copying ldd listed libraries
   libraries:
     plugin: nil
     stage-packages:
       - libqqwing2v5
+      # gnome-core26's librsvg needs libxml2, which the content snap lacks.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     prime:
-      - "usr/lib/*/libqqwing*"
+      - usr/lib/*/libqqwing*
+      - usr/lib/libxml2.so.*
