@@ -6,4 +6,5 @@ upstream:
   provider: gitlab
   host: gitlab.gnome.org
   project: World/AbiWord
+  tag-pattern: '^release-(\d+(?:\.\d+)*)$'
 imported: '2026-11-17'

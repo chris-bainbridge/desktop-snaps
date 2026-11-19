@@ -117,13 +117,15 @@ parts:
     # SourceForge's abiword project stopped publishing source releases after
     # the 2.x series (its newest file is abiword-sdk 2.1.0 from 2004) and the
     # old abisource.com download site no longer resolves. Since the move to
-    # GNOME, the official source is the GitLab repository, and the official
-    # release artifact is the archive generated from the signed release-3.0.8
-    # tag; Debian watches the same URL. Upstream development is sporadic and
-    # the project is largely unmaintained: 3.0.8 (2026-02-17) is the newest
-    # tag, and Ubuntu 26.04 packages the same release.
-    source: https://gitlab.gnome.org/World/AbiWord/-/archive/release-3.0.8/AbiWord-release-3.0.8.tar.gz
-    source-checksum: sha256/7c490e46f0a6143f84d5c7e3fed246f34486ad70cd55f162c792827607cd7e9a
+    # GNOME, the official source is the GitLab repository. Build directly from
+    # the signed release tag so the updater can bump source-tag; the release
+    # tarball was generated from this same tree. Upstream development is
+    # sporadic and the project is largely unmaintained: 3.0.8 (2026-02-17) is
+    # the newest tag, and Ubuntu 26.04 packages the same release.
+    source: https://gitlab.gnome.org/World/AbiWord.git
+    source-type: git
+    source-tag: 'release-3.0.8'
+    source-depth: 1
     plugin: autotools
     autotools-configure-parameters:
       # AbiWord compiles its data and plugin directories into the binary and
