@@ -17,7 +17,7 @@ use tokio::time::sleep;
 use crate::metadata::{Provider, Upstream};
 use crate::version;
 
-const REQUEST_DELAY: Duration = Duration::from_secs(1);
+const REQUEST_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_COOLDOWN: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
@@ -54,50 +54,26 @@ pub fn format_duration(duration: Duration) -> String {
 pub struct HttpConfig {
     github_token: Option<String>,
     gitlab_token: Option<String>,
-    github_limiter: Arc<RequestLimiter>,
-    gitlab_limiter: Arc<RequestLimiter>,
+    pacer: Arc<RequestPacer>,
+    github_blocked: Arc<BlockedState>,
+    gitlab_blocked: Arc<BlockedState>,
 }
 
 #[derive(Debug)]
-struct RequestLimiter {
+struct RequestPacer {
+    interval: Duration,
     next: Mutex<Option<Instant>>,
-    blocked_until: Mutex<Option<Instant>>,
 }
 
-impl RequestLimiter {
-    fn new() -> Self {
+impl RequestPacer {
+    fn new(interval: Duration) -> Self {
         Self {
+            interval,
             next: Mutex::new(None),
-            blocked_until: Mutex::new(None),
         }
     }
 
-    async fn wait(&self, provider: &'static str, delay: Duration) -> Result<()> {
-        {
-            let mut blocked = self.blocked_until.lock().await;
-            if let Some(until) = *blocked {
-                let now = Instant::now();
-                if until > now {
-                    let remaining = until - now;
-                    if remaining > MAX_COOLDOWN {
-                        return Err(RateLimited {
-                            provider,
-                            remaining,
-                        }
-                        .into());
-                    }
-                    if remaining > Duration::from_secs(1) {
-                        eprintln!(
-                            "snap-repo: {provider} rate limited; waiting {} before the next request",
-                            format_duration(remaining)
-                        );
-                    }
-                    sleep(remaining).await;
-                }
-                *blocked = None;
-            }
-        }
-
+    async fn wait(&self) {
         let mut next = self.next.lock().await;
         let now = Instant::now();
         if let Some(at) = *next
@@ -105,12 +81,50 @@ impl RequestLimiter {
         {
             sleep(at - now).await;
         }
-        *next = Some(Instant::now() + delay);
+        *next = Some(Instant::now() + self.interval);
+    }
+}
+
+#[derive(Debug)]
+struct BlockedState {
+    until: Mutex<Option<Instant>>,
+}
+
+impl BlockedState {
+    fn new() -> Self {
+        Self {
+            until: Mutex::new(None),
+        }
+    }
+
+    async fn wait(&self, provider: &'static str) -> Result<()> {
+        let mut blocked = self.until.lock().await;
+        if let Some(until) = *blocked {
+            let now = Instant::now();
+            if until > now {
+                let remaining = until - now;
+                if remaining > MAX_COOLDOWN {
+                    return Err(RateLimited {
+                        provider,
+                        remaining,
+                    }
+                    .into());
+                }
+                if remaining > Duration::from_secs(1) {
+                    eprintln!(
+                        "snap-repo: {provider} rate limited; waiting {} before the next request",
+                        format_duration(remaining)
+                    );
+                }
+                sleep(remaining).await;
+            }
+            *blocked = None;
+        }
         Ok(())
     }
 
-    async fn blocked_remaining(&self) -> Option<Duration> {
-        let blocked = self.blocked_until.lock().await;
+    async fn remaining(&self) -> Option<Duration> {
+        let blocked = self.until.lock().await;
         let now = Instant::now();
         blocked.and_then(|until| (until > now).then(|| until - now))
     }
@@ -119,7 +133,7 @@ impl RequestLimiter {
         if delay.is_zero() {
             return;
         }
-        let mut blocked = self.blocked_until.lock().await;
+        let mut blocked = self.until.lock().await;
         let until = Instant::now() + delay;
         if blocked.is_none_or(|current| current < until) {
             *blocked = Some(until);
@@ -132,34 +146,39 @@ impl HttpConfig {
         Self {
             github_token: github_token(),
             gitlab_token: env::var("GITLAB_TOKEN").ok(),
-            github_limiter: Arc::new(RequestLimiter::new()),
-            gitlab_limiter: Arc::new(RequestLimiter::new()),
+            pacer: Arc::new(RequestPacer::new(REQUEST_INTERVAL)),
+            github_blocked: Arc::new(BlockedState::new()),
+            gitlab_blocked: Arc::new(BlockedState::new()),
         }
     }
 
     async fn wait_github(&self) -> Result<()> {
-        self.github_limiter.wait("GitHub", REQUEST_DELAY).await
+        self.github_blocked.wait("GitHub").await?;
+        self.pacer.wait().await;
+        Ok(())
     }
 
     async fn wait_gitlab(&self) -> Result<()> {
-        self.gitlab_limiter.wait("GitLab", REQUEST_DELAY).await
+        self.gitlab_blocked.wait("GitLab").await?;
+        self.pacer.wait().await;
+        Ok(())
     }
 
     async fn note_github(&self, response: &reqwest::Response) {
-        note_rate_limit(&self.github_limiter, response, true).await;
+        note_rate_limit(&self.github_blocked, response, true).await;
     }
 
     async fn note_gitlab(&self, response: &reqwest::Response) {
-        note_rate_limit(&self.gitlab_limiter, response, false).await;
+        note_rate_limit(&self.gitlab_blocked, response, false).await;
     }
 
     pub async fn blocked(&self, provider: Provider) -> Option<RateLimited> {
-        let (provider, limiter) = match provider {
-            Provider::Github => ("GitHub", &self.github_limiter),
-            Provider::Gitlab => ("GitLab", &self.gitlab_limiter),
+        let (provider, blocked) = match provider {
+            Provider::Github => ("GitHub", &self.github_blocked),
+            Provider::Gitlab => ("GitLab", &self.gitlab_blocked),
             _ => return None,
         };
-        let remaining = limiter.blocked_remaining().await?;
+        let remaining = blocked.remaining().await?;
         if remaining <= MAX_COOLDOWN {
             return None;
         }
@@ -178,7 +197,7 @@ impl HttpConfig {
     }
 }
 
-async fn note_rate_limit(limiter: &RequestLimiter, response: &reqwest::Response, github: bool) {
+async fn note_rate_limit(blocked: &BlockedState, response: &reqwest::Response, github: bool) {
     let status = response.status();
     let headers = response.headers();
     let remaining = header_seconds(
@@ -199,7 +218,7 @@ async fn note_rate_limit(limiter: &RequestLimiter, response: &reqwest::Response,
     let exhausted = remaining == Some(0);
     if limited || exhausted {
         let delay = rate_limit_delay(headers).unwrap_or_else(|| Duration::from_secs(60));
-        limiter.cooldown(delay).await;
+        blocked.cooldown(delay).await;
     }
 }
 
@@ -482,21 +501,31 @@ mod tests {
         let config = HttpConfig {
             github_token: None,
             gitlab_token: None,
-            github_limiter: Arc::new(super::RequestLimiter::new()),
-            gitlab_limiter: Arc::new(super::RequestLimiter::new()),
+            pacer: Arc::new(super::RequestPacer::new(Duration::from_secs(2))),
+            github_blocked: Arc::new(super::BlockedState::new()),
+            gitlab_blocked: Arc::new(super::BlockedState::new()),
         };
         config
-            .gitlab_limiter
+            .gitlab_blocked
             .cooldown(Duration::from_secs(30))
             .await;
         assert!(config.blocked(Provider::Gitlab).await.is_none());
         config
-            .gitlab_limiter
+            .gitlab_blocked
             .cooldown(Duration::from_secs(300))
             .await;
         let limit = config.blocked(Provider::Gitlab).await.unwrap();
         assert_eq!(limit.provider, "GitLab");
         assert!(config.blocked(Provider::Github).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn pacer_spaces_requests() {
+        let pacer = super::RequestPacer::new(Duration::from_millis(50));
+        let start = std::time::Instant::now();
+        pacer.wait().await;
+        pacer.wait().await;
+        assert!(start.elapsed() >= Duration::from_millis(50));
     }
 
     #[test]
