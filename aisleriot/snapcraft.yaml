@@ -1,0 +1,140 @@
+name: aisleriot
+version: '3.22.35'
+title: AisleRiot Solitaire
+summary: Play many different solitaire card games
+description: |
+  Aisleriot — also known as sol or solitaire — is a card game application that
+  features over 80 different solitaire-type card games which are designed to
+  play using a mouse, keyboard, or trackpad.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://gitlab.gnome.org/GNOME/aisleriot
+source-code: https://gitlab.gnome.org/GNOME/aisleriot
+issues: https://gitlab.gnome.org/GNOME/aisleriot/issues
+contact: https://gitlab.gnome.org/GNOME/aisleriot/issues
+
+# aisleriot 3.22.35 (2023-10-15) is the latest stable upstream release; the
+# project left the GNOME release sets and is still a GTK3 + Guile application.
+# gnome-core26 ships GTK3, librsvg and libcanberra, so only Guile (and its
+# BDW-GC) has to be bundled from the archive.
+platforms:
+  amd64:
+  arm64:
+
+# Guile compiles Scheme modules to .go files, which are ELF shared objects
+# whose .dynamic section uses Guile-specific DT_* tags and a zero sh_link.
+# pyelftools 0.33 (as shipped in snapcraft 9.2.1) asserts on them while
+# snapcraft's gpu and library linters enumerate ELF files, so packing fails
+# with "snapcraft internal error: AssertionError()" even though both linters
+# only produce warnings. The compiled modules are installed by guile-3.0-libs
+# and are required at run time, so skip the two linters that cannot cope.
+lint:
+  ignore:
+    - gpu
+    - library
+
+slots:
+  # for GtkApplication registration; the id really is lower case (src/
+  # ar-application.c in 3.22.35 sets "org.gnome.aisleriot").
+  aisleriot:
+    interface: dbus
+    bus: session
+    name: org.gnome.aisleriot
+
+apps:
+  aisleriot:
+    extensions: [gnome]
+    # Upstream installs the binary as "sol"; there is no "aisleriot" binary.
+    command: usr/bin/sol
+    common-id: sol.desktop
+    desktop: usr/share/applications/sol.desktop
+    environment:
+      # snapcraft does not add the staged library directories when the gnome
+      # extension already defines LD_LIBRARY_PATH. $SNAP/usr/lib holds the
+      # relocated libxml2, $SNAP/usr/lib/<triplet> holds libguile and libgc.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      # Guile was configured with --prefix=/usr, which is the base snap in a
+      # strict snap. Point it at the precompiled modules shipped in the snap;
+      # the application appends its own guile/3.0 directory at start-up.
+      GUILE_LOAD_PATH: $SNAP/usr/share/guile/3.0:$SNAP/usr/share/guile/site/3.0
+      GUILE_LOAD_COMPILED_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/guile/3.0/ccache:$SNAP/usr/share/guile/site/3.0
+    plugs:
+      - gsettings
+      - audio-playback
+
+parts:
+  aisleriot:
+    source: https://gitlab.gnome.org/GNOME/aisleriot.git
+    source-type: git
+    source-tag: '3.22.35'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      # The binary locates its data directory from the compile-time prefix and
+      # aisleriot has no binreloc on Linux, so build against the path the snap
+      # will actually be mounted at (organize below moves it to usr/).
+      - --prefix=/snap/aisleriot/current/usr
+      - --buildtype=release
+      # ASCII/SVG card themes only; the KDE and PySol themes need Qt5 and a
+      # host-installed theme tree.
+      - -Dtheme_kde=false
+      - -Dtheme_pysol=false
+      - -Dtheme_svg_qtsvg=false
+      # Pin the Guile API version instead of letting meson probe for it.
+      - -Dguile=3.0
+    organize:
+      snap/aisleriot/current/usr: usr
+    build-packages:
+      - guile-3.0-dev
+      - libcanberra-gtk3-dev
+      - librsvg2-dev
+      - libxml2-utils     # meson.build requires xmllint
+      - yelp-tools        # gnome.yelp needs yelp-build, not in gnome-core26-sdk
+    override-pull: |
+      craftctl default
+      # gtk-common-themes does not carry the aisleriot icon, so ship the
+      # upstream icon in meta/gui and point the desktop file at it.
+      sed -i.bak -e 's|^Icon=gnome-aisleriot$|Icon=${SNAP}/meta/gui/org.gnome.aisleriot.svg|' \
+        $CRAFT_PART_SRC/data/sol.desktop.in
+    override-build: |
+      # The help media symlinks would dangle in the snap (as in the other
+      # core26 GNOME games recipes).
+      sed -i.bak -e 's|sources: help_pages,|sources: help_pages, symlink_media: false,|' \
+        $CRAFT_PART_SRC/help/meson.build
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/gnome-aisleriot.svg \
+         $CRAFT_PART_INSTALL/meta/gui/org.gnome.aisleriot.svg
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # Guile (with BDW-GC) runs the game rules; none of it is in core26,
+      # gnome-core26 or the SDK's runtime set. The -libs package carries
+      # libguile, the precompiled module cache and the Scheme sources; the
+      # standalone guile/guild interpreters are build-time tools only.
+      - guile-3.0-libs
+      # gnome-core26's librsvg links libxml2 directly, but the content snap
+      # does not ship libxml2. The game renders its SVG card themes through it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup deletes every primed library whose path also exists in
+      # the gnome-core26 SDK. libxml2 is in the SDK but in neither core26 nor
+      # the content snap, so move the bundled libraries out of the multiarch
+      # path that cleanup walks; $SNAP/usr/lib is on the app's
+      # LD_LIBRARY_PATH. The BDW-GC thread/C++ helpers are dlopened by libgc
+      # and move with it so they are found from the same directory.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libguile-3.0.so.1 libgc.so.1 libgctba.so.1 libgccpp.so.1 libxml2.so.16; do
+        for file in "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"*; do
+          if [ -e "$file" ]; then
+            mv "$file" "$CRAFT_PART_INSTALL/usr/lib/"
+          fi
+        done
+      done
+    prime:
+      - -usr/share/doc
