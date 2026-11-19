@@ -1,0 +1,9 @@
+snap: baobab
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/baobab
+imported: '2026-11-17'

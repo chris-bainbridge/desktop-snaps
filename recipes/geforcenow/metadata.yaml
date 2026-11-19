@@ -1,0 +1,15 @@
+# Build metadata for geforcenow (imported 2026-11-17).
+snap: geforcenow
+base: core26
+mode: vendored
+redistribution: canonical-published
+upstream:
+  provider: manual
+  url: https://www.nvidia.com/en-us/geforce-now/
+  reason: vendor service; no versioned release artifacts
+recipe: https://github.com/kenvandine/geforcenow (main)
+recipe-commit: b79cc6c9d96c85bbcec14d5c56dd6790260e6127
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

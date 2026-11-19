@@ -1,0 +1,8 @@
+snap: hardinfo
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: hardinfo2/hardinfo2
+imported: '2026-11-17'

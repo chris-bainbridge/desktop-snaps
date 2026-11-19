@@ -1,0 +1,15 @@
+# Build metadata for gnome-taquin (imported 2026-11-17; migrated to core26).
+snap: gnome-taquin
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-taquin
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-taquin (stable)
+recipe-commit: 40598473bc9e0e26afbdf70f650c6938d11a2c1b
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

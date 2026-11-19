@@ -1,0 +1,15 @@
+# Build metadata for gnome-chess (core26 migration, 2026-11).
+snap: gnome-chess
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-chess
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-chess (stable)
+recipe-commit: 1edbd69b1b3f269a527c931c51718f468a5da539
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

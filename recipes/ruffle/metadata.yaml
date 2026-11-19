@@ -1,0 +1,9 @@
+# Build metadata for ruffle (new core26 recipe, 2026-11).
+snap: ruffle
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: ruffle-rs/ruffle
+imported: '2026-11-19'

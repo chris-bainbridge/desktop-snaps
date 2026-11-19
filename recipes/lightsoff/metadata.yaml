@@ -1,0 +1,15 @@
+# Build metadata for lightsoff (imported 2026-11-17; core26 migration 2026-11).
+snap: lightsoff
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/lightsoff
+recipe: https://git.launchpad.net/~desktop-snappers/lightsoff (stable)
+recipe-commit: ed0d328690a472712cf7afc29bda0d7fd937add6
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

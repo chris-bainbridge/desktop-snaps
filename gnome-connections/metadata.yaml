@@ -1,7 +1,0 @@
-# Build metadata for gnome-connections (new core26 recipe, 2026-11).
-snap: gnome-connections
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/gnome-connections (51.0)
-imported: '2026-11-18'

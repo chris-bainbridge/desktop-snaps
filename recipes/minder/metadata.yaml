@@ -1,0 +1,9 @@
+# Build metadata for minder (new core26 recipe, 2026-11).
+snap: minder
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: phase1geo/Minder
+imported: '2026-11-19'

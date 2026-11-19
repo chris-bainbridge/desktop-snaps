@@ -1,7 +1,0 @@
-# Build metadata for gnome-music (core26, 2026-11).
-snap: gnome-music
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/gnome-music (50.0)
-imported: '2026-11-18'

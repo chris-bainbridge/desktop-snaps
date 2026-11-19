@@ -1,0 +1,9 @@
+# Build metadata for akizip (new core26 recipe, 2026-11).
+snap: akizip
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: AkiZip/AkiZip
+imported: '2026-11-19'

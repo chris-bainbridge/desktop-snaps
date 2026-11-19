@@ -10,6 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+RECIPES="$ROOT/recipes"
 DEFAULT_WORKSPACE="${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}"
 
 die() {
@@ -25,8 +26,8 @@ usage() {
     cat <<'EOF'
 Usage: ./build [options] <snap>[:<track>]
 
-Build a snap from its package directory (e.g. gnome-logs). Builds run out of
-tree in a temporary workspace.
+Build a snap from recipes/<snap> (e.g. gnome-logs). Builds run out of tree
+in a temporary workspace.
 
 A package with a single recipe is flat and implicitly builds the stable
 track. A package with more than one track keeps its recipes under stable/,
@@ -105,19 +106,36 @@ tracks_in() {
 }
 
 list_packages() {
-    printf '%-32s %-10s %-7s %s\n' NAME TRACK BASE PUBLISHER
-    local manifest pkgdir name track
+    local manifest pkgdir name track base publisher row
+    local name_width=4 track_width=5 base_width=4
+    local -a rows=()
+
     while IFS= read -r manifest; do
         pkgdir="$(dirname -- "$manifest")"
         name="$(basename -- "$pkgdir")"
+        if ((${#name} > name_width)); then
+            name_width=${#name}
+        fi
+        base="$(meta_get "$pkgdir" base)"
+        if ((${#base} > base_width)); then
+            base_width=${#base}
+        fi
         while IFS= read -r track; do
-            printf '%-32s %-10s %-7s %s\n' \
-                "$name" \
-                "$track" \
-                "$(meta_get "$pkgdir" base)" \
-                "$(meta_get "$pkgdir" store.publisher)"
+            if ((${#track} > track_width)); then
+                track_width=${#track}
+            fi
+            publisher="$(meta_get "$pkgdir" store.publisher)"
+            rows+=("$name"$'\t'"$track"$'\t'"$base"$'\t'"$publisher")
         done < <(tracks_in "$pkgdir")
-    done < <(find "$ROOT" -mindepth 2 -maxdepth 2 -name metadata.yaml | sort)
+    done < <(find "$RECIPES" -mindepth 2 -maxdepth 2 -name metadata.yaml | sort)
+
+    printf "%-${name_width}s  %-${track_width}s  %-${base_width}s  %s\n" \
+        NAME TRACK BASE PUBLISHER
+    for row in "${rows[@]}"; do
+        IFS=$'\t' read -r name track base publisher <<< "$row"
+        printf "%-${name_width}s  %-${track_width}s  %-${base_width}s  %s\n" \
+            "$name" "$track" "$base" "$publisher"
+    done
 }
 
 name=""
@@ -192,8 +210,20 @@ if [[ "$name" == *:* ]]; then
     name="${name%:*}"
 fi
 
-candidate="$name"
-[[ "$candidate" == /* ]] || candidate="$ROOT/$candidate"
+# Resolve a snap name under recipes/, while still accepting an explicit
+# path such as recipes/<snap> or an absolute path.
+resolve_path() {
+    local path=$1
+    if [[ "$path" == /* ]]; then
+        printf '%s\n' "$path"
+    elif [[ -e "$ROOT/$path" ]]; then
+        printf '%s\n' "$ROOT/$path"
+    else
+        printf '%s\n' "$RECIPES/$path"
+    fi
+}
+
+candidate="$(resolve_path "$name")"
 
 # A flat package has no stable/ directory, but "pkg/stable" should still
 # resolve to it: the track is implicit, the path is only a selector.
@@ -202,8 +232,7 @@ if [[ ! -e "$candidate" && "$name" == */* ]]; then
     last="${name##*/}"
     case "$last" in
         stable | candidate | beta | edge)
-            parent_candidate="$parent"
-            [[ "$parent_candidate" == /* ]] || parent_candidate="$ROOT/$parent_candidate"
+            parent_candidate="$(resolve_path "$parent")"
             if [[ -d "$parent_candidate" ]]; then
                 [[ -z "$track" || "$track" == "$last" ]] ||
                     die "track '$track' does not match '$raw_name'"

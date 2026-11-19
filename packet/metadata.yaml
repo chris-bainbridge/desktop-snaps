@@ -1,7 +1,0 @@
-# Build metadata for packet (new core26 recipe, 2026-11).
-snap: packet
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/nozwock/packet (0.7.3)
-imported: '2026-11-19'

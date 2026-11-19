@@ -1,0 +1,10 @@
+# Build metadata for typography (new core26 recipe, 2026-11).
+snap: typography
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: World/design/typography
+imported: '2026-11-19'

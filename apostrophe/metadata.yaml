@@ -1,7 +1,0 @@
-# Build metadata for apostrophe (new core26 recipe, 2026-11).
-snap: apostrophe
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/World/apostrophe (3.5)
-imported: '2026-11-19'

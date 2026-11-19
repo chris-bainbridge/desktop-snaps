@@ -1,0 +1,8 @@
+snap: ardour
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: Ardour/ardour
+imported: '2026-11-17'

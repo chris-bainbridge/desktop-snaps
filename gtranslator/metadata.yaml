@@ -1,7 +1,0 @@
-# Build metadata for gtranslator (new core26 recipe, 2026-11).
-snap: gtranslator
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/gtranslator (51.0)
-imported: '2026-11-19'

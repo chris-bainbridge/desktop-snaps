@@ -1,0 +1,14 @@
+# Build metadata for tigervnc (imported 2026-11-17; migrated to core26).
+snap: tigervnc
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: TigerVNC/tigervnc
+recipe: https://github.com/kenvandine/tigervnc-snap (main)
+recipe-commit: 9c2d1f90884da5e8728cc9b2a05830336ecde5cb
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

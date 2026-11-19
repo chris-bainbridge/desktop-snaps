@@ -1,0 +1,10 @@
+# Build metadata for gmetronome (new core26 recipe, 2026-11).
+snap: gmetronome
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: dqpb/gmetronome
+imported: '2026-11-19'

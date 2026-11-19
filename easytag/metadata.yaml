@@ -1,6 +1,0 @@
-snap: easytag
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/easytag (easytag-2.4.3)
-imported: '2026-11-17'

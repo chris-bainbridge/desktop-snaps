@@ -1,0 +1,8 @@
+snap: virt-manager
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: virt-manager/virt-manager
+imported: '2026-11-17'

@@ -1,6 +1,0 @@
-snap: dia
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/dia (0.98.0+git20260425, commit ad68cc37)
-imported: '2026-11-17'

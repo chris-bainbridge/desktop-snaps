@@ -1,6 +1,0 @@
-snap: synaptic
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/mvo5/synaptic (0.92)
-imported: '2026-11-17'

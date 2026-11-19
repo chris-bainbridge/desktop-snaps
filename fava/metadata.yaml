@@ -1,7 +1,0 @@
-# Build metadata for fava (new core26 recipe, 2026-11).
-snap: fava
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/johannesjh/favagtk (2.1.0)
-imported: '2026-11-19'

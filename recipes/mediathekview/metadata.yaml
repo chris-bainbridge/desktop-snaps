@@ -1,0 +1,9 @@
+# Build metadata for mediathekview (new core26 recipe, 2026-11).
+snap: mediathekview
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: mediathekview/MediathekView
+imported: '2026-11-19'

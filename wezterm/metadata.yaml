@@ -1,6 +1,0 @@
-snap: wezterm
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/wezterm/wezterm (20240203-110809-5046fc22)
-imported: '2026-11-17'

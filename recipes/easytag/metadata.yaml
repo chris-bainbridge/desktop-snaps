@@ -1,0 +1,10 @@
+snap: easytag
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/easytag
+  tag-pattern: '^easytag-(\d+(?:\.\d+)*)$'
+imported: '2026-11-17'

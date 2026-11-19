@@ -1,7 +1,0 @@
-# Build metadata for emblem (new core26 recipe, 2026-11).
-snap: emblem
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/World/design/emblem (1.7.0)
-imported: '2026-11-19'

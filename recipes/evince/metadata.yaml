@@ -1,0 +1,15 @@
+# Build metadata for evince (core26 migration, 2026-11).
+snap: evince
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/evince
+recipe: https://git.launchpad.net/~desktop-snappers/evince (snap)
+recipe-commit: fdb72266257370c4ecc0b29e9c7743aba1cf1943
+merge-request: https://code.launchpad.net/~desktop-snappers/evince/+git/snap/+merge/514117
+store:
+  publisher: Ken VanDine
+  verified: true

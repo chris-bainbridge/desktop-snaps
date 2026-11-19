@@ -1,0 +1,15 @@
+# Build metadata for gnome-weather (imported 2026-11-17).
+snap: gnome-weather
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-weather
+recipe: https://git.launchpad.net/~desktop-snappers/desktop (main)
+recipe-commit: bf384ea16227ed5fd7035a66179c44ea00e5ecda
+imported: '2026-11-17'
+store:
+  publisher: Robert Ancell
+  verified: false

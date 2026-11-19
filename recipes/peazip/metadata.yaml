@@ -1,0 +1,9 @@
+# Build metadata for peazip (new core26 recipe, 2026-11).
+snap: peazip
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: peazip/PeaZip
+imported: '2026-11-19'

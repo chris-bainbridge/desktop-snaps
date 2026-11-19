@@ -1,6 +1,0 @@
-snap: homebank
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://git.launchpad.net/homebank (5.10.4)
-imported: '2026-11-17'

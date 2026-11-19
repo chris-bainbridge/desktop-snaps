@@ -1,0 +1,9 @@
+snap: filezilla
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: manual
+  url: https://filezilla-project.org/
+  reason: vendor download page; no machine-readable release feed
+imported: '2026-11-17'

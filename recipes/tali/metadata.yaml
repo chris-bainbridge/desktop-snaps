@@ -1,0 +1,15 @@
+# Build metadata for tali (imported 2026-11-17; core26 migration done).
+snap: tali
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/tali
+recipe: https://git.launchpad.net/~desktop-snappers/tali (stable)
+recipe-commit: d6232c0f537b52a91ff02d63907bcec2a6fc4620
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

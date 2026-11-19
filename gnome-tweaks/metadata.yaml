@@ -1,7 +1,0 @@
-# Build metadata for gnome-tweaks (new core26 package, 2026-11).
-snap: gnome-tweaks
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/gnome-tweaks (49.0)
-imported: '2026-11-17'

@@ -1,0 +1,9 @@
+snap: homebank
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: launchpad
+  host: git.launchpad.net
+  project: homebank
+imported: '2026-11-17'

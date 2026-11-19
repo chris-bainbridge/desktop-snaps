@@ -1,0 +1,10 @@
+# Build metadata for solanum (new core26 recipe, 2026-11).
+snap: solanum
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: World/Solanum
+imported: '2026-11-19'

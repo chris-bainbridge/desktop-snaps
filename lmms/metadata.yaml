@@ -1,6 +1,0 @@
-snap: lmms
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/LMMS/lmms (v1.2.2)
-imported: '2026-11-17'

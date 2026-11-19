@@ -1,7 +1,0 @@
-# Build metadata for lorem (new core26 recipe, 2026-11).
-snap: lorem
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/World/design/lorem (1.7)
-imported: '2026-11-19'

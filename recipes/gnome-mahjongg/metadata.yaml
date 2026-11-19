@@ -1,0 +1,15 @@
+# Build metadata for gnome-mahjongg (imported 2026-11-17; core26 migration).
+snap: gnome-mahjongg
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-mahjongg
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-mahjongg (stable)
+recipe-commit: c34842eb0bcb1d806cccc627d2b33f6fddd8b68a
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

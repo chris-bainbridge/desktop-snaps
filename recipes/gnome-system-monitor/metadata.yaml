@@ -1,0 +1,15 @@
+# Build metadata for gnome-system-monitor (imported 2026-11-17; core26 migration, 2026-11).
+snap: gnome-system-monitor
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-system-monitor
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-system-monitor (stable)
+recipe-commit: 638443f49f53fe8ce1887ded3fa5bc5b556a540b
+imported: '2026-11-17'
+store:
+  publisher: Canonical
+  verified: true

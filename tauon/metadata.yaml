@@ -1,7 +1,0 @@
-# Build metadata for tauon (new core26 recipe, 2026-11).
-snap: tauon
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/Taiko2k/Tauon (v9.1.3)
-imported: '2026-11-19'

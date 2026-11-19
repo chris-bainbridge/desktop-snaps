@@ -1,8 +1,0 @@
-# Build metadata for spotube (new core26 recipe, 2026-11).
-snap: spotube
-base: core26
-mode: vendored
-redistribution: open-source
-# KRTirtho/spotube redirects to team-spotube/spotube; releases live there.
-upstream: https://github.com/team-spotube/spotube (v6.0.0)
-imported: '2026-11-19'

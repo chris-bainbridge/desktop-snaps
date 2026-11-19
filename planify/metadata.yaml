@@ -1,7 +1,0 @@
-# Build metadata for planify (new core26 recipe, 2026-11).
-snap: planify
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/alainm23/planify (4.20.0)
-imported: '2026-11-19'

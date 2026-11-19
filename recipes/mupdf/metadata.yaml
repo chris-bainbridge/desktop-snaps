@@ -1,0 +1,8 @@
+snap: mupdf
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: ArtifexSoftware/mupdf-downloads
+imported: '2026-11-17'

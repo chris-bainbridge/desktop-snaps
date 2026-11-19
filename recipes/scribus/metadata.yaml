@@ -1,0 +1,10 @@
+snap: scribus
+base: core26
+mode: vendored
+redistribution: open-source
+# SourceForge hosts the releases; the code lives in the project's own SVN.
+upstream:
+  provider: manual
+  url: svn://scribus.net
+  reason: code lives in SVN; no machine-readable release feed
+imported: '2026-11-17'

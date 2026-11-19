@@ -1,0 +1,10 @@
+# Build metadata for text-pieces (new core26 recipe, 2026-11).
+snap: text-pieces
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.com
+  project: liferooter/textpieces
+imported: '2026-11-19'

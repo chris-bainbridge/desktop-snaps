@@ -1,0 +1,15 @@
+# Build metadata for gnome-tetravex (imported 2026-11-17; migrated to core26).
+snap: gnome-tetravex
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-tetravex
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-tetravex (stable)
+recipe-commit: aecef2f1aafc6a029b4e6745ae5ce5cc76ae3dce
+imported: '2026-11-17'
+store:
+  publisher: Ken VanDine
+  verified: true

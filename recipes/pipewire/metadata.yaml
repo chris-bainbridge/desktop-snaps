@@ -1,0 +1,15 @@
+# Build metadata for pipewire (imported 2026-11-18 from Canonical's desktop/26 branch).
+snap: pipewire
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.freedesktop.org
+  project: pipewire/pipewire
+recipe: https://github.com/canonical/pipewire-snap (desktop/26)
+recipe-commit: 13c610e85870467a15da30d9ba7f67bac868cf07
+imported: '2026-11-18'
+store:
+  publisher: Canonical
+  verified: true

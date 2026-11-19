@@ -1,0 +1,9 @@
+snap: lyx
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: git
+  host: git.lyx.org
+  project: repos/lyx
+imported: '2026-11-17'

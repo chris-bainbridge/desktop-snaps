@@ -1,0 +1,9 @@
+snap: texmaker
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: manual
+  url: https://www.xm1math.net/texmaker/
+  reason: vendor download page; no machine-readable release feed
+imported: '2026-11-17'

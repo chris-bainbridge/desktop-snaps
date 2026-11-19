@@ -1,6 +1,0 @@
-snap: gnome-disk-utility
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/gnome-disk-utility (46.1)
-imported: '2026-11-17'

@@ -1,0 +1,9 @@
+# Build metadata for koreader (new core26 recipe, 2026-11).
+snap: koreader
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: koreader/koreader
+imported: '2026-11-19'

@@ -1,0 +1,9 @@
+# Build metadata for errands (new core26 recipe, 2026-11).
+snap: errands
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: mrvladus/Errands
+imported: '2026-11-19'

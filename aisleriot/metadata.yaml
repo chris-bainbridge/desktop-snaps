@@ -1,7 +1,0 @@
-# Build metadata for aisleriot (new core26 recipe, 2026-11-19).
-snap: aisleriot
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/aisleriot (3.22.35)
-imported: '2026-11-19'

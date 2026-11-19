@@ -1,7 +1,0 @@
-# Build metadata for keypunch (new core26 recipe, 2026-11).
-snap: keypunch
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/bragefuglseth/keypunch (7.0)
-imported: '2026-11-19'

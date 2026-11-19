@@ -1,7 +1,0 @@
-# Build metadata for pinpoint (new core26 recipe, 2026-11).
-snap: pinpoint
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/Archive/pinpoint (0.1.8)
-imported: '2026-11-19'

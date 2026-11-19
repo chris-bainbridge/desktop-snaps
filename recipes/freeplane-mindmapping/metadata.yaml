@@ -1,0 +1,14 @@
+# Build metadata for freeplane-mindmapping (imported 2026-11-17).
+snap: freeplane-mindmapping
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: freeplane/freeplane
+recipe: https://github.com/jibel/freeplane-snap (master)
+recipe-commit: 458d361f2a0d7e286c01b0187db172452fbb2351
+imported: '2026-11-17'
+store:
+  publisher: Jean-Baptiste Lallement (jibel)
+  verified: false

@@ -1,6 +1,0 @@
-snap: mupdf
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/ArtifexSoftware/mupdf-downloads (1.28.6)
-imported: '2026-11-17'

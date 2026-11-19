@@ -1,7 +1,0 @@
-# Build metadata for gnome-crosswords (new core26 recipe, 2026-11).
-snap: gnome-crosswords
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/jrb/crosswords (0.3.19.1)
-imported: '2026-11-19'

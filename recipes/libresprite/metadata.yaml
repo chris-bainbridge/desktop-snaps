@@ -1,0 +1,9 @@
+# Build metadata for libresprite (new core26 recipe, 2026-11).
+snap: libresprite
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: LibreSprite/LibreSprite
+imported: '2026-11-19'

@@ -1,0 +1,15 @@
+# Build metadata for gnome-boxes (core26 migration, 2026-11).
+snap: gnome-boxes
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-boxes
+recipe: https://git.launchpad.net/~desktop-snappers/gnome-boxes (stable)
+recipe-commit: 775d76f691a177348338dd6ab904f29839ffbb39
+imported: '2026-11-17'
+store:
+  publisher: Canonical
+  verified: true

@@ -1,6 +1,0 @@
-snap: resources
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/nokyan/resources (v1.10.2)
-imported: '2026-11-17'

@@ -1,7 +1,0 @@
-# Build metadata for vocalis (new core26 recipe, 2026-11).
-snap: vocalis
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/World/vocalis (1.0.0, commit 902c7ee0)
-imported: '2026-11-19'

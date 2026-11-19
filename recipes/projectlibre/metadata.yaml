@@ -1,0 +1,14 @@
+# Build metadata for projectlibre (imported 2026-11-17).
+snap: projectlibre
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: sourceforge
+  project: projectlibre
+recipe: https://github.com/jibel/projectlibre-snap (master)
+recipe-commit: aa662c4843d31bfb07f1f5b81eec4c0cb59ce0d0
+imported: '2026-11-17'
+store:
+  publisher: Jean-Baptiste Lallement (jibel)
+  verified: false

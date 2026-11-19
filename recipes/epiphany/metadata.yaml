@@ -1,0 +1,15 @@
+# Build metadata for epiphany (imported 2026-11-17; migrated to core26).
+snap: epiphany
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/epiphany
+recipe: https://git.launchpad.net/~desktop-snappers/epiphany-browser (stable)
+recipe-commit: 13f9f6d22de2181886022e54af4f8dbe3ba624e2
+imported: '2026-11-17'
+store:
+  publisher: Jeremy Bicha (jbicha)
+  verified: false

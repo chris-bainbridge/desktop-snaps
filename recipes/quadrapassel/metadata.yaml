@@ -1,0 +1,15 @@
+# Build metadata for quadrapassel (imported 2026-11-18; core26 migration).
+snap: quadrapassel
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/quadrapassel
+recipe: https://github.com/ubuntu/quadrapassel (stable)
+recipe-commit: e2738119d45a8590806f472e87c00c792284d24e
+imported: '2026-11-18'
+store:
+  publisher: Canonical
+  verified: true

@@ -1,7 +1,0 @@
-# Build metadata for parabolic (new core26 recipe, 2026-11).
-snap: parabolic
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/NickvisionApps/Parabolic (2026.5.0)
-imported: '2026-11-19'

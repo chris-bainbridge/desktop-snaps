@@ -1,0 +1,9 @@
+snap: calligra
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: invent.kde.org
+  project: office/calligra
+imported: '2026-11-17'

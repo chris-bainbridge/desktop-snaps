@@ -42,26 +42,31 @@ permission. `metadata.yaml` records the basis in `redistribution:`
 
 ## Layout
 
-Every package lives in a top-level directory named after its **snap name**
-(the store identity):
+Every package lives in a directory under `recipes/`, named after its **snap
+name** (the store identity). The top level holds the repository README, the
+`build` driver, `excluded-projects.yaml`, the `docs/` directory and the
+`recipes/` tree:
 
 ```
-gnome-calculator/
-gnome-contacts/
-simple-scan/
-thunderbird/
-...
+recipes/
+├── gnome-calculator/
+├── gnome-contacts/
+├── simple-scan/
+├── thunderbird/
+└── ...
 ```
 
-A two-letter shard (`gn/`, `th/`, as in Nixpkgs) is deliberately not used:
-a flat layout is easier to scan, and sharding can be added later if the
-repository grows to many hundreds.
+A two-letter shard (`gn/`, `th/`, as in Nixpkgs) is deliberately not used
+inside `recipes/`: a flat layout is easier to scan, and sharding can be added
+later if the repository grows to many hundreds.
 
-The directory name matches `snap:` in `metadata.yaml`. A package with a single
-recipe is **flat**; that recipe is implicitly the `stable` track:
+`docs/upstream-schema.md` documents the `upstream:` metadata format. The
+directory name under `recipes/` matches `snap:` in `metadata.yaml`. A
+package with a single recipe is **flat**; that recipe is implicitly the
+`stable` track:
 
 ```
-gnome-logs/
+recipes/gnome-logs/
 ├── metadata.yaml       # provenance and build mode
 ├── snapcraft.yaml      # the recipe, implicitly stable
 └── ...                 # patches, snap/, or whatever the recipe needs
@@ -71,7 +76,7 @@ If a package has more than one release track, it is **nested**: the stable
 recipe moves too, and every track is a complete build project of its own:
 
 ```
-ardour/
+recipes/ardour/
 ├── metadata.yaml       # provenance and build mode, shared by all tracks
 ├── stable/
 │   ├── snapcraft.yaml  # latest stable upstream release
@@ -87,8 +92,8 @@ recipe that needs it, but do not create a track without a real upstream
 stream behind it. Flat and nested layouts are never mixed, and a nested
 package always keeps a `stable/` recipe.
 
-`metadata.yaml` stays at the package root, never inside a track, and is never
-copied into a build workspace.
+`metadata.yaml` stays at the package root under `recipes/`, never inside a
+track, and is never copied into a build workspace.
 
 ## Building
 
@@ -141,7 +146,8 @@ that the application can move ahead of the distribution.
 
 ### `mode: vendored`
 
-The package directory is the upstream packaging project, checked in verbatim
+The package directory under `recipes/` is the upstream packaging project,
+checked in verbatim
 (minus `.git`, `.github/` and `.gitignore`). The build copies it into the
 workspace and runs snapcraft there. Every package here uses this mode: the
 Launchpad `~desktop-snappers` recipes and `ubuntu/thunderbird` contain only
@@ -169,7 +175,10 @@ base: core26                     # snap base of the migrated recipe
 mode: vendored                   # vendored | overlay
 redistribution: open-source      # open-source | canonical-published
 
-upstream: https://gitlab.gnome.org/GNOME/gnome-calculator
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/gnome-calculator
 recipe: https://git.launchpad.net/~desktop-snappers/gnome-calculator (snap)
 recipe-commit: 89048f8fae2e...   # commit these recipe files came from
 merge-request: https://code.launchpad.net/~desktop-snappers/gnome-calculator/+git/snap/+merge/514128
@@ -180,9 +189,12 @@ store:
 ```
 
 `upstream` is the project itself, where its source is developed, never a
-packaging repository. `recipe` is the packaging repository the vendored
-recipe came from (with its branch), and `recipe-commit` is the commit it was
-copied from.
+packaging repository. It records only where to look; the current version
+stays in the recipe. See
+[`docs/upstream-schema.md`](docs/upstream-schema.md) for the provider
+fields, tag patterns and manual entries. `recipe` is the
+packaging repository the vendored recipe came from (with its branch), and
+`recipe-commit` is the commit it was copied from.
 
 `metadata.yaml` stays at the package root even when the package is nested.
 The track directories contain the complete build projects, so the version

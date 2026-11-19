@@ -1,0 +1,10 @@
+# Build metadata for genius (new core26 recipe, 2026-11).
+snap: genius
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: GNOME/genius
+imported: '2026-11-19'

@@ -1,7 +1,0 @@
-# Build metadata for glabels (new core26 recipe, 2026-11).
-snap: glabels
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/glabels (3.4.1)
-imported: '2026-11-19'

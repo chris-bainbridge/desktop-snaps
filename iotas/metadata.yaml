@@ -1,7 +1,0 @@
-# Build metadata for iotas (new core26 recipe, 2026-11).
-snap: iotas
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://gitlab.gnome.org/World/iotas (2026.10)
-imported: '2026-11-19'

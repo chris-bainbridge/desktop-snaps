@@ -1,6 +1,0 @@
-snap: bluefish
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://sourceforge.net/p/bluefish/code/HEAD/tree/ (2.4.2)
-imported: '2026-11-17'

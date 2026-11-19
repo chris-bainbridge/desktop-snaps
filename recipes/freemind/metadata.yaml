@@ -1,0 +1,14 @@
+# Build metadata for freemind (imported 2026-11-17).
+snap: freemind
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: sourceforge
+  project: freemind
+recipe: https://github.com/jibel/freemind-snap (master)
+recipe-commit: ef1fe9b72b68117706b44b1a7d04b566b67c31cb
+imported: '2026-11-17'
+store:
+  publisher: Jean-Baptiste Lallement (jibel)
+  verified: false

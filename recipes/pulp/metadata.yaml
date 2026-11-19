@@ -1,0 +1,10 @@
+# Build metadata for pulp (new core26 recipe, 2026-11).
+snap: pulp
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.gnome.org
+  project: cheywood/Pulp
+imported: '2026-11-19'

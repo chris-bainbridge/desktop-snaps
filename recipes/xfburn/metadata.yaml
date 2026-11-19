@@ -1,0 +1,9 @@
+snap: xfburn
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: gitlab
+  host: gitlab.xfce.org
+  project: apps/xfburn
+imported: '2026-11-17'

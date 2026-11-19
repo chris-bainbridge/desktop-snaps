@@ -1,0 +1,9 @@
+snap: librewolf
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: git
+  host: librewolf.dev
+  project: librewolf/source
+imported: '2026-11-17'

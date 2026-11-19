@@ -1,0 +1,9 @@
+# Build metadata for soundconverter (new core26 recipe, 2026-11).
+snap: soundconverter
+base: core26
+mode: vendored
+redistribution: open-source
+upstream:
+  provider: github
+  project: kassoulet/soundconverter
+imported: '2026-11-19'

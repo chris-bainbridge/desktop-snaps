@@ -1,6 +1,0 @@
-snap: mysql-workbench
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/mysql/mysql-workbench (8.0.47)
-imported: '2026-11-17'

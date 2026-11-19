@@ -1,7 +1,0 @@
-snap: scribus
-base: core26
-mode: vendored
-redistribution: open-source
-# SourceForge hosts the releases; the code lives in the project's own SVN.
-upstream: svn://scribus.net (1.6.7)
-imported: '2026-11-17'

@@ -1,6 +1,0 @@
-snap: guake
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/Guake/guake (3.10.1)
-imported: '2026-11-17'

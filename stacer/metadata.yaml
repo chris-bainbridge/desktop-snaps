@@ -1,6 +1,0 @@
-snap: stacer
-base: core26
-mode: vendored
-redistribution: open-source
-upstream: https://github.com/oguzhaninan/Stacer (v1.1.0)
-imported: '2026-11-17'
