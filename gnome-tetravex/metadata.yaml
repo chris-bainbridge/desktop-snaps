@@ -1,9 +1,9 @@
-# Build metadata for gnome-tetravex (imported 2026-11-17; core26 migration pending).
+# Build metadata for gnome-tetravex (imported 2026-11-17; migrated to core26).
 snap: gnome-tetravex
-base: core24
+base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/gnome-tetravex
+upstream: https://gitlab.gnome.org/GNOME/gnome-tetravex (3.38.3)
 recipe: https://git.launchpad.net/~desktop-snappers/gnome-tetravex (stable)
 recipe-commit: aecef2f1aafc6a029b4e6745ae5ce5cc76ae3dce
 imported: '2026-11-17'
