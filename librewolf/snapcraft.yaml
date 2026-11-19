@@ -1,6 +1,6 @@
 name: librewolf
 title: LibreWolf
-version: '160.0-1'
+version: '160.0.1-1'
 summary: Privacy-focused web browser based on Firefox
 description: |
   LibreWolf is a community fork of Firefox focused on privacy, security and
@@ -74,10 +74,8 @@ description: |
 # settings, build scripts) and librewolf/bsys6 (the build system) on
 # https://librewolf.dev. The old GitLab group librewolf-community/browser now
 # says development moved to Codeberg, and the GitHub browser-linux repository
-# is archived; Codeberg mirrors librewolf.dev. 160.0-1 is the latest published
-# stable bsys6 release (2026-11-11). The source tree has a 160.0.1-1 version
-# bump dated 2026-11-17, but no 160.0.1 artifacts had been published when this
-# recipe was written, so 160.0-1 is pinned.
+# is archived; Codeberg mirrors librewolf.dev. 160.0.1-1 is the latest
+# published stable bsys6 release (2026-11-18).
 #
 # Runtime dependency audit (26.04 platform), from readelf -d on every ELF in
 # the tarball:
@@ -162,11 +160,11 @@ parts:
       case "$CRAFT_ARCH_BUILD_FOR" in
         amd64)
           release_arch=linux-x86_64
-          checksum=7c751d4d279f05a2514298599ad3c43d4e85dd011ad2ecc07319c5a8c34a72e5
+          checksum=07ab4fc73f401764890eb5c87dd7b5815c7783b1c7378ea789ca1330d362209b
           ;;
         arm64)
           release_arch=linux-arm64
-          checksum=c39d851d930a5b2039ec39e9ebbbd36450261f6456867d50eff0bce1bb4a3a08
+          checksum=54899b6d58d9bc79d1a3f92bf3e0fae3f9af964e256b36a201cb36366d15820a
           ;;
         *)
           echo "librewolf: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2

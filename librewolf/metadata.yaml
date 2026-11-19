@@ -2,5 +2,5 @@ snap: librewolf
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://librewolf.dev/librewolf/source (160.0-1)
+upstream: https://librewolf.dev/librewolf/source (160.0.1-1)
 imported: '2026-11-17'
