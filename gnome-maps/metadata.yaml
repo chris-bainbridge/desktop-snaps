@@ -1,0 +1,7 @@
+# Build metadata for gnome-maps (new core26 recipe, 2026-11).
+snap: gnome-maps
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/gnome-maps (51.2)
+imported: '2026-11-18'

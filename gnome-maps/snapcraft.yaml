@@ -1,0 +1,146 @@
+name: gnome-maps
+adopt-info: gnome-maps
+summary: Find places around the world
+description: |
+  Maps gives you quick access to maps all across the world. It allows you to
+  quickly find the place you're looking for by searching for a city or
+  street, or locate a place to meet a friend. Maps uses the collaborative
+  OpenStreetMap database, made by hundreds of thousands of people across the
+  globe.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. Map tiles, search results and routes are downloaded over the
+  network. Tiles are cached in the snap's private per-user area, and GPX,
+  GeoJSON and KML files are imported from and exported to the user's home
+  directory. The current location is obtained from the host's GeoClue
+  service through the location-observe interface, which is not connected by
+  default; without it the "Current Location" button stays unavailable.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+contact: https://gitlab.gnome.org/GNOME/gnome-maps/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Upstream's launcher script is executed with gjs from the platform.
+  /usr/bin/gjs:
+    symlink: $SNAP/gnome-platform/usr/bin/gjs
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  gnome-maps:
+    interface: dbus
+    bus: session
+    name: org.gnome.Maps
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - org.gnome.Maps
+
+# libgeoclue is loaded by gjs through GObject introspection at runtime, so
+# the library linter cannot see its user and reports it as unused.
+lint:
+  ignore:
+    - unused-library: [usr/lib/*/libgeoclue-2.so.*]
+
+apps:
+  gnome-maps:
+    extensions: [gnome]
+    command: usr/bin/gnome-maps
+    desktop: usr/share/applications/org.gnome.Maps.desktop
+    common-id: org.gnome.Maps.desktop
+    environment:
+      # Upstream installs libgnome-maps and its typelib in $libdir/gnome-maps,
+      # which the gnome extension does not put on any search path. libxml2 and
+      # the bundled shumate/geoclue libraries are in the usual usr/lib paths,
+      # which the extension only exposes for the content snap.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-maps
+      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-maps/girepository-1.0
+      # gnome-core26's libgweather was built with the location database path
+      # from the SDK build tree instead of an install path, so point it at the
+      # copy shipped in the content snap ("Send To" needs the world database).
+      LIBGWEATHER_LOCATIONS_PATH: $SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gweather-locations/Locations.bin
+    plugs:
+      - gsettings
+      - home
+      - location-observe
+      - network
+      - network-status
+      # OSM login stores the access token with libsecret; connecting this
+      # (privileged, not auto-connected) interface lets it reach the session
+      # keyring.
+      - password-manager-service
+
+parts:
+  gnome-maps:
+    source: https://gitlab.gnome.org/GNOME/gnome-maps.git
+    source-type: git
+    source-tag: '51.2'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Maps.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/gnome-maps/current/usr
+      - --buildtype=release
+    organize:
+      snap/gnome-maps/current/usr: usr
+    build-packages:
+      # The gnome-core26 SDK provides GTK, libadwaita, gjs, GWeather,
+      # geocode-glib, libportal, librest and the other GNOME build
+      # dependencies, but neither libshumate nor libgeoclue.
+      - libshumate-dev
+      - libgeoclue-2-dev
+    override-build: |
+      craftctl default
+      # The install tree is still below the configured prefix here; organize
+      # is applied afterwards.
+      # meson configure resolves gjs.full_path() to the SDK, which is not
+      # available at runtime; the layout above points /usr/bin/gjs at the
+      # platform's gjs instead.
+      sed -i 's|^#!.*/gjs$|#!/usr/bin/gjs|' \
+        $CRAFT_PART_INSTALL/snap/gnome-maps/current/usr/share/gnome-maps/org.gnome.Maps
+      # meson install_symlink() writes an absolute target below the snap
+      # mount point, which snapd rejects when packing; make it relative.
+      ln -sfn ../share/gnome-maps/org.gnome.Maps \
+        $CRAFT_PART_INSTALL/snap/gnome-maps/current/usr/bin/gnome-maps
+      # Use the icon bundled in the snap so it also shows outside the theme.
+      sed -i 's|^Icon=org.gnome.Maps$|Icon=${SNAP}/meta/gui/org.gnome.Maps.svg|' \
+        $CRAFT_PART_INSTALL/snap/gnome-maps/current/usr/share/applications/org.gnome.Maps.desktop
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui
+      cp $CRAFT_PART_SRC/data/icons/public/hicolor/scalable/apps/org.gnome.Maps.svg \
+        $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    after: [gnome-maps]
+    plugin: nil
+    stage-packages:
+      # Neither libshumate nor libgeoclue is in the gnome-core26 content snap.
+      - gir1.2-shumate-1.0
+      - libshumate-1.0-1
+      - gir1.2-geoclue-2.0
+      - libgeoclue-2-0
+      # gnome-core26 has no libxml2, but libgnome-maps links it (for OSM
+      # traces and GPX import).
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup deletes every primed library whose path
+      # also exists in the SDK. libxml2 is in the SDK but not in the content
+      # snap, so move it out of the SDK's multiarch path; the app puts
+      # $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libshumate-1.0.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libgeoclue-2.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libprotobuf-c.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0/Shumate-1.0.typelib
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/girepository-1.0/Geoclue-2.0.typelib
+      - usr/share/locale/*/LC_MESSAGES/shumate1.mo
