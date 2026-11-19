@@ -95,11 +95,12 @@ impl HttpConfig {
     async fn note_rate_limit(&self, response: &reqwest::Response) {
         let status = response.status();
         let primary_github_limit = status == StatusCode::FORBIDDEN
-            && response
+            && (response
                 .headers()
                 .get("x-ratelimit-remaining")
                 .and_then(|value| value.to_str().ok())
-                == Some("0");
+                == Some("0")
+                || response.headers().contains_key("retry-after"));
         if status == StatusCode::TOO_MANY_REQUESTS || primary_github_limit {
             let delay =
                 rate_limit_delay(response.headers()).unwrap_or_else(|| Duration::from_secs(60));
