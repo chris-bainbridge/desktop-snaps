@@ -1,0 +1,113 @@
+name: gnome-snapshot
+adopt-info: gnome-snapshot
+summary: Take pictures and videos from your webcam
+description: |
+  Camera (formerly Snapshot) is GNOME's webcam application. It shows a live
+  viewfinder, takes pictures, records videos, and scans QR codes, with a
+  built-in gallery for the pictures and videos it has captured.
+
+  The camera is accessed through the XDG desktop camera portal, so the snap
+  needs a working xdg-desktop-portal backend on the host (for example
+  xdg-desktop-portal-gnome). Pictures and videos are saved to
+  ~/Pictures/Camera and ~/Videos/Camera.
+
+  Strict-confinement notes:
+   * The camera plug is declared for snapd's permission integration and for
+     hosts whose portal does not mediate device access; the actual stream
+     comes from the camera portal over PipeWire.
+   * gnome-core26 ships no software H.264 encoder (x264enc, openh264enc), so
+     recordings fall back to VP8/WebM unless a hardware encoder (VA-API or
+     V4L2) is available on the host.
+   * The XDG video and picture directories must be inside the home directory
+     (or on removable media) to be writable.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation; upstream ships
+  # data/org.gnome.Snapshot.service, but snapd writes the activation file for
+  # this slot, so the upstream file is not shipped (see override-build)
+  gnome-snapshot:
+    interface: dbus
+    bus: session
+    name: org.gnome.Snapshot
+
+apps:
+  gnome-snapshot:
+    extensions: [gnome]
+    # upstream installs the binary as "snapshot" (data/org.gnome.Snapshot.service)
+    command: usr/bin/snapshot
+    desktop: usr/share/applications/org.gnome.Snapshot.desktop
+    common-id: org.gnome.Snapshot.desktop
+    plugs:
+      # the snap's org.gnome.Snapshot GSettings schema
+      - gsettings
+      # ~/Pictures/Camera and ~/Videos/Camera
+      - home
+      - network
+      # XDG media directories that point at a mounted volume
+      - removable-media
+      # shutter sound playback through GStreamer
+      - audio-playback
+      # camera permission (the stream itself comes from the camera portal)
+      - camera
+
+# Camera 51.0 is a Rust + GTK4/libadwaita application (edition 2024,
+# rust-version 1.92). Its Meson build drives cargo itself on the upstream
+# Cargo.lock, like the resources recipe. cargo and rustc are not part of
+# gnome-core26-sdk; the 26.04 archive has rustc/cargo 1.93.1, which satisfies
+# the MSRV. GTK 4.24, libadwaita, GStreamer 1.28, glycin 2, meson, ninja,
+# gettext and pkg-config come from the gnome-core26 SDK/content snaps.
+#
+# The prefix is the runtime mount path, not /usr: the paths compiled into the
+# binary point at PKGDATADIR (resources.gresource) and LOCALEDIR. A /usr
+# prefix would resolve them to the core26 base instead of the snap; organize
+# moves the installed tree back under usr/.
+parts:
+  gnome-snapshot:
+    source: https://gitlab.gnome.org/GNOME/snapshot.git
+    source-type: git
+    source-tag: '51.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Snapshot.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/gnome-snapshot/current/usr
+      - --buildtype=release
+      # "development" switches the app ID to org.gnome.Snapshot.Devel and
+      # builds a debug binary; the release profile is the default anyway.
+      - -Dprofile=default
+    organize:
+      snap/gnome-snapshot/current/usr: usr
+    build-packages:
+      - cargo
+      # camerabin headers: meson checks for gstreamer-plugins-bad-1.0
+      - libgstreamer-plugins-bad1.0-dev
+    override-pull: |
+      craftctl default
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/org.gnome.Snapshot.svg|' \
+        data/org.gnome.Snapshot.desktop.in.in
+    override-build: |
+      craftctl default
+      # Meson's gnome.post_install() skips glib-compile-schemas when DESTDIR is
+      # set, which is how snapcraft installs. The gnome extension's
+      # desktop-launch compiles the schema on first run, but relying on that
+      # means GSettings cannot resolve org.gnome.Snapshot if it fails, so
+      # compile it here.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gnome-snapshot/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.Snapshot.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Snapshot.svg"
+      # D-Bus activation is provided by the dbus slot above (snapd writes a
+      # service file that runs "snap run"). Upstream's service file has a
+      # build-time absolute Exec (/snap/gnome-snapshot/current/usr/bin/...)
+      # and would not be used by the host bus, so do not ship it.
+      rm -f "$CRAFT_PART_INSTALL/snap/gnome-snapshot/current/usr/share/dbus-1/services/org.gnome.Snapshot.service"

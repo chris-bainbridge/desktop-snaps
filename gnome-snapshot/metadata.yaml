@@ -1,0 +1,7 @@
+# Build metadata for gnome-snapshot (new core26 recipe, 2026-11).
+snap: gnome-snapshot
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/snapshot (51.0)
+imported: '2026-11-18'

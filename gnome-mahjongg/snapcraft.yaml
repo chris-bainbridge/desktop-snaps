@@ -15,7 +15,12 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+license: GPL-3.0+
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -24,31 +29,29 @@ slots:
     bus: session
     name: org.gnome.Mahjongg
 
-layout:
-  /usr/share/gnome-mahjongg:
-    symlink: $SNAP/usr/share/gnome-mahjongg
-
 apps:
   gnome-mahjongg:
     command: usr/bin/gnome-mahjongg
-    extensions: [ gnome ]
+    extensions: [gnome]
     plugs:
       - gsettings
     desktop: usr/share/applications/org.gnome.Mahjongg.desktop
+    common-id: org.gnome.Mahjongg.desktop
 
 parts:
   gnome-mahjongg:
 # ext:updatesnap
     source: https://gitlab.gnome.org/GNOME/gnome-mahjongg.git
     source-type: git
-    source-tag: '48.1'
+    source-tag: '51.1'
     source-depth: 1
     parse-info: [usr/share/metainfo/org.gnome.Mahjongg.metainfo.xml]
     override-build: |
-      sed -i -e 's|=org.gnome.Mahjongg$|=${SNAP}/meta/gui/org.gnome.Mahjongg.svg|g' $CRAFT_PART_SRC/data/org.gnome.Mahjongg.desktop.in.in
+      sed -i -e 's|=@app-id@$|=${SNAP}/meta/gui/org.gnome.Mahjongg.svg|g' $CRAFT_PART_SRC/data/org.gnome.Mahjongg.desktop.in.in
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.Mahjongg.svg $CRAFT_PART_INSTALL/meta/gui/
     plugin: meson
     meson-parameters:
       - --prefix=/usr
+      - --buildtype=release
