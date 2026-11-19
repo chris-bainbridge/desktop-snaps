@@ -1,5 +1,8 @@
 name: lightsoff
 adopt-info: lightsoff
+title: Lights Off
+license: GPL-2.0-or-later
+contact: https://gitlab.gnome.org/GNOME/lightsoff/-/issues
 summary: Turn off all the lights
 description: |
   Lights Off is a collection of light switch puzzles. Clicking on a light
@@ -11,12 +14,11 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
 
-# Launchpad doesn't recognize these fields yet
-passthrough:
-  license: GPL-2.0+
-  title: Lights Off
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -29,20 +31,72 @@ apps:
   lightsoff:
     command: usr/bin/lightsoff
     extensions: [gnome]
+    plugs:
+      # the gnome extension no longer adds it on core26
+      - gsettings
     desktop: usr/share/applications/org.gnome.LightsOff.desktop
+    common-id: org.gnome.LightsOff.desktop
+    environment:
+      # gnome-core26's librsvg links libxml2.so.16, which the content snap
+      # does not ship, so the libraries part below bundles it in usr/lib.
+      # The gnome extension only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
 
+# Lights Off 50.0 is the GTK4 + libadwaita Vala rewrite (48.alpha moved off
+# Clutter/GTK3). GTK 4, libadwaita and valac come from the gnome-core26
+# SDK/content snaps.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR and DATADIR are
+# compiled into the binary, and a /usr prefix would resolve them to the core26
+# base instead of the snap. organize moves the installed tree back under usr/.
 parts:
   lightsoff:
+# ext:updatesnap
     source: https://gitlab.gnome.org/GNOME/lightsoff.git
     source-type: git
-    source-tag: '48.1'
+    source-tag: '50.0'
     source-depth: 1
     parse-info: [usr/share/metainfo/org.gnome.LightsOff.metainfo.xml]
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/lightsoff/current/usr
+      - --buildtype=release
+    organize:
+      snap/lightsoff/current/usr: usr
+    build-packages:
+      # gnome.yelp needs yelp-build; the gnome-core26 SDK ships itstool but
+      # not yelp-tools
+      - itstool
+      - yelp-tools
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
     override-build: |
       sed -i.bak -e 's|Icon=org.gnome.LightsOff$|Icon=${SNAP}/meta/gui/org.gnome.LightsOff.svg|g' $CRAFT_PART_SRC/data/org.gnome.LightsOff.desktop.in
       craftctl default
+      # meson's post-install script is skipped when DESTDIR is set, which is
+      # how snapcraft installs. Compile the schema here so GSettings can
+      # resolve org.gnome.LightsOff on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/lightsoff/current/usr/share/glib-2.0/schemas"
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
-      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.LightsOff.svg $CRAFT_PART_INSTALL/meta/gui/
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.LightsOff.svg \
+         $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26's librsvg links libxml2.so.16, but the content snap does
+      # not ship libxml2. The app renders its SVG icons through it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome/cleanup part deletes every primed library whose path also
+      # exists in the gnome-core26 SDK. libxml2 is in the SDK but not in the
+      # content snap, so move it out of the SDK's multiarch path; $SNAP/usr/lib
+      # is on the default LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
