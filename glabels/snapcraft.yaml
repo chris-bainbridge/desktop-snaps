@@ -1,0 +1,182 @@
+name: glabels
+adopt-info: glabels
+title: gLabels
+license: GPL-3.0-or-later
+website: https://glabels.org/
+contact: https://gitlab.gnome.org/GNOME/glabels/-/issues
+issues: https://gitlab.gnome.org/GNOME/glabels/-/issues
+source-code: https://gitlab.gnome.org/GNOME/glabels
+summary: Label, business card and media cover designer
+description: |
+  gLabels is a program for creating labels and business cards. It works with
+  the laser/ink-jet peel-off label and business-card sheets sold at office
+  supply stores, and can also lay out CD/DVD labels and media covers. A label
+  can contain text, images, lines, shapes and barcodes, and the document-merge
+  feature fills each label from a CSV file or other tabular data.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Labels can be opened and saved in the home directory. Files elsewhere are
+    reachable only through the file chooser (XDG document portal).
+  - Printing to a physical printer is not available: the snap is not
+    connected to the CUPS interface, so the GTK print dialog can only print
+    to a file (PDF, PostScript or SVG) in a writable location. The batch app
+    (glabels.glabels-batch) renders to PDF in the same way.
+  - Merging from an Evolution address book is not built in, because the
+    gnome-core26 platform does not ship Evolution Data Server. Merging from
+    CSV and other text files works.
+  - Barcode support covers QR Code (libqrencode), Data Matrix (libiec16022),
+    the GNU barcode symbologies (libbarcode) and the built-in encoder.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  glabels:
+    extensions: [gnome]
+    command: usr/bin/glabels-3
+    desktop: usr/share/applications/glabels-3.0.desktop
+    common-id: glabels-3.0.desktop
+    environment:
+      # The gnome extension only puts the platform on the library path; the
+      # snap's own libraries and the staged barcode/libxml2 libraries live in
+      # usr/lib.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      # the snap's org.gnome.glabels-3 GSettings schemas
+      - gsettings
+      # open and save label files
+      - home
+
+  glabels-batch:
+    # Batch conversion is headless (no desktop file); it is handy for
+    # rendering a sheet from a merge file into a PDF.
+    extensions: [gnome]
+    command: usr/bin/glabels-3-batch
+    environment:
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      - home
+
+# gLabels 3.4.1 (2018-04-28) is the latest stable release; upstream has no
+# newer tag and no Meson port, so this is a GTK3 + C application built with
+# autotools. The directory has four small patches, all taken from Debian's
+# glabels package: one replaces a gnome-common macro (gnome-common is not
+# needed otherwise), two are required by GCC 10/14 and modern glib, and one
+# restores libxml2's transparent gzip handling for the compressed label files
+# that gLabels writes (libxml2 2.14 requires XML_PARSE_UNZIP for that).
+#
+# The prefix is the runtime mount path, not /usr: the binary has
+# GLABELS_DATA_DIR (UI files and pixmaps), LIBGLABELS_CONFIG_DIR (templates)
+# and GLABELS_LOCALE_DIR compiled in, and a /usr prefix would resolve them to
+# the core26 base instead of the snap. organize moves the installed tree back
+# under usr/.
+#
+# gnome-core26 ships GTK3, GLib, cairo, pango, gdk-pixbuf and librsvg. It does
+# not ship libxml2 (which gLabels and the platform's librsvg link) or the
+# optional barcode libraries; those are staged from the 26.04 archive.
+parts:
+  glabels:
+    source: https://gitlab.gnome.org/GNOME/glabels.git
+    source-type: git
+    source-tag: 'glabels-3_4_1'
+    source-depth: 1
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/snap/glabels/current/usr
+      # The platform has no Evolution Data Server. Merging from CSV/text
+      # files is unaffected.
+      - --without-libebook
+      # Zint 2.15 no longer exports ZBarcode_Render, which gLabels' zint
+      # backend links against.
+      - --without-libzint
+      # The optional barcode backends are explicit so a missing build
+      # dependency fails the build instead of silently dropping a format.
+      - --with-libbarcode
+      - --with-libqrencode
+      - --with-libiec16022
+    organize:
+      snap/glabels/current/usr: usr
+    build-packages:
+      # The gnome-core26-sdk provides GTK3, GLib/GIO, cairo, pango,
+      # gdk-pixbuf, libxml2, gettext and the autotools toolchain. These are
+      # the extra build dependencies it does not provide.
+      - autoconf-archive # AX_COMPILER_FLAGS, replacing gnome-common
+      - gtk-doc-tools    # gtk-doc.m4 for GTK_DOC_CHECK (docs stay disabled)
+      - intltool         # intltool.m4, intltool-merge
+      - yelp-tools       # yelp.m4 for YELP_HELP_INIT
+      - librsvg2-dev     # not in gnome-core26-sdk
+      - barcode          # libbarcode.so, GNU barcode backend
+      - libqrencode-dev  # QR Code backend
+      - libiec16022-dev  # Data Matrix backend
+    override-pull: |
+      craftctl default
+      # glabels-3_4_1 -> 3.4.1
+      craftctl set version=$(git describe --tags --abbrev=10 |
+        sed -e 's/^glabels-//' -e 's/_/./g')
+      # autogen.sh is a thin wrapper around gnome-autogen.sh from the
+      # deprecated gnome-common. 0001 replaces the only gnome-common macro;
+      # with autogen.sh gone, the autotools plugin runs autoreconf --install.
+      rm -f autogen.sh
+      for patch_file in "${CRAFT_PROJECT_DIR}"/patches/*.patch; do
+          patch -p1 --forward < "${patch_file}"
+      done
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i.bak -e 's|^Icon=glabels-3.0$|Icon=${SNAP}/meta/gui/glabels-3.0.svg|' \
+        data/desktop/glabels-3.0.desktop.in
+    override-build: |
+      craftctl default
+      # GLib's install rule skips schema compilation when DESTDIR is set, but
+      # gLabels creates its Gio.Settings objects at start-up.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/glabels/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/scalable/apps/glabels-3.0.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      # Development files and the libtool wrappers; the application, its
+      # libraries and the data files stay.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gtk-doc
+      - -usr/share/doc
+      - -usr/share/man
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has no libxml2, but gLabels and the platform's librsvg
+      # link it directly.
+      - libxml2-16
+      # Runtime libraries for the three barcode backends enabled above.
+      - libqrencode4
+      - libiec16022-1
+      - barcode
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, and the barcode libraries are not wanted on the
+      # multiarch path either. Keep all four in usr/lib, which is on the
+      # LD_LIBRARY_PATH set for the apps above.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libxml2.so.16* libqrencode.so.* libiec16022.so.* libbarcode.so*; do
+          mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/$lib \
+            "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    prime:
+      - usr/lib/libxml2.so.*
+      - usr/lib/libqrencode.so.*
+      - usr/lib/libiec16022.so.*
+      # Only the library from the barcode package: the barcode CLI would
+      # also drag in libpaper and its configuration.
+      - usr/lib/libbarcode.so*

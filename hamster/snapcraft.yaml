@@ -1,0 +1,178 @@
+name: hamster
+adopt-info: hamster
+summary: Personal time tracking tool
+description: |
+  Hamster is time tracking for individuals. Whenever you change from doing one
+  task to another, you change your current activity in Hamster. Afterwards it
+  shows how much time you have spent on what: day, week and month views with
+  tallies by group, and reports or exports in HTML, text, XML, TSV and
+  iCalendar formats.
+
+  Strict-confinement notes:
+   * The tracker database lives in the snap's private per-user data directory
+     (~/snap/hamster/current/.local/share/hamster). A database from a deb or
+     Flatpak installation is not imported automatically.
+   * Only non-hidden paths in your home directory are visible. Reports can be
+     written there; files in other locations can only be selected through the
+     desktop file chooser portal.
+   * The snap provides the legacy org.gnome.Hamster.WindowServer D-Bus API, so
+     a Hamster GNOME Shell extension installed on the host can open windows in
+     the snap. The extension itself is not bundled.
+   * HTML reports are saved in the chosen home folder and opened through the
+     host browser (GTK's URI handler / desktop portal); if the browser cannot
+     be reached, open the saved file manually.
+
+# Strict confinement is a hard requirement: this batch targets Core Desktop,
+# which has no classic snaps.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://github.com/projecthamster/hamster/wiki
+source-code: https://github.com/projecthamster/hamster
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # The names below are hardcoded in the application and in upstream's
+  # D-Bus service files: the storage daemon owns org.gnome.Hamster,
+  # GtkApplication registers org.gnome.Hamster.GUI, and the legacy window
+  # server owns org.gnome.Hamster.WindowServer.
+  hamster-storage:
+    interface: dbus
+    bus: session
+    name: org.gnome.Hamster
+  hamster-gui:
+    interface: dbus
+    bus: session
+    name: org.gnome.Hamster.GUI
+  hamster-window-server:
+    interface: dbus
+    bus: session
+    name: org.gnome.Hamster.WindowServer
+
+apps:
+  hamster:
+    extensions: [gnome]
+    command: bin/hamster
+    desktop: usr/share/applications/org.gnome.Hamster.GUI.desktop
+    common-id: org.gnome.Hamster.GUI.desktop
+    plugs:
+      - gsettings # GTK 3 reads the desktop theme, fonts and settings
+      - home      # report and database import/export files in the user's home
+
+  hamster-service:
+    extensions: [gnome]
+    command: bin/hamster-service
+    # Upstream splits the storage backend into a session D-Bus daemon. Snapd
+    # generates the activation file for it; the GUI and CLI then get it on
+    # demand from the session bus.
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [hamster-storage]
+    plugs:
+      - gsettings
+      - home
+
+  hamster-window-service:
+    extensions: [gnome]
+    command: bin/hamster-window-service
+    # Legacy helper used by the GNOME Shell extension: it opens Hamster
+    # windows on request over org.gnome.Hamster.WindowServer.
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [hamster-window-server]
+    plugs:
+      - gsettings
+      - home
+
+parts:
+  launchers:
+    plugin: dump
+    source: snap/local
+    organize:
+      hamster-launcher: bin/hamster
+      hamster-service-launcher: bin/hamster-service
+      hamster-window-service-launcher: bin/hamster-window-service
+
+  # Hamster 3.0.3 is the latest stable release (2023-11-19). Upstream's master
+  # branch is still the GTK3/Python code; the GTK4 port is an open pull
+  # request (#786, 2026-05), so Flathub's org.gnome.Hamster still builds this
+  # tree. Flathub pins a post-3.0.3 packaging commit; the two upstream runtime
+  # fixes made after the tag are applied below as patches.
+  #
+  # The waf prefix is the runtime mount path, not /usr: defs.py bakes DATADIR
+  # (UI files, report template, default database, locale) into the
+  # application, and a /usr prefix would resolve that to the core26 base.
+  # organize moves the installed tree back under usr/.
+  hamster:
+    source: https://github.com/projecthamster/hamster.git
+    source-type: git
+    source-tag: 'v3.0.3'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - gettext            # msgfmt for the .po files
+      - intltool           # intltool-merge, required by waf's intltool tool
+      - itstool            # translated Mallard help pages
+      - libglib2.0-bin     # glib-compile-schemas for the GSettings schema
+      - libglib2.0-dev-bin # glib-genmarshal, glib-mkenums, glib-compile-resources
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10 | sed 's/^v//')
+      # Both patches are upstream commits made after the 3.0.3 tag:
+      # f14e427 drops a distutils version check (distutils is gone in Python
+      # 3.12+, and only setuptools' shim still provides it), fcafe53 stops
+      # passing a monotonic timestamp to Gtk.Window.present_with_time, which
+      # overflows the 32-bit argument after ~49 days of uptime.
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0001-drop-ancient-dbus-version-check.patch"
+      patch -p1 --silent < "${CRAFT_PROJECT_DIR}/patches/0002-present-window-without-manual-timestamp.patch"
+    override-build: |
+      set -eux
+
+      # The waf script's shebang is "#!/usr/bin/env python", which the SDK
+      # does not provide; invoke it with the Python 3 it does.
+      #
+      # PYTHONDIR overrides waf's guess (<prefix>/lib/python3.14/site-packages)
+      # because the platform interpreter imports from dist-packages, not
+      # site-packages. The launchers add the same directory to PYTHONPATH.
+      #
+      # GIT_DIR hides the patched checkout from version.py, which would
+      # otherwise append "+" and bake "3.0.3+" into defs.py and the metainfo
+      # file. The applied patches do not change the release version.
+      GIT_DIR=/dev/null \
+      PYTHONDIR=/snap/hamster/current/usr/lib/python3/dist-packages \
+        python3 ./waf configure \
+          --prefix=/snap/hamster/current/usr \
+          --skip-icon-cache-update
+      python3 ./waf build
+      python3 ./waf install --destdir="$CRAFT_PART_INSTALL"
+
+      prefix="$CRAFT_PART_INSTALL/snap/hamster/current/usr"
+
+      # The desktop entry starts the Gtk.Application directly. It is not
+      # D-Bus activated (snapd only generates activation files for the daemon
+      # apps above), and the absolute build-time Exec path must become the
+      # snap command that snapd rewrites on install.
+      desktop="$prefix/share/applications/org.gnome.Hamster.GUI.desktop"
+      sed -i \
+        -e '/^DBusActivatable=/d' \
+        -e 's|/snap/hamster/current/usr/bin/hamster|hamster|g' \
+        -e 's|^Exec= *hamster|Exec=hamster|' \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/org.gnome.Hamster.GUI.svg|' \
+        "$desktop"
+
+      # snapd cannot register upstream's D-Bus service files from inside the
+      # snap. The daemon apps above get snapd-generated activation files; the
+      # GUI is launched from the desktop file instead.
+      rm -rf "$prefix/share/dbus-1/services"
+
+      # Use the icon bundled in the snap so the launcher does not have to find
+      # it in the host theme.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/art/scalable/org.gnome.Hamster.GUI.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    organize:
+      snap/hamster/current/usr: usr

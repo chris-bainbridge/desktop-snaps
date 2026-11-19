@@ -1,0 +1,109 @@
+name: lorem
+adopt-info: lorem
+title: Lorem
+license: GPL-3.0-or-later
+website: https://apps.gnome.org/Lorem/
+contact: https://gitlab.gnome.org/World/design/lorem/-/issues
+issues: https://gitlab.gnome.org/World/design/lorem/-/issues
+source-code: https://gitlab.gnome.org/World/design/lorem
+summary: Generate Lorem Ipsum placeholder text
+description: |
+  Lorem is a simple application to generate the well-known Lorem Ipsum
+  placeholder text. The generated text can be produced as paragraphs or as a
+  number of words and copied to the clipboard with one click.
+
+  Strict-confinement notes:
+   * The application reads and writes no files of its own; it only copies the
+     generated text to the host clipboard.
+   * Files in the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.design.Lorem.service.in)
+  lorem:
+    interface: dbus
+    bus: session
+    name: org.gnome.design.Lorem
+
+apps:
+  lorem:
+    extensions: [gnome]
+    command: usr/bin/lorem
+    desktop: usr/share/applications/org.gnome.design.Lorem.desktop
+    common-id: org.gnome.design.Lorem.desktop
+    plugs:
+      # the snap's org.gnome.design.Lorem GSettings schema
+      - gsettings
+      # the user's home directory
+      - home
+
+# Lorem 1.7 is a Rust + GTK4/libadwaita application (edition 2024). Its Meson
+# build drives cargo itself on the upstream Cargo.lock (src/meson.build), like
+# the gnome-2048, contrast and solanum recipes: one custom_target runs
+# `cargo build --release` and copies the binary to its output. Ninja executes
+# that command through /bin/sh, so the chained copy works; nothing is vendored
+# in this repository and cargo fetches the pinned crates from crates.io during
+# the build.
+#
+# GTK 4.24 and libadwaita 1.10 come from the gnome-core26 SDK/content snaps and
+# satisfy the meson checks for gtk4 >= 4.23 and libadwaita >= 1.8.alpha; gettext,
+# meson and ninja are part of the platform too. cargo and rustc are not: the
+# 26.04 archive has cargo/rustc 1.93.1, which satisfies the gtk4 0.11 crate's
+# Rust 1.92 requirement and edition 2024. libxml2-utils supplies xmllint for
+# the preprocess="xml-stripblanks" UI files in data/resources.gresource.xml.
+#
+# Upstream installs its bundled Source Serif 4 font into usr/share/fonts
+# (install_fonts defaults to true, kept explicit here); the gnome extension's
+# configure hook refreshes the snap's font cache for it.
+#
+# The prefix is the runtime mount path, not /usr: PKGDATADIR (the gresource
+# bundle with the UI, CSS and icons), LOCALEDIR and the D-Bus service Exec line
+# are compiled in, and a /usr prefix would resolve them to the core26 base
+# instead of the snap. organize moves the installed tree back under usr/.
+parts:
+  lorem:
+    source: https://gitlab.gnome.org/World/design/lorem.git
+    source-type: git
+    source-tag: '1.7'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.design.Lorem.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/lorem/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to org.gnome.design.Lorem.Devel
+      # and build a debug binary; the release profile is the default.
+      - -Dprofile=default
+      # the Source Serif 4 font used by the generated-text view
+      - -Dinstall_fonts=true
+    organize:
+      snap/lorem/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      - libxml2-utils # xmllint for gresource xml-stripblanks preprocessing
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/org.gnome.design.Lorem.svg|g' \
+        data/org.gnome.design.Lorem.desktop.in.in
+    override-build: |
+      craftctl default
+      # Meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. The app creates its Gio.Settings object at
+      # start-up, so make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/lorem/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.design.Lorem.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"

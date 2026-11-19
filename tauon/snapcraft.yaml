@@ -1,0 +1,462 @@
+name: tauon
+title: Tauon
+adopt-info: tauon
+summary: Music player for local and network collections
+description: |
+  Tauon is a music player for local collections and network sources. It
+  imports folders by drag and drop, groups albums by folder, plays MP3, FLAC,
+  Ogg Vorbis, Opus, WavPack, MOD/tracker and game-music formats, supports CUE
+  sheets and gapless playback, and can stream from Jellyfin and Airsonic
+  servers. Lyrics, Last.fm/ListenBrainz scrobbling, cover art, playlists and
+  optional Chromecast output are included.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - The snap's HOME is the private ~/snap/tauon/current, so music imported
+    from the real home is reached through the non-hidden paths the home
+    interface exposes (for example ~/Music and ~/Downloads). Hidden
+    directories such as ~/.config and ~/.local/share are not visible, and
+    removable drives and network shares outside the home are unavailable:
+    this batch does not use the removable-media interface.
+  - Settings, the track database and playlists live under
+    ~/snap/tauon/current/.local/share/TauonMusicBox and are not shared with a
+    distribution-packaged Tauon. They can be copied there manually.
+  - Audio goes through the desktop's PulseAudio or pipewire-pulse server via
+    the audio-playback interface. Direct PipeWire, ALSA and JACK output are
+    not available under strict confinement, so the recipe defaults Tauon's
+    native backend to PulseAudio; leave the "PulseAudio" toggle selected in
+    the audio settings. Direct PipeWire needs the pipewire interface, which
+    this batch does not use.
+  - MPRIS media controls and media keys work through the snap's mpris slot.
+    The tray indicator needs a StatusNotifier host on the desktop (on GNOME
+    Shell the AppIndicator extension provides one).
+  - ffmpeg and ffprobe are not bundled. Transcoding, tag fallback for exotic
+    formats and AAC/M4A playback need the in-app ffmpeg download (or an
+    ffmpeg placed in Tauon's private data directory). The host's ffmpeg is
+    not on the snap's PATH.
+  - The tag editor is disabled by upstream whenever it detects a snap
+    install, because it relies on an external tag editor. Milkdrop
+    visualisation is disabled: it needs libprojectM 4 and its presets, which
+    are not in the 26.04 archive.
+  - Optional integrations whose Python modules are not in the 26.04 archive
+    are disabled: Plex import (PlexAPI), Tidal (tidalapi), Spotify import
+    (tekore), Discord Rich Presence (pypresence) and JPEG XL covers (jxlpy).
+    OpenCC Chinese search conversion, Chromecast, Last.fm and ListenBrainz
+    are included.
+
+# Tauon 9.1.x is not a Qt/PySide application. Upstream's current stack is
+# Python 3 with SDL3 for the window, renderer and input (PySDL3), PyGObject
+# only for GLib.get_user_data_dir() and the GTK 3/AppIndicator tray code, and
+# a C playback engine ("phazor") linked against FLAC, libopenmpt, mpg123,
+# Opusfile, Vorbis, WavPack, libsamplerate and Game Music Emu. There is
+# therefore no Qt or PySide to stage from the archive; snapcraft 9.2.1's
+# missing core26 Qt extension is not relevant here. The equivalent
+# non-platform dependency is SDL3, which neither core26 nor gnome-core26
+# ships:
+#   * SDL3 and SDL3_image are staged from the 26.04 archive (3.4.2 and
+#     3.4.0). The archive's Python 3.14 is the same ABI as the interpreter
+#     in gnome-core26, so the staged python3-* modules load in it.
+#   * PySDL3 is a pure-Python wrapper that Ubuntu does not package. Its
+#     official py3-none-any wheel is unpacked into the snap's dist-packages.
+#   * PySDL3 otherwise tries to download or locate its own SDL3 binary. The
+#     launcher sets SDL_BINARY_PATH to the staged SDL3 directory so it loads
+#     libSDL3.so.0 and libSDL3_image.so.0 through ctypes instead.
+#   * libdecor and libXss are needed by SDL3 but are in neither the GNOME
+#     runtime nor mesa-2604. They are kept in lib/tauon so the gnome
+#     extension's SDK deduplication cannot strip them, and the launcher puts
+#     that directory on LD_LIBRARY_PATH.
+#   * The recipe defaults the audio backend to PulseAudio. Tauon 9.x defaults
+#     to direct PipeWire; that needs the pipewire interface (not used here),
+#     while PulseAudio works through pipewire-pulse and audio-playback.
+# The launcher also provides an xdg-open wrapper that hands paths and URLs to
+# snapctl user-open, because a strict snap cannot execute the host's
+# xdg-open. PYTHONPATH is set to the snap's dist-packages; the gnome
+# extension's command chain appends the runtime's dist-packages after it.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://tauonmusicbox.rocks/
+source-code: https://github.com/Taiko2k/Tauon
+issues: https://github.com/Taiko2k/Tauon/issues
+contact: https://github.com/Taiko2k/Tauon/issues
+
+# No top-level icon: key: snapcraft requires that file to exist in the recipe
+# directory, and this package deliberately keeps the two-file layout. The
+# tauon part installs the upstream scalable icon at meta/gui/icon.svg, which is
+# where snapd and the store look for it.
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # OpenCC's Python module finds its dictionaries through
+  # opencc/clib/share/opencc, a relative symlink to /usr/share/opencc, and
+  # libopencc has that path compiled in. Expose the staged dictionaries there.
+  /usr/share/opencc:
+    bind: $SNAP/usr/share/opencc
+
+slots:
+  # Tauon's t_dbus.py owns org.mpris.MediaPlayer2.tauon on the session bus.
+  # The mpris interface allows exactly org.mpris.MediaPlayer2.<snap name>, so
+  # desktop media controls and media keys can drive playback.
+  mpris:
+    interface: mpris
+
+apps:
+  tauon:
+    extensions: [gnome]
+    command: bin/tauon-launcher
+    desktop: usr/share/applications/com.github.taiko2k.tauonmb.desktop
+    common-id: com.github.taiko2k.tauonmb
+    slots:
+      - mpris
+    # The gnome extension supplies desktop, desktop-legacy, opengl, wayland
+    # and x11, and the gpu-2604 wrapper for Mesa. These are the remaining
+    # default plugs Tauon needs.
+    plugs:
+      - audio-playback # PulseAudio / pipewire-pulse output
+      - home           # music library, playlists and downloads in the home
+      - network        # Jellyfin/Airsonic/Plex, Last.fm, lyrics, cover art
+      - network-bind   # the localhost:7813 action/remote-control socket
+    environment:
+      # The staged modules (mutagen, Pillow, requests, aiohttp, PySDL3, ...)
+      # live here. The gnome command chain appends the runtime's
+      # dist-packages after this entry.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+
+parts:
+  tauon:
+    source: https://github.com/Taiko2k/Tauon.git
+    source-type: git
+    source-tag: 'v9.1.3'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - ca-certificates # for the two source downloads in override-pull
+      - curl
+      - gettext # msgfmt, used by compile_translations.py in setup.py
+      - pkgconf
+      - python3
+      - python3-dev
+      - python3-setuptools
+      - libflac-dev
+      - libgme-dev
+      - libmpg123-dev
+      - libogg-dev
+      - libopenmpt-dev
+      - libopusfile-dev
+      - libpipewire-0.3-dev # the optional phazor-pw module
+      - libsamplerate0-dev
+      - libvorbis-dev
+      - libwavpack-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # The GitHub release archive contains empty src/phazor/kissfft and
+      # src/phazor/miniaudio directories: upstream fetches them separately
+      # (see run.sh). Pin the same versions and checksums.
+      curl -fsSL --retry 3 -o kissfft.tar.gz \
+        https://github.com/mborgerding/kissfft/archive/refs/tags/131.1.0.tar.gz
+      echo "76c1aac87ddb7258f34b08a13f0eebf9e53afa299857568346aa5c82bcafaf1a  kissfft.tar.gz" \
+        | sha256sum -c -
+      tar --strip-components=1 -xzf kissfft.tar.gz -C src/phazor/kissfft
+      rm -f kissfft.tar.gz
+      curl -fsSL --retry 3 -o miniaudio.tar.gz \
+        https://github.com/mackron/miniaudio/archive/4a5b74bef029b3592c54b6048650ee5f972c1a48.tar.gz
+      echo "aacb63f571608210e69c5562eb8a9e3d1cb936bdee7a2eb8ffbc40f63888d8e8  miniaudio.tar.gz" \
+        | sha256sum -c -
+      tar --strip-components=1 -xzf miniaudio.tar.gz -C src/phazor/miniaudio
+      rm -f miniaudio.tar.gz
+    override-build: |
+      set -eux
+
+      test -f src/phazor/kissfft/kiss_fft.c
+      test -f src/phazor/miniaudio/miniaudio.h
+
+      # Direct PipeWire output needs the pipewire interface, which this batch
+      # does not use. Keep PulseAudio (which also works through
+      # pipewire-pulse) as the default; the user can still switch back in the
+      # audio settings, where phazor-pw is available.
+      sed -i 's/pipewire: bool = True/pipewire: bool = False/' \
+        src/tauon/t_modules/t_prefs.py
+
+      # Upstream already uses the reverse-DNS id when installed under /app or
+      # on macOS. Use it for /snap as well so SDL's Wayland app_id matches the
+      # desktop file (com.github.taiko2k.tauonmb) and the window gets its icon.
+      sed -i 's|startswith("/app/") or sys.platform|startswith(("/app/", "/snap/")) or sys.platform|' \
+        src/tauon/__main__.py
+
+      # setup.py's custom build command runs compile_translations.py, then
+      # setuptools builds the phazor and phazor-pw C extensions. The
+      # --install-lib path is the snap interpreter's dist-packages; the
+      # gnome runtime's Python 3.14 has the same ABI.
+      python3 setup.py build
+      python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr \
+        --single-version-externally-managed \
+        --record=install-files.txt
+      # The launcher runs __main__.py directly; the generated entry-point
+      # script has a host shebang and would not work in the snap.
+      rm -f "$CRAFT_PART_INSTALL/usr/bin/tauonmb"
+
+      # Install the desktop entry and the hicolor icon. snapcraft rewrites the
+      # Exec lines to the app command and resolves Icon= from the hicolor tree.
+      install -Dm644 extra/com.github.taiko2k.tauonmb.desktop \
+        "$CRAFT_PART_INSTALL/usr/share/applications/com.github.taiko2k.tauonmb.desktop"
+      sed -i 's|^Exec=com.github.taiko2k.tauonmb.sh|Exec=tauon|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/com.github.taiko2k.tauonmb.desktop"
+      install -Dm644 extra/tauonmb.svg \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/com.github.taiko2k.tauonmb.svg"
+      install -Dm644 extra/tauonmb.svg "$CRAFT_PART_INSTALL/meta/gui/icon.svg"
+      install -Dm644 extra/com.github.taiko2k.tauonmb.appdata.xml \
+        "$CRAFT_PART_INSTALL/usr/share/metainfo/com.github.taiko2k.tauonmb.metainfo.xml"
+
+      # Launcher: locate the staged SDL3 libraries for PySDL3, add the private
+      # libdecor/libXss directory, and run the application with the runtime's
+      # Python interpreter (put on PATH by the gnome command chain).
+      install -d "$CRAFT_PART_INSTALL/bin"
+      cat > "$CRAFT_PART_INSTALL/bin/tauon-launcher" <<'LAUNCHER'
+      #!/bin/sh
+      set -eu
+
+      triplet="${SNAP_LAUNCHER_ARCH_TRIPLET:-}"
+      if [ -z "$triplet" ]; then
+          case "$(uname -m)" in
+              x86_64) triplet=x86_64-linux-gnu ;;
+              aarch64) triplet=aarch64-linux-gnu ;;
+              *) echo "tauon: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+          esac
+      fi
+
+      # PySDL3 loads libSDL3.so.0 from this directory; without it, it tries
+      # to find or download a separate SDL3 build.
+      export SDL_BINARY_PATH="$SNAP/usr/lib/$triplet"
+      # libdecor and libXss are not in gnome-core26 or mesa-2604, and are
+      # kept outside usr/lib so the SDK deduplication keeps them.
+      export LD_LIBRARY_PATH="$SNAP/lib/tauon${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+      # The gnome command chain points PULSE_SERVER at the host pulse socket
+      # when it exists. On a Core Desktop whose pipewire snap provides the
+      # audio-playback slot, the pulse socket lives in that snap's runtime
+      # directory instead, so fall back to the usual locations.
+      if [ -z "${PULSE_SERVER:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+          for candidate in \
+              "$XDG_RUNTIME_DIR/../pulse/native" \
+              "$XDG_RUNTIME_DIR/../snap.pipewire/pulse/native" \
+              "$XDG_RUNTIME_DIR/../snap.pipewire.pipewire-pulse/pulse/native"
+          do
+              if [ -S "$candidate" ]; then
+                  export PULSE_SERVER="unix:$candidate"
+                  break
+              fi
+          done
+      fi
+
+      # xdg-open below lives here.
+      export PATH="$SNAP/bin:$PATH"
+      export PYTHONDONTWRITEBYTECODE=1
+
+      exec python3 "$SNAP/usr/lib/python3/dist-packages/tauon/__main__.py" "$@"
+      LAUNCHER
+      chmod 755 "$CRAFT_PART_INSTALL/bin/tauon-launcher"
+
+      # A strict snap cannot run the host's xdg-open. Tauon uses it to reveal
+      # folders, open lyric files and open URLs; the desktop interface's
+      # snapctl user-open goes through the portal.
+      cat > "$CRAFT_PART_INSTALL/bin/xdg-open" <<'OPENER'
+      #!/bin/sh
+      set -eu
+      [ "$#" -ge 1 ] || exit 2
+      exec snapctl user-open "$1"
+      OPENER
+      chmod 755 "$CRAFT_PART_INSTALL/bin/xdg-open"
+
+  runtime-deps:
+    after: [tauon]
+    plugin: nil
+    stage-packages:
+      # SDL3 and SDL3_image are not in core26 or gnome-core26.
+      - libsdl3-0
+      - libsdl3-image0
+      # SDL3 hard links these two, which no content snap provides.
+      - libdecor-0-0
+      - libxss1
+      # phazor codecs that the GNOME runtime does not ship. FLAC, mpg123,
+      # Vorbis, Opus, WavPack and PulseAudio come from gnome-core26.
+      - libgme0
+      - libopenmpt0t64
+      - libopusfile0
+      - libsamplerate0
+      # Pillow's _imaging links libimagequant and libraqm; its _imagingft
+      # links libraqm. The rest of Pillow's codec dependencies are in
+      # gnome-core26.
+      - libimagequant0
+      - libraqm0
+      # libopencc (python3-opencc) links libmarisa.
+      - libmarisa1
+      # Python modules Tauon imports. python3-gi, pycairo, dbus-python,
+      # packaging and typing-extensions are in gnome-core26 and are not
+      # staged. Every python3-* package depends on python3, so an explicit
+      # stage list below keeps the interpreter and stdlib out of the snap.
+      # List every module whose path is staged explicitly: relying on one
+      # python3-* package to pull another only works until the archive's
+      # dependency metadata changes, and a missing path fails the stage copy.
+      - python3-aiohttp            # PySDL3 imports aiohttp at module load
+      - python3-aiohappyeyeballs   # aiohttp
+      - python3-aiosignal          # aiohttp
+      - python3-anyio              # httpx, used by pylast
+      - python3-attr               # aiohttp's attrs import
+      - python3-bs4
+      - python3-casttube           # pychromecast
+      - python3-certifi            # requests and httpx CA bundle
+      - python3-chardet            # requests' fallback decoder
+      - python3-charset-normalizer # requests' preferred decoder
+      - python3-colored-traceback
+      - python3-frozenlist         # aiohttp / yarl
+      - python3-h11                # httpcore
+      - python3-httpcore           # httpx
+      - python3-httpx              # pylast
+      - python3-idna               # requests, httpx, aiohttp, yarl
+      - python3-ifaddr             # zeroconf
+      - python3-multidict          # aiohttp / yarl
+      - python3-mutagen            # tag reading/writing
+      - python3-musicbrainzngs
+      - python3-natsort            # playlist sorting
+      - python3-opencc             # Chinese search conversion
+      - libopencc-data             # OpenCC dictionaries and JSON configs
+      - python3-opengl             # Milkdrop visualiser plumbing
+      - python3-pil                # cover art
+      - python3-propcache          # aiohttp / yarl
+      - python3-protobuf           # pychromecast
+      - python3-pychromecast       # Chromecast output
+      - python3-pygments           # colored_traceback
+      - python3-pylast             # Last.fm / ListenBrainz
+      - python3-requests
+      - python3-send2trash
+      - python3-setproctitle
+      - python3-sniffio            # anyio
+      - python3-soupsieve          # bs4
+      - python3-unidecode
+      - python3-urllib3            # requests
+      - python3-yarl               # aiohttp
+      - python3-zeroconf           # remote API discovery
+    organize:
+      # Keep these two out of usr/lib so the gnome extension's cleanup, which
+      # deletes primed libraries also present in the SDK, cannot remove them.
+      usr/lib/*/libdecor-0.so.*: lib/tauon/
+      usr/lib/*/libXss.so.*: lib/tauon/
+    stage:
+      - lib/tauon/*
+      - usr/lib/*/libSDL3.so.*
+      - usr/lib/*/libSDL3_image.so.*
+      - usr/lib/*/libgme.so.*
+      - usr/lib/*/libopenmpt.so.*
+      - usr/lib/*/libopusfile.so.*
+      - usr/lib/*/libsamplerate.so.*
+      - usr/lib/*/libimagequant.so.*
+      - usr/lib/*/libmarisa.so.*
+      - usr/lib/*/libopencc.so.1*
+      - usr/lib/*/libraqm.so.*
+      - usr/share/opencc
+      # Python modules. The dist-info/egg-info directories are kept so
+      # importlib.metadata-based feature probes see the package versions.
+      - usr/lib/python3/dist-packages/OpenGL
+      - usr/lib/python3/dist-packages/PIL
+      - usr/lib/python3/dist-packages/Unidecode-*.egg-info
+      - usr/lib/python3/dist-packages/aiohappyeyeballs
+      - usr/lib/python3/dist-packages/aiohappyeyeballs-*.dist-info
+      - usr/lib/python3/dist-packages/aiohttp
+      - usr/lib/python3/dist-packages/aiohttp-*.dist-info
+      - usr/lib/python3/dist-packages/aiosignal
+      - usr/lib/python3/dist-packages/aiosignal-*.egg-info
+      - usr/lib/python3/dist-packages/anyio
+      - usr/lib/python3/dist-packages/anyio-*.dist-info
+      - usr/lib/python3/dist-packages/attr
+      - usr/lib/python3/dist-packages/attrs
+      - usr/lib/python3/dist-packages/attrs-*.dist-info
+      - usr/lib/python3/dist-packages/beautifulsoup4-*.dist-info
+      - usr/lib/python3/dist-packages/bs4
+      - usr/lib/python3/dist-packages/casttube
+      - usr/lib/python3/dist-packages/casttube-*.dist-info
+      - usr/lib/python3/dist-packages/certifi
+      - usr/lib/python3/dist-packages/certifi-*.dist-info
+      - usr/lib/python3/dist-packages/chardet
+      - usr/lib/python3/dist-packages/chardet-*.dist-info
+      - usr/lib/python3/dist-packages/charset_normalizer
+      - usr/lib/python3/dist-packages/charset_normalizer-*.dist-info
+      - usr/lib/python3/dist-packages/colored_traceback
+      - usr/lib/python3/dist-packages/colored_traceback-*.dist-info
+      - usr/lib/python3/dist-packages/frozenlist
+      - usr/lib/python3/dist-packages/frozenlist-*.dist-info
+      - usr/lib/python3/dist-packages/google
+      - usr/lib/python3/dist-packages/h11
+      - usr/lib/python3/dist-packages/h11-*.egg-info
+      - usr/lib/python3/dist-packages/httpcore
+      - usr/lib/python3/dist-packages/httpcore-*.dist-info
+      - usr/lib/python3/dist-packages/httpx
+      - usr/lib/python3/dist-packages/httpx-*.dist-info
+      - usr/lib/python3/dist-packages/idna
+      - usr/lib/python3/dist-packages/idna-*.dist-info
+      - usr/lib/python3/dist-packages/ifaddr
+      - usr/lib/python3/dist-packages/ifaddr-*.dist-info
+      - usr/lib/python3/dist-packages/multidict
+      - usr/lib/python3/dist-packages/multidict-*.dist-info
+      - usr/lib/python3/dist-packages/musicbrainzngs
+      - usr/lib/python3/dist-packages/musicbrainzngs-*.egg-info
+      - usr/lib/python3/dist-packages/mutagen
+      - usr/lib/python3/dist-packages/mutagen-*.egg-info
+      - usr/lib/python3/dist-packages/natsort
+      - usr/lib/python3/dist-packages/natsort-*.egg-info
+      - usr/lib/python3/dist-packages/opencc
+      - usr/lib/python3/dist-packages/opencc-*.dist-info
+      - usr/lib/python3/dist-packages/pillow-*.egg-info
+      - usr/lib/python3/dist-packages/propcache
+      - usr/lib/python3/dist-packages/propcache-*.dist-info
+      - usr/lib/python3/dist-packages/protobuf-*.egg-info
+      - usr/lib/python3/dist-packages/pychromecast
+      - usr/lib/python3/dist-packages/pychromecast-*.dist-info
+      - usr/lib/python3/dist-packages/pygments
+      - usr/lib/python3/dist-packages/pygments-*.dist-info
+      - usr/lib/python3/dist-packages/pylast
+      - usr/lib/python3/dist-packages/pylast-*.dist-info
+      - usr/lib/python3/dist-packages/pyopengl-*.dist-info
+      - usr/lib/python3/dist-packages/requests
+      - usr/lib/python3/dist-packages/requests-*.dist-info
+      - usr/lib/python3/dist-packages/send2trash
+      - usr/lib/python3/dist-packages/send2trash-*.dist-info
+      - usr/lib/python3/dist-packages/setproctitle
+      - usr/lib/python3/dist-packages/setproctitle-*.egg-info
+      - usr/lib/python3/dist-packages/sniffio
+      - usr/lib/python3/dist-packages/sniffio-*.dist-info
+      - usr/lib/python3/dist-packages/soupsieve
+      - usr/lib/python3/dist-packages/soupsieve-*.dist-info
+      - usr/lib/python3/dist-packages/unidecode
+      - usr/lib/python3/dist-packages/urllib3
+      - usr/lib/python3/dist-packages/urllib3-*.dist-info
+      - usr/lib/python3/dist-packages/yarl
+      - usr/lib/python3/dist-packages/yarl-*.dist-info
+      - usr/lib/python3/dist-packages/zeroconf
+      - usr/lib/python3/dist-packages/zeroconf-*.dist-info
+    prime:
+      - -usr/share/doc
+
+  pysdl3:
+    # Ubuntu does not package PySDL3. The wheel is pure Python (ctypes
+    # bindings), so it can simply be unpacked next to the staged modules.
+    source: https://files.pythonhosted.org/packages/1f/ab/6ca0ae619bd75a79c289c84939b0e9067f76bfdcb0d51a4300f323ffad11/pysdl3-0.9.12b1-py3-none-any.whl
+    source-type: zip
+    source-checksum: sha256/4ddced58f07bb2c80d657c718c5a70f1b792580fccbc3efbbcdaeee26ffe77f7
+    plugin: dump
+    organize:
+      sdl3: usr/lib/python3/dist-packages/sdl3
+      pysdl3-0.9.12b1.dist-info: usr/lib/python3/dist-packages/pysdl3-0.9.12b1.dist-info
+    prime:
+      - usr/lib/python3/dist-packages/sdl3
+      - usr/lib/python3/dist-packages/pysdl3-0.9.12b1.dist-info

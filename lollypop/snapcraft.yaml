@@ -1,0 +1,244 @@
+name: lollypop
+adopt-info: lollypop
+title: Lollypop
+summary: Music player for GNOME
+description: |
+  Lollypop is a lightweight music player for GNOME. It plays the local music
+  collection, browses it by artist, album and genre, handles playlists,
+  queue and shuffle playback, fetches lyrics, artwork and artist information
+  online, and supports ReplayGain, MPRIS media controls and a fullscreen
+  party mode.
+
+  The player is built on GStreamer and Python 3. The GStreamer base, good
+  and extra plugin sets, Python, PyGObject and pycairo come from the GNOME
+  content snap; this recipe stages the modules and the extra GStreamer
+  plugins that gnome-core26 does not ship.
+
+  Codec coverage:
+   * MP3, FLAC, Ogg Vorbis, Ogg Opus, Speex, WAV and WavPack are provided by
+     the platform's GStreamer base, good and extra plugins.
+   * AAC/M4A is decoded by the staged faad plugin.
+   * AC-3 audio is decoded by the staged a52dec plugin.
+   * WMA/ASF files can be indexed and their tags read through the staged asf
+     demuxer, but they cannot be played: the platform has no WMA decoder and
+     one is not bundled.
+   * ALAC, Monkey's Audio (APE), Musepack and RealAudio have no decoder in
+     the snap and cannot be played. Installing codecs on demand through
+     PackageKit does not work in a strictly confined snap.
+
+  Strict-confinement notes:
+   * The music library is read from non-hidden paths in the home directory
+     (by default XDG_MUSIC_DIR). Music elsewhere on the filesystem, including
+     removable drives, is not visible to the library scanner. Individual
+     files picked through the desktop portal are added as ephemeral tracks.
+     Portable-player (MTP) sync and audio CD ripping are unavailable.
+   * Settings, the library database, playlists and cached artwork live in the
+     snap's private per-user area (~/snap/lollypop/...), not in ~/.config or
+     ~/.local/share, and are not shared with a distribution package.
+   * The GNOME Shell search provider is installed inside the snap but the
+     host shell cannot see it, so Lollypop results do not appear in the
+     Activities search.
+   * Lyrics translation needs python3-textblob, which is not in the 26.04
+     archive: downloaded lyrics are shown untranslated.
+   * YouTube and "similar tracks" integration is not bundled. Lollypop
+     finds no yt-dlp in the snap; its optional runtime installer downloads
+     yt-dlp with pip into its private data directory and needs the network
+     connection.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://wiki.gnome.org/Apps/Lollypop
+contact: https://gitlab.gnome.org/World/lollypop/-/issues
+issues: https://gitlab.gnome.org/World/lollypop/-/issues
+source-code: https://gitlab.gnome.org/World/lollypop
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (the id passed to Gtk.Application in
+  # lollypop/application.py; lollypop.in is configured with APPID)
+  lollypop:
+    interface: dbus
+    bus: session
+    name: org.gnome.Lollypop
+  # MPRIS media controls. lollypop/mpris.py owns this exact name, which is
+  # not org.mpris.MediaPlayer2.<snap name>, so declare it explicitly.
+  mpris:
+    interface: dbus
+    bus: session
+    name: org.mpris.MediaPlayer2.Lollypop
+
+apps:
+  lollypop:
+    extensions: [gnome]
+    command: usr/bin/lollypop
+    desktop: usr/share/applications/org.gnome.Lollypop.desktop
+    common-id: org.gnome.Lollypop.desktop
+    environment:
+      # The application module and the staged Python dependencies are
+      # installed outside the platform interpreter's default sys.path.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+    plugs:
+      # the snap's org.gnome.Lollypop GSettings schema
+      - gsettings
+      # the music library and playlists in the user's home directory
+      - home
+      # playback through the desktop's PulseAudio/PipeWire server
+      - audio-playback
+      # artwork, lyrics, Last.fm/ListenBrainz, radio and online search
+      - network
+
+# Lollypop 1.4.48 is a Python 3 + GTK3/libhandy 1 application built with
+# Meson. GTK3, libhandy, libsoup 3, GLib, GStreamer and the Python runtime
+# with PyGObject and pycairo come from the gnome-core26 content snap. The
+# Python modules and GStreamer plugins that the content snap lacks are
+# staged by the runtime-deps and gst-bad-extras parts below.
+#
+# The prefix is the runtime mount path, not /usr: lollypop.in has DATA_DIR,
+# LOCALE_DIR, LIBEXEC_DIR and PYTHON_DIR baked in, and a /usr prefix would
+# make them resolve to the core26 base instead of the snap. organize moves
+# the installed tree back under usr/.
+parts:
+  lollypop:
+    source: https://gitlab.gnome.org/World/lollypop.git
+    source-type: git
+    source-tag: '1.4.48'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Lollypop.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/lollypop/current/usr
+      - --buildtype=release
+      # Pin the Python module location so PYTHONPATH above always matches,
+      # whatever interpreter the SDK puts first in PATH.
+      - -Dpython.purelibdir=/snap/lollypop/current/usr/lib/python3/dist-packages
+    organize:
+      snap/lollypop/current/usr: usr
+    build-packages:
+      # GTK3, GLib/GIO, gobject-introspection, libsoup 3, meson/ninja and
+      # the gettext tooling come from the gnome-core26-sdk build snap.
+      # pygobject-3.0.pc and py3cairo.pc are the ones it lacks.
+      - gettext
+      - python-gi-dev
+      - python3-cairo-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i.bak -e 's|^Icon=org.gnome.Lollypop$|Icon=${SNAP}/meta/gui/org.gnome.Lollypop.svg|' \
+        data/org.gnome.Lollypop.desktop.in
+    override-build: |
+      craftctl default
+      # meson skips meson_post_install.py when DESTDIR is set, which is how
+      # snapcraft installs, so the GSettings schema is never compiled.
+      # Lollypop creates its Gio.Settings objects at start-up; make sure
+      # gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/lollypop/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Lollypop.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+      # core26 has no /usr/bin/python3. Run the application and the search
+      # provider with the platform interpreter that the module was installed
+      # for (the same Python 3.14 as the SDK build interpreter).
+      sed -i '1s|^#!.*|#!/snap/lollypop/current/gnome-platform/usr/bin/python3|' \
+        "$CRAFT_PART_INSTALL/snap/lollypop/current/usr/bin/lollypop" \
+        "$CRAFT_PART_INSTALL/snap/lollypop/current/usr/libexec/lollypop-sp"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/man
+
+  runtime-deps:
+    after: [lollypop]
+    plugin: nil
+    stage-packages:
+      # Python 3.14, PyGObject, pycairo, dbus-python, GTK 3 and the GTK 3
+      # typelibs are in gnome-core26. These modules are not:
+      - python3-pil        # lollypop/artwork_manager.py imports PIL eagerly
+      - python3-bs4        # lyrics and radio page scraping in helper_web*
+      # GStreamer's PyGObject overrides (Gst.Fraction, Gst.Structure, ...).
+      # The platform ships PyGObject but not gst-python.
+      - python3-gst-1.0
+      # libtotem-plparser parses the M3U/PLS/SPL/XSPF playlists that
+      # lollypop/playlists.py imports at start-up. gnome-core26 has neither
+      # the library nor its typelib.
+      - libtotem-plparser18
+      - gir1.2-totemplparser-1.0
+      # Pillow's _imaging module links these directly; none is in the
+      # content snap.
+      - libimagequant0
+      - libraqm0
+      - libxcb1
+      - libxau6
+      - libxdmcp6
+      # libtotem-plparser links libxml2, which is in the SDK but not in the
+      # gnome-core26 content snap.
+      - libxml2-16
+      # The platform ships the GStreamer base, good and extra plugin sets,
+      # but not the ugly set or libav. The ugly set adds the AC-3 decoder
+      # (a52dec) and the ASF/WMA demuxer (asf). The AAC/M4A decoder (faad)
+      # comes from gst-bad-extras below.
+      - gstreamer1.0-plugins-ugly
+      - libfaad2           # libgstfaad.so's only non-platform dependency
+    # Stage only the runtime files. An explicit list keeps the interpreter
+    # and its standard library out of the snap (python3-pil and python3-bs4
+    # depend on python3), and drops the plugin files of the ugly set that
+    # need hardware or video codecs the snap cannot use.
+    stage:
+      - usr/lib/python3/dist-packages/PIL
+      - usr/lib/python3/dist-packages/pillow-*
+      - usr/lib/python3/dist-packages/bs4
+      - usr/lib/python3/dist-packages/beautifulsoup4-*
+      - usr/lib/python3/dist-packages/soupsieve
+      - usr/lib/python3/dist-packages/soupsieve-*
+      - usr/lib/python3/dist-packages/gi/overrides/Gst*.py
+      - usr/lib/python3/dist-packages/gi/overrides/_gi_gst*.so
+      - usr/lib/*/girepository-1.0/TotemPlParser-1.0.typelib
+      - usr/lib/*/libtotem-plparser.so.18*
+      - usr/lib/*/libtotem-plparser-mini.so.18*
+      - usr/lib/*/libxml2.so.16*
+      - usr/lib/*/libfaad.so.2*
+      - usr/lib/*/liba52-0.7.4.so*
+      - usr/lib/*/libimagequant.so.0*
+      - usr/lib/*/libraqm.so.0*
+      - usr/lib/*/libxcb.so.1*
+      - usr/lib/*/libXau.so.6*
+      - usr/lib/*/libXdmcp.so.6*
+      - usr/lib/*/gstreamer-1.0/libgsta52dec.so
+      - usr/lib/*/gstreamer-1.0/libgstasf.so
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension's cleanup part deletes every shared object whose
+      # path also exists in the gnome-core26-sdk build snap. libxml2, libxcb,
+      # libXau and libXdmcp are in the SDK but not in the gnome-core26
+      # content snap, so keep our copies out of the SDK's multiarch path.
+      # libraqm and libimagequant are moved too so that a future SDK package
+      # set cannot prune them from under Pillow.
+      # snapcraft adds $SNAP/usr/lib to LD_LIBRARY_PATH because it exists.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libxml2.so.16 libxcb.so.1 libXau.so.6 libXdmcp.so.6 \
+                 libimagequant.so.0 libraqm.so.0; do
+        mv "$libdir/$lib"* "$CRAFT_PART_INSTALL/usr/lib/" 2>/dev/null || true
+      done
+
+  # gstreamer1.0-plugins-bad drags in the whole ONNX/TensorFlow/OpenCV
+  # decoder stack (hundreds of packages). Lollypop only needs the faad
+  # plugin (AAC decoding) from that source, so fetch the package without its
+  # dependencies and keep that one plugin.
+  gst-bad-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad
+      dpkg-deb -x gstreamer1.0-plugins-bad_*.deb "$CRAFT_PART_INSTALL"
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so

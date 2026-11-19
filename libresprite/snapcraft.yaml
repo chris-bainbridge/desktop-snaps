@@ -1,0 +1,173 @@
+name: libresprite
+title: LibreSprite
+adopt-info: libresprite
+license: GPL-2.0-only
+website: https://libresprite.github.io/
+source-code: https://github.com/LibreSprite/LibreSprite
+issues: https://github.com/LibreSprite/LibreSprite/issues
+contact: https://github.com/LibreSprite/LibreSprite/issues
+summary: Animated sprite editor and pixel-art tool
+description: |
+  LibreSprite is a free, open-source animated sprite editor and pixel-art
+  tool. It is a fork of the last GPLv2-licensed commit of Aseprite. It
+  offers layers, frames, onion skinning, palettes, tiled drawing modes,
+  pixel-precise tools, real-time animation previews and a JavaScript/Lua
+  scripting API, and it reads and writes Aseprite (.ase), GIF, PNG, PCX,
+  TGA, ICO, FLIC and WebP images.
+
+  Strict-confinement notes:
+   * LibreSprite uses its own file selector, which sees only non-hidden paths
+     in the home directory and the snap's private area. Files in system
+     directories or in hidden directories such as ~/.local/share cannot be
+     opened, and its SDL2 dialog is not an XDG desktop-portal client.
+   * Preferences, palettes, brushes, sessions and crash-recovery files live
+     in the snap's private per-user area (~/snap/libresprite/current)
+     instead of ~/.config and ~/.local/share, and are not shared with a
+     distribution-packaged LibreSprite.
+   * The file-manager thumbnailer is not installed: snapd cannot register a
+     host thumbnailer from inside a snap, and its helper script would not be
+     able to start the confined application.
+   * OpenGL rendering uses the Mesa drivers from the mesa-2604 content snap
+     that the gpu extension connects; the snap bundles no GPU drivers.
+   * The removable-media interface is not declared, so sprites on USB sticks
+     and other mounted volumes have to be copied into the home directory
+     first.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  libresprite:
+    # LibreSprite is an SDL2 + OpenGL application, not a GTK application:
+    # the gpu extension supplies the mesa-2604 drivers and its wrapper, while
+    # the gnome platform snap would only add an unused GTK stack.
+    extensions: [gpu]
+    command: usr/bin/libresprite
+    desktop: usr/share/applications/libresprite.desktop
+    common-id: libresprite.desktop
+    # The gpu extension provides only the content plug and the command-chain
+    # wrapper; the desktop interfaces are declared here.
+    plugs:
+      - home     # open and save sprites in the user's home directory
+      - opengl   # /dev/dri access for the mesa-2604 content snap
+      - wayland  # native Wayland session
+      - x11      # X11 session, and XWayland on Wayland desktops
+
+# LibreSprite 1.3 is a C++20 application: CMake 4.1+ with Ninja, SDL2 and
+# SDL2_image for the window/renderer backend, and libarchive, cURL, FreeType,
+# libpng, libjpeg, giflib, pixman and tinyxml2 as libraries. The two git
+# submodules (third_party/simpleini and src/flic) are fetched by snapcraft's
+# git source. The archive's CMake 4.2 satisfies the 4.1 minimum, so no
+# toolchain is rebuilt.
+#
+# The prefix stays /usr: the executable is installed in <prefix>/bin and its
+# ResourceFinder searches "../share/libresprite/data" relative to the binary,
+# which resolves to the staged usr/share tree at runtime. The desktop files,
+# icons, metainfo and the thumbnailer are only installed when
+# WITH_DESKTOP_INTEGRATION is enabled; that switch needs no GTK.
+#
+# With the gpu extension the base and the mesa-2604 content snap provide the
+# C library, libstdc++, zlib, libpng, FreeType, the X11/wayland client
+# libraries that Mesa already carries and libGL/libEGL. The libraries part
+# stages the rest from the 26.04 archive; the extension's gpu/cleanup part
+# then removes anything mesa-2604 already provides.
+parts:
+  libresprite:
+    source: https://github.com/LibreSprite/LibreSprite.git
+    source-type: git
+    source-tag: 'v1.3'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      # Install share/applications, share/icons and share/metainfo.
+      - -DWITH_DESKTOP_INTEGRATION=ON
+      # The SDL2 backend has its own file selector; GTK is not needed for
+      # the experimental native dialog.
+      - -DWITH_GTK_FILE_DIALOG_SUPPORT=OFF
+      # libwebp-dev is a build package, so enable the WebP file format.
+      - -DWITH_WEBP_SUPPORT=ON
+      - -DENABLE_TESTS=OFF
+    build-packages:
+      # The cmake plugin and core26 build environment provide cmake, Ninja,
+      # GCC and pkg-config, but snapcraft does not install recommends.
+      - build-essential
+      - cmake
+      - ninja-build
+      - pkgconf
+      - libarchive-dev
+      - libcurl4-gnutls-dev
+      - libfreetype-dev
+      - libgif-dev
+      - libjpeg-dev
+      - libpixman-1-dev
+      - libpng-dev
+      - libsdl2-dev
+      - libsdl2-image-dev
+      - libtinyxml2-dev
+      - libwebp-dev
+      # SDL_syswm.h includes the Xlib headers, and the tablet/pen support is
+      # built against XInput and Xcursor when they are present.
+      - libx11-dev
+      - libxcursor-dev
+      - libxext-dev
+      - zlib1g-dev
+    override-pull: |
+      craftctl default
+      # The tag has a "v" prefix; snap versions are conventionally plain.
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^v//')
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/desktop/icons/hicolor/256x256/apps/libresprite.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/libresprite.png"
+      sed -i \
+        -e 's|^Icon=libresprite$|Icon=${SNAP}/meta/gui/libresprite.png|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/libresprite.desktop"
+    prime:
+      # The thumbnailer is a host-side helper: snapd cannot export the
+      # thumbnailer registration or the MIME package from a snap, and the
+      # script starts the unconfined executable from PATH.
+      - -usr/bin/libresprite-thumbnailer
+      - -usr/share/thumbnailers
+      - -usr/share/mime
+      - -usr/share/doc
+      - -usr/share/man
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # SDL2 is not in core26 or mesa-2604. libsdl2-2.0-0 is the metapackage
+      # carrying the /usr/lib symlinks into sdl2-classic, which holds the
+      # library proper and pulls the X11, wayland, audio and udev client
+      # libraries it links.
+      - libsdl2-2.0-0
+      - libsdl2-image-2.0-0
+      # LibreSprite's remaining direct dependencies, none of which are in the
+      # core26 base. Their own dependencies (Xrandr, Xcursor, Xrender, the
+      # cURL TLS/HTTP stack, webp, tiff, ...) are staged transitively.
+      - libarchive13t64
+      - libcurl4t64
+      - libgif7
+      - libjpeg-turbo8
+      - libpixman-1-0
+      - libtinyxml2-11
+      - libwebp7
+      - libwebpdemux2
+    prime:
+      # Runtime packages do not need development files or package metadata.
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/*/*.la
+      - -usr/lib/*/cmake
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian

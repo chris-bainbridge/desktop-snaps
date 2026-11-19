@@ -1,0 +1,144 @@
+name: packet
+adopt-info: packet
+title: Packet
+license: GPL-3.0-or-later
+summary: Share files easily
+description: |
+  Packet is an implementation of Google's Quick Share (Nearby Share) protocol
+  for Linux. It sends files to and receives files from Android devices using
+  Quick Share, and from other devices running Packet, over the local Wi-Fi
+  network with mDNS discovery.
+
+  Received files are written to the user's Downloads folder by default; a
+  different folder can be chosen with the file chooser. Files outside the
+  home directory are reachable only through the XDG document portal.
+
+  Strict-confinement notes:
+   * Discovery and transfers are local-network only. Both the network and
+     network-bind interfaces are auto-connected: mDNS needs UDP multicast on
+     port 5353 and the receiver listens on a local TCP port.
+   * Bluetooth LE discovery and advertising use the host's BlueZ system
+     D-Bus service, which strict confinement does not grant without the
+     bluetooth-control interface. Packet logs the failure and keeps working
+     over Wi-Fi/mDNS; Bluetooth is not used for the transfer itself. Android
+     devices still need Bluetooth enabled for Quick Share to offer its
+     Wi-Fi LAN medium. Because Packet cannot read BlueZ, the status bar always
+     reports Bluetooth as off and shows "Turn on Bluetooth" even when Wi-Fi
+     sharing is working.
+   * The in-app Nautilus integration switch cannot reach the host's
+     ~/.local/share/nautilus-python/extensions directory: the app searches the
+     snap's private XDG data directories. To use the extension, copy
+     $SNAP/usr/share/packet/plugins/packet_nautilus.py there manually; the
+     host also needs nautilus-python and python3-dbus installed.
+   * The optional tray icon needs a StatusNotifierWatcher (for example the
+     GNOME AppIndicator extension) on the host session bus. It is disabled by
+     default.
+contact: https://github.com/nozwock/packet/issues
+issues: https://github.com/nozwock/packet/issues
+source-code: https://github.com/nozwock/packet
+website: https://github.com/nozwock/packet
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (io.github.nozwock.Packet)
+  packet:
+    interface: dbus
+    bus: session
+    name: io.github.nozwock.Packet
+  # the zbus API name (src/config.rs.in DBUS_API_NAME)
+  packet-api:
+    interface: dbus
+    bus: session
+    name: io.github.nozwock.Packet.Api
+
+apps:
+  packet:
+    extensions: [gnome]
+    command: usr/bin/packet
+    desktop: usr/share/applications/io.github.nozwock.Packet.desktop
+    common-id: io.github.nozwock.Packet
+    plugs:
+      # the snap's io.github.nozwock.Packet GSettings schema
+      - gsettings
+      # received files in ~/Downloads and files picked in the user's home
+      - home
+      # mDNS discovery and outgoing TCP connections
+      - network
+      # UDP 5353 (mDNS) and the incoming TCP transfer port
+      - network-bind
+
+# Packet 0.7.3 is a Rust + GTK4/libadwaita application (edition 2024). Its
+# Meson build drives cargo itself on the upstream Cargo.lock (src/meson.build),
+# like the gnome-2048 and railway recipes.
+#
+# cargo, rustc, blueprint-compiler and protoc are not part of gnome-core26-sdk.
+# The 26.04 archive has rustc/cargo 1.93.1 (the gtk4 0.11 crates require Rust
+# 1.92), blueprint-compiler 0.19 (both .blp files compile with it) and
+# protobuf-compiler 3.21.
+#
+# rqs_lib is pulled as a pinned git dependency from nozwock/rquickshare; its
+# build.rs runs prost-build, which needs protoc in PATH. Cargo downloads the
+# crates pinned in Cargo.lock, plus mdns-sd and sys_metrics from their git
+# repositories, during the build; nothing is vendored in this repository.
+#
+# The dbus crate (via btleplug/bluer) links libdbus-1, so libdbus-1-dev is
+# needed for its pkg-config probe on amd64. On arm64 rqs_lib enables dbus's
+# vendored build, which compiles the bundled libdbus instead.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR, DATADIR and
+# PKGDATADIR (the gresource bundle and the Nautilus plugin) are compiled into
+# the binary, and a /usr prefix would resolve them to the core26 base instead
+# of the snap. organize moves the installed tree back under usr/.
+parts:
+  packet:
+    source: https://github.com/nozwock/packet.git
+    source-type: git
+    source-tag: '0.7.3'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/packet/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to io.github.nozwock.Packet.Devel
+      # and build a debug binary; the release profile is the default.
+      - -Dprofile=default
+    organize:
+      snap/packet/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      # find_program('blueprint-compiler') in data/resources/meson.build
+      - blueprint-compiler
+      # prost-build in rqs_lib's build.rs
+      - protobuf-compiler
+      # libdbus-sys pkg-config probe (dbus crate via btleplug and bluer)
+      - libdbus-1-dev
+      # i18n.merge_file for the desktop file, metainfo and release notes
+      - gettext
+      - itstool
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/io.github.nozwock.Packet.svg|' \
+        data/io.github.nozwock.Packet.desktop.in.in
+    override-build: |
+      craftctl default
+      # Meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. The app creates its Gio.Settings objects at
+      # start-up, so make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/packet/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/io.github.nozwock.Packet.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/io.github.nozwock.Packet.svg"
+      # The host session bus never reads the snap's private /usr/share, so
+      # these D-Bus activation files are inert. The dbus slots above let the
+      # running app own both names instead.
+      rm -rf "$CRAFT_PART_INSTALL/snap/packet/current/usr/share/dbus-1"

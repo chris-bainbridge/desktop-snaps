@@ -1,0 +1,297 @@
+name: ocrfeeder
+adopt-info: ocrfeeder
+title: OCRFeeder
+license: GPL-3.0-or-later
+website: https://wiki.gnome.org/Apps/OCRFeeder
+contact: https://gitlab.gnome.org/GNOME/ocrfeeder/-/issues
+issues: https://gitlab.gnome.org/GNOME/ocrfeeder/-/issues
+source-code: https://gitlab.gnome.org/GNOME/ocrfeeder
+summary: Document layout analysis and optical character recognition suite
+description: |
+  OCRFeeder is a document layout analysis and optical character recognition
+  system. Given images it outlines their contents, distinguishes graphics from
+  text and runs OCR over the text, then exports the result to ODT, HTML, PDF,
+  searchable PDF or plain text. Its GTK interface lets the user correct the
+  recognised characters, define bounding boxes, set paragraph styles, clean
+  the input images, import PDFs and save and load projects.
+
+  Strict-confinement notes:
+   * Files under the home directory can be opened and saved; other locations
+     are reachable through the file chooser (XDG document portal).
+   * The upstream "Import From Scanner" action is still in the interface but
+     the snap declares no scanner interface: it finds no devices. Importing
+     images and PDFs through the file chooser works.
+   * Tesseract, Ocrad and GOCR are bundled, so OCR works entirely offline.
+     Tesseract ships English, Danish, Dutch, Finnish, French, German,
+     Italian, Polish, Portuguese, Russian, Spanish, Swedish and Turkish
+     traineddata; other languages need their data added to the image.
+     Cuneiform is not bundled (it is in multiverse and unmaintained
+     upstream).
+   * unpaper (deskewing/noise cleaning) and Ghostscript (PDF import) are
+     bundled and work inside the snap.
+   * Settings are stored in the snap's private per-user configuration
+     directory, so an existing OCRFeeder configuration on the host is not
+     reused.
+   * The help pages are installed but the host's help viewer cannot reach
+     them, so the Help action does not open them.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  ocrfeeder:
+    extensions: [gnome]
+    command: usr/bin/ocrfeeder
+    desktop: usr/share/applications/org.gnome.OCRFeeder.desktop
+    common-id: org.gnome.OCRFeeder.desktop
+    environment: &app-environment
+      # The ocrfeeder module is installed here (see override-build); the
+      # interpreter, PyGObject and pycairo come from gnome-core26.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # pyenchant locates libenchant-2 with ctypes.util.find_library(), which
+      # only reads the base's ld.so.cache and cannot see the GNOME platform.
+      # Point it at the symlink created by the python-deps part.
+      PYENCHANT_LIBRARY_PATH: $SNAP/lib/libenchant-2.so.2
+      # Tesseract's compiled-in data path is /usr/share/tesseract-ocr/5,
+      # which is the base inside the snap; point it at the bundled copy.
+      TESSDATA_PREFIX: $SNAP/usr/share/tesseract-ocr/5/tessdata
+      # Ghostscript's compiled-in resource path (/usr/share/ghostscript/...)
+      # is also the base. "current" is created at build time so the version
+      # directory does not have to be hardcoded here.
+      GS_LIB: '$SNAP/usr/share/ghostscript/current/Resource/Init:$SNAP/usr/share/ghostscript/current/lib:$SNAP/usr/share/ghostscript/current/Resource/Font:$SNAP/usr/share/fonts/X11/Type1'
+    plugs:
+      - home        # open and save images, PDFs and exported documents
+  ocrfeeder-cli:
+    extensions: [gnome]
+    command: usr/bin/ocrfeeder-cli
+    environment: *app-environment
+    plugs:
+      - home        # read the input images and write the generated document
+
+# OCRFeeder 0.8.5 (2022-03-15) is the latest stable release. Upstream stopped
+# tagging git releases after 0.8.1 (the 0.8.2-0.8.5 tarballs were never tagged)
+# and master only carries translation updates after 0.8.5, so the official
+# tarball is the release to build. This is a Python 3 + GTK3 application
+# (PyGObject, GooCanvas 2, GtkSpell 3) built with autotools.
+parts:
+  ocrfeeder:
+    source: https://download.gnome.org/sources/ocrfeeder/0.8/ocrfeeder-0.8.5.tar.xz
+    source-type: tar
+    source-checksum: sha256/b03d2a5949dd82e2734f0d2ecb4148aaea457f8397e9d4c5bdc77e333fbc4aed
+    plugin: autotools
+    autotools-configure-parameters:
+      # The compiled-in prefix is the runtime mount path: the generated
+      # launchers look for the module and for share/ocrfeeder below it, and a
+      # /usr prefix would resolve those to the core26 base. organize moves the
+      # installed tree back under usr/.
+      - --prefix=/snap/ocrfeeder/current/usr
+      # The SDK ships Python 3.14 too, but its sys.path does not include the
+      # build-packages installed in the build root (PIL, reportlab, odf,
+      # enchant, sane); configure's checks and the module byte-compilation
+      # must use the interpreter that sees them. core26 has no /usr/bin/python3
+      # at runtime, so this only affects the build.
+      - PYTHON=/usr/bin/python3
+      # Ubuntu's sysconfig default scheme would put pure Python modules in
+      # <prefix>/local/lib/python3.14/dist-packages. Override the automake
+      # cache variable so the module lands in the version-independent path
+      # named by PYTHONPATH.
+      - am_cv_python_pythondir=/snap/ocrfeeder/current/usr/lib/python3/dist-packages
+    organize:
+      snap/ocrfeeder/current/usr: usr
+    build-packages:
+      # GTK3, GLib, gettext/glib-gettext.m4, pkg-config, gcc/make, autoconf,
+      # automake, libtool and gobject-introspection come from gnome-core26-sdk.
+      # intltool and yelp-tools build the desktop/AppStream files and the help.
+      - intltool
+      - yelp-tools
+      - gettext
+      - patch             # applies the compatibility patches below
+      # The configure script imports these Python modules and the Gtk and
+      # GooCanvas typelibs by name; they are runtime dependencies too.
+      - gir1.2-goocanvas-2.0
+      - libgoocanvas-2.0-9
+      - python3-enchant
+      - python3-gi
+      - python3-odf
+      - python3-pil
+      - python3-reportlab
+      - python3-sane
+    override-pull: |
+      craftctl default
+      # 0.8.5 is the released version; the AppStream file still lists 0.8.3,
+      # so it cannot be used through parse-info.
+      craftctl set version=0.8.5
+
+      # The checks in the generated configure still call imp.find_module,
+      # which Python 3.12 removed; AX_PYTHON_MODULE 9 just imports the
+      # module. Rewrite the five checks instead of regenerating configure.
+      sed -i 's|import imp; imp.find_module(\\"\([A-Za-z]*\)\\")|import \1|g' \
+        configure
+
+      # Upstream fixes from its merge requests: imghdr is gone in Python 3.13,
+      # and SystemEnginesDialog needs its parent window argument.
+      for patch_file in "${CRAFT_PROJECT_DIR}"/patches/*.patch; do
+        patch -p1 --forward < "$patch_file"
+      done
+
+      # Pillow 10 removed Image.ANTIALIAS; LANCZOS is the same filter and is
+      # still exported by Pillow 12 in 26.04.
+      sed -i 's/Image\.ANTIALIAS/Image.LANCZOS/' \
+        src/ocrfeeder/studio/widgetPresenter.py
+
+      # Use the icon bundled in the snap so it shows up in the launcher, and
+      # drop TryExec: it is resolved against the host PATH, where "ocrfeeder"
+      # does not exist, and a failed TryExec hides the entry.
+      sed -i \
+        -e 's|^Icon=org.gnome.OCRFeeder$|Icon=${SNAP}/meta/gui/org.gnome.OCRFeeder.svg|' \
+        -e '/^TryExec=/d' \
+        resources/org.gnome.OCRFeeder.desktop.in
+    override-build: |
+      craftctl default
+
+      prefix="$CRAFT_PART_INSTALL/snap/ocrfeeder/current/usr"
+      # The configure override above installs the module directly here; keep
+      # the fallback in case a future automake ignores the cache variable.
+      target="$prefix/lib/python3/dist-packages"
+      module_init=$(find "$prefix" -type f \
+        -path '*/ocrfeeder/__init__.py' -print -quit)
+      if [ -z "$module_init" ]; then
+        echo "ocrfeeder: installed Python module not found under $prefix" >&2
+        exit 1
+      fi
+      module_dir=$(dirname "$module_init")
+      if [ "$module_dir" != "$target/ocrfeeder" ]; then
+        mkdir -p "$target"
+        mv "$module_dir" "$target/ocrfeeder"
+      fi
+      rm -rf "$prefix/local" "$prefix"/lib/python3.14
+
+      # core26 has no /usr/bin/python3; run both launchers with the Python
+      # 3.14 from the GNOME platform, which the gnome extension mounts at
+      # $SNAP/gnome-platform.
+      for script in ocrfeeder ocrfeeder-cli; do
+        sed -i '1s|^#!.*|#!/snap/ocrfeeder/current/gnome-platform/usr/bin/python3|' \
+          "$prefix/bin/$script"
+      done
+
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/resources/icons/org.gnome.OCRFeeder.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  # Runtime Python modules that gnome-core26 does not ship. python3-gi,
+  # pycairo, the Gtk-3.0 and Pango typelibs and the enchant-2 library come
+  # from the platform and are not staged.
+  python-deps:
+    plugin: nil
+    stage-packages:
+      - python3-enchant    # spell-checker wrapper used by GtkSpell
+      - python3-odf        # ODT export (odfpy)
+      - python3-pil        # image loading and PDF export
+      - python3-reportlab  # PDF export
+      - python3-sane       # imported at start-up by ocrfeeder.util.lib
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      # reportlab bundles its own fonts and OCRFeeder uses the standard PDF
+      # fonts; Ghostscript's URW fonts are staged in the engines part.
+      - -usr/share/fonts
+      # Every python3-* package depends on python3, but the interpreter and
+      # its standard library come from gnome-core26. Only dist-packages is
+      # kept, so the versioned stdlib and the Tk bindings pulled in by
+      # python3-pil.imagetk are left out.
+      - -usr/bin/python3
+      - -usr/bin/python3.14
+      - -usr/lib/python3.14
+      - -usr/lib/*/libtk8.6.so*
+      - -usr/lib/*/libtcl8.6.so*
+      - -usr/lib/tk8.6
+      - -usr/lib/tcl8.6
+      - -usr/share/tcltk
+      - -usr/share/tk8.6
+      # PIL's Tk glue is the only user of those libraries.
+      - -usr/lib/python3/dist-packages/PIL/ImageTk.py
+      - -usr/lib/python3/dist-packages/PIL/_imagingtk*
+    override-build: |
+      craftctl default
+      # pyenchant's ctypes.util.find_library() cannot see libraries that are
+      # only reachable through LD_LIBRARY_PATH, and the base's ldconfig does
+      # not know about the GNOME platform. PYENCHANT_LIBRARY_PATH points at
+      # this stable symlink instead of a triplet-specific path.
+      mkdir -p "$CRAFT_PART_INSTALL/lib"
+      ln -s "../gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libenchant-2.so.2" \
+        "$CRAFT_PART_INSTALL/lib/libenchant-2.so.2"
+
+  # GTK3 widgets and the spell checker that gnome-core26 does not provide.
+  # Their GTK3, cairo, pango and enchant dependencies are in the platform.
+  libraries:
+    plugin: nil
+    stage-packages:
+      - gir1.2-goocanvas-2.0
+      - libgoocanvas-2.0-9
+      - gir1.2-gtkspell3-3.0
+      - libgtkspell3-3-0
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+
+  # The OCR engines and the helpers OCRFeeder drives as subprocesses. They
+  # all run locally and need no privileged interface, so they work under
+  # strict confinement.
+  engines:
+    plugin: nil
+    stage-packages:
+      - tesseract-ocr     # also pulls tesseract-ocr-eng and tesseract-ocr-osd
+      # Tesseract traineddata for the languages whose ISO-639-1 code maps to
+      # an actual traineddata name in OCRFeeder. The host's data packages are
+      # invisible to a strict snap, so the common ones are bundled.
+      - tesseract-ocr-dan
+      - tesseract-ocr-deu
+      - tesseract-ocr-fin
+      - tesseract-ocr-fra
+      - tesseract-ocr-ita
+      - tesseract-ocr-nld
+      - tesseract-ocr-pol
+      - tesseract-ocr-por
+      - tesseract-ocr-rus
+      - tesseract-ocr-spa
+      - tesseract-ocr-swe
+      - tesseract-ocr-tur
+      - ocrad
+      - gocr
+      - unpaper           # deskewing and noise/black filters
+      - ghostscript       # PDF import (gs -SDEVICE=jpeg)
+      - fonts-urw-base35  # fonts Ghostscript uses to rasterise PDFs
+      # libxml2 is needed by libarchive (Tesseract) and libsane; it is listed
+      # explicitly so the relocation below is never skipped.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # Ghostscript finds Resource/Init, lib and Resource/Font through GS_LIB.
+      # The app environment points at "current"; resolve it to the versioned
+      # directory installed by libgs10-common.
+      gs_version=$(basename "$(find "$CRAFT_PART_INSTALL/usr/share/ghostscript" \
+        -mindepth 1 -maxdepth 1 -type d -print -quit)")
+      ln -s "$gs_version" "$CRAFT_PART_INSTALL/usr/share/ghostscript/current"
+
+      # The gnome extension's cleanup deletes every primed shared object whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the gnome-core26 content snap, so keep it outside the SDK's multiarch
+      # path; snapd adds $SNAP/usr/lib to LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -etc

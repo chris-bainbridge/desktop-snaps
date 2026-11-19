@@ -1,0 +1,215 @@
+name: spotube
+title: Spotube
+base: core26
+adopt-info: spotube
+
+summary: Open source, plugin-powered music streaming client
+
+description: |
+  Spotube is a music streaming client that plays music from the service your
+  plugin connects to. Plugins provide metadata, playlists and audio sources;
+  the app also keeps time-synced lyrics, downloads tracks and streams audio
+  through VLC.
+
+  This snap repackages the official Linux bundle published by Team Spotube.
+  Spotube 6.0.0 is a Compose Multiplatform application built as a GraalVM
+  native image, so the bundle is used instead of rebuilding the Gradle,
+  GraalVM and Rust toolchain in the snap.
+
+  Strict confinement, as required on Core Desktop, has visible consequences:
+
+  - Settings, caches, installed plugins and playback state live in the snap's
+    private per-user area (~/snap/spotube/...), not in ~/.config or
+    ~/.local/share. The host's Spotube settings and plugins are not visible.
+  - Tracks are downloaded to ~/Downloads/Spotube and the local library is
+    scanned in the home directory. Files outside the home are only reachable
+    through the desktop file chooser portal; removable media are not mounted.
+  - Playback goes through PulseAudio/PipeWire. ALSA hardware devices and JACK
+    are not available, and no microphone interface is declared.
+  - Discord Rich Presence does not work: the host's Discord and Vesktop IPC
+    sockets are outside the sandbox and cannot be reached from the snap.
+  - The local playback proxy listens on 127.0.0.1 (port 14769 by default),
+    which needs the network-bind interface; streaming uses network.
+  - MPRIS is exported as org.mpris.MediaPlayer2.org.spotube.spotube, so media
+    keys and the desktop's now-playing controls work on desktops that honour
+    MPRIS.
+  - Updates come from the Snap Store. The app cannot replace its own files,
+    and an update downloaded from the project's website cannot be installed.
+
+# Stack and build approach:
+#
+# Spotube 5.x was a Flutter application. 6.0.0 (released 2026-11-10) migrated
+# to Compose Multiplatform (Kotlin): the Linux desktop build is a GraalVM
+# native image produced by Gradle, with a Rust/Cargo uniffi component and a
+# native-image toolchain. Rebuilding it in LXD would download the Gradle
+# distribution, the whole Maven dependency graph and a GraalVM JDK, then run
+# a long native-image link; it is neither quick nor reproducible. Upstream's
+# packaging/package-linux-tarball.sh produces exactly the portable bundle that
+# Flathub and the AUR install from, for both architectures, so this recipe
+# repackages that bundle and pins its SHA-256 per architecture. Nothing is
+# committed to this repository; the download happens at build time.
+#
+# The bundle is not self-contained at runtime:
+#   * GTK 3 and WebKitGTK 4.1 (for the embedded webview used by plugin login
+#     pages) come from the gnome-core26 content snap.
+#   * Audio playback goes through vlcj -> libvlc. Neither the core26 base nor
+#     gnome-core26 ships VLC, so libvlc5 and vlc-plugin-base are staged from
+#     the 26.04 archive (3.0.23).
+#   * vlcj asks JNA for the library name "vlc", i.e. dlopen("libvlc.so"),
+#     while the archive only installs the versioned SONAME. override-stage
+#     adds the unversioned symlink.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+license: AGPL-3.0-or-later
+website: https://spotube.cc/
+source-code: https://github.com/team-spotube/spotube
+issues: https://github.com/team-spotube/spotube/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # Nucleus registers the MPRIS player under the application ID. snapd's
+  # default MPRIS rule only covers org.mpris.MediaPlayer2.<snap name>, so
+  # declare the name the app actually uses.
+  mpris:
+    interface: dbus
+    bus: session
+    name: org.mpris.MediaPlayer2.org.spotube.spotube
+
+apps:
+  spotube:
+    extensions: [gnome]
+    command: opt/spotube/spotube
+    desktop: usr/share/applications/org.spotube.spotube.desktop
+    common-id: org.spotube.spotube.desktop
+    environment:
+      # libvlc's compiled-in data and plugin directories point at /usr, which
+      # inside the snap is the core26 base. Point it at the staged VLC tree.
+      VLC_DATA_PATH: $SNAP/usr/share/vlc
+      VLC_PLUGIN_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/vlc/plugins
+    # The gnome extension supplies desktop, desktop-legacy, opengl, wayland
+    # and x11. These are the plugs it does not add for core26.
+    plugs:
+      - audio-playback # playback through PipeWire/PulseAudio
+      - gsettings      # fonts, theme and desktop settings
+      - home           # local library, downloads and the file chooser
+      - network        # streaming, plugin downloads and metadata
+      - network-bind   # the local playback proxy on 127.0.0.1
+
+parts:
+  spotube:
+    plugin: nil
+    build-packages:
+      - ca-certificates
+      - curl      # download the pinned release tarball
+      - xz-utils  # unpack the .tar.xz; the core26 base has no xz binary
+    stage-packages:
+      # The VLC runtime vlcj loads. vlc-plugin-base brings the PulseAudio
+      # output, HTTP(S) access and the audio decoders (FFmpeg, mpg123, opus,
+      # flac, vorbis, faad) that streaming needs.
+      - libvlc5
+      - vlc-plugin-base
+      - vlc-data
+    override-pull: |
+      set -eu
+
+      craftctl default
+
+      version="6.0.0"
+
+      # Upstream does not publish checksum files next to the tarballs. The
+      # hashes below were computed from the official downloads and are pinned
+      # here; the download is rejected if the bytes change.
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          arch=x86_64
+          sha256=460ef44cf50de638e8ecdaf5a7fad1bc7f81cf2dd276d8794eea341726595e7d
+          ;;
+        arm64)
+          arch=aarch64
+          sha256=7525d019e67fce222ae2bb3aec34c8764dcd7569e6df0740e15dc6b9641ced77
+          ;;
+        *)
+          echo "spotube: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      url="https://github.com/team-spotube/spotube/releases/download/v${version}/spotube-linux-${version}-${arch}.tar.xz"
+      tarball="$CRAFT_PART_SRC/spotube.tar.xz"
+
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "$tarball" "$url"
+
+      # Verify from inside the source directory so that the checksum line does
+      # not have to quote a workspace path.
+      cd "$CRAFT_PART_SRC"
+      printf '%s  spotube.tar.xz\n' "$sha256" | sha256sum --check --strict -
+
+      tar --extract --xz --file spotube.tar.xz --strip-components=1
+      rm -f spotube.tar.xz
+
+      craftctl set version="$version"
+
+    override-build: |
+      set -eu
+
+      craftctl default
+
+      # Keep the native bundle under opt/: its libraries belong to the
+      # application, not to the platform, and the path makes that obvious.
+      install -d "$CRAFT_PART_INSTALL/opt/spotube"
+      cp -a "$CRAFT_PART_SRC/app/." "$CRAFT_PART_INSTALL/opt/spotube/"
+
+      install -D -m 0644 "$CRAFT_PART_SRC/share/applications/org.spotube.spotube.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/org.spotube.spotube.desktop"
+      install -D -m 0644 "$CRAFT_PART_SRC/share/metainfo/org.spotube.spotube.metainfo.xml" \
+        "$CRAFT_PART_INSTALL/usr/share/metainfo/org.spotube.spotube.metainfo.xml"
+
+      # Use the icon shipped in the bundle instead of committing a copy: once
+      # in the hicolor theme for the desktop file, once in meta/gui as the
+      # snap's conventional icon location.
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/share/icons/hicolor/512x512/apps/org.spotube.spotube.png" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/org.spotube.spotube.png"
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/share/icons/hicolor/512x512/apps/org.spotube.spotube.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.spotube.spotube.png"
+
+      install -D -m 0644 "$CRAFT_PART_SRC/LICENSE" \
+        "$CRAFT_PART_INSTALL/usr/share/doc/spotube/LICENSE"
+
+      # snapcraft exports this desktop file. Point it at the snap command and
+      # at the icon snapcraft installs as meta/gui/org.spotube.spotube.png.
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/org.spotube.spotube.desktop"
+      sed -i \
+        -e 's|^Exec=.*|Exec=spotube %U|' \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/org.spotube.spotube.png|' \
+        "$desktop"
+
+      chmod -R u+rwX,go+rX,go-w "$CRAFT_PART_INSTALL"
+
+    override-stage: |
+      set -eu
+
+      craftctl default
+
+      # vlcj registers the JNA library name "vlc", which resolves to
+      # libvlc.so; libvlc5 only ships libvlc.so.5. The staged multiarch
+      # directory is on the snap's LD_LIBRARY_PATH, so an unversioned symlink
+      # there is enough.
+      libdir="$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      install -d "$libdir"
+      ln -sfn libvlc.so.5 "$libdir/libvlc.so"
+
+    prime:
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/lintian
+      - -usr/share/man

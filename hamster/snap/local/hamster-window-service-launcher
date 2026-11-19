@@ -1,0 +1,12 @@
+#!/bin/sh
+# Legacy org.gnome.Hamster.WindowServer helper used by the GNOME Shell
+# extension. It runs "hamster <window>" through a shell, so put the snap's
+# launcher first in PATH: the bare upstream script would miss PYTHONPATH and
+# the real HOME that the launcher sets up.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+export PATH="$SNAP/bin:$PATH"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" \
+    "$SNAP/usr/libexec/hamster/hamster-windows-service" "$@"

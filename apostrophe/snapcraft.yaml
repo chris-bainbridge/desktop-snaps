@@ -1,0 +1,228 @@
+name: apostrophe
+adopt-info: apostrophe
+summary: Distraction-free Markdown editor
+contact: https://gitlab.gnome.org/World/apostrophe/-/issues
+description: |
+  Apostrophe is a distraction-free Markdown editor for GNOME. It uses pandoc
+  as its conversion backend and offers a live preview, a focus mode, spell
+  checking, document statistics, light/dark/sepia themes and export to PDF,
+  ODT, DOCX, LaTeX, HTML and presentation formats.
+
+  Strict-confinement notes:
+   * Files under the home directory can be opened and saved; other locations
+     are reachable through the file chooser (XDG document portal).
+   * pandoc 3.12 and typst 0.15.1 are bundled, so PDF, ODT, DOCX, EPUB and
+     HTML export work as upstream intends. TeX Live is not bundled: the
+     optional LaTeX PDF engine is unavailable, but .tex files can still be
+     exported and compiled elsewhere.
+   * Formulas in the preview and in HTML exports point at the MathJax CDN and
+     the snap declares no network interface, so they are shown as source text.
+   * Reveal.js is not bundled; reveal.js presentation export produces pandoc's
+     default template instead of a self-contained slide deck.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (the app owns this bus name); the
+  # upstream D-Bus service file is removed, see override-build
+  apostrophe:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitlab.somas.Apostrophe
+
+apps:
+  apostrophe:
+    extensions: [gnome]
+    command: usr/bin/apostrophe
+    desktop: usr/share/applications/org.gnome.gitlab.somas.Apostrophe.desktop
+    common-id: org.gnome.gitlab.somas.Apostrophe.desktop
+    environment:
+      # Apostrophe is a Python application. The gnome-core26 content snap
+      # provides the interpreter, PyGObject, pycairo, libadwaita, GtkSourceView
+      # 5 and WebKitGTK 6.0, but not the apostrophe module or its Python
+      # dependencies (regex, chardet, pypandoc), which are staged below.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+    plugs:
+      # the snap's org.gnome.gitlab.somas.Apostrophe GSettings schema
+      - gsettings
+      # open and save Markdown files in the user's home directory
+      - home
+
+parts:
+  apostrophe:
+    source: https://gitlab.gnome.org/World/apostrophe.git
+    source-type: git
+    source-tag: 'v3.5'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.gitlab.somas.Apostrophe.metainfo.xml]
+    meson-parameters:
+      # The compiled-in DATADIR/PKGDATA_DIR/LOCALEDIR are used to load the
+      # gresource bundle, the preview CSS, the pandoc templates and the
+      # translations, and the installed launcher has the runtime mount path
+      # in its shebang below. A /usr prefix would make them resolve to the
+      # core26 base instead of the snap. organize moves the installed tree
+      # back under usr/.
+      - --prefix=/snap/apostrophe/current/usr
+      - --buildtype=release
+      # Pin the Python module location so the PYTHONPATH above always matches,
+      # whatever interpreter the SDK puts first in PATH.
+      - -Dpython.purelibdir=/snap/apostrophe/current/usr/lib/python3/dist-packages
+    organize:
+      snap/apostrophe/current/usr: usr
+    override-build: |
+      craftctl default
+
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs, so the GSettings schema is never compiled.
+      # Apostrophe creates its Gio.Settings object at start-up and aborts
+      # without gschemas.compiled.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/apostrophe/current/usr/share/glib-2.0/schemas"
+
+      # Use the icon bundled in the snap so it shows up in the launcher even
+      # when the host theme does not carry the application icon.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.gitlab.somas.Apostrophe.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+      desktop="$CRAFT_PART_INSTALL/snap/apostrophe/current/usr/share/applications/org.gnome.gitlab.somas.Apostrophe.desktop"
+      sed -i \
+        -e 's|^Icon=org.gnome.gitlab.somas.Apostrophe$|Icon=${SNAP}/meta/gui/org.gnome.gitlab.somas.Apostrophe.svg|' \
+        -e 's|^DBusActivatable=true$|DBusActivatable=false|' \
+        "$desktop"
+
+      # The upstream service file starts the bare script, which is not the
+      # snap's command wrapper and therefore has none of the extension's
+      # environment; the host session bus cannot activate the snap from it.
+      # The desktop file launches the snap itself and the app owns its bus
+      # name through the slot above.
+      rm -f "$CRAFT_PART_INSTALL/snap/apostrophe/current/usr/share/dbus-1/services/org.gnome.gitlab.somas.Apostrophe.service"
+
+      # core26 has no /usr/bin/python3, so run the launcher with the
+      # interpreter from the GNOME platform snap that the gnome extension
+      # mounts at $SNAP/gnome-platform (the Python 3.14 the module was built
+      # for). The prefix above makes this absolute path valid inside the snap.
+      sed -i '1s|^#!.*|#!/snap/apostrophe/current/gnome-platform/usr/bin/python3|' \
+        "$CRAFT_PART_INSTALL/snap/apostrophe/current/usr/bin/apostrophe"
+
+  # Apostrophe drives pandoc for the live preview and for every export. The
+  # 26.04 archive has pandoc 3.7.0.2, which predates --math-method, the option
+  # Apostrophe passes for the preview and for HTML math (pandoc fails with
+  # "Unknown option --math-method"). Package the official 3.12 release, the
+  # version upstream's Flatpak pins; it is a single statically linked binary,
+  # so no libraries have to be staged for it.
+  pandoc:
+    plugin: nil
+    build-packages:
+      - curl      # download the release tarball
+    override-pull: |
+      set -eu
+      mkdir -p "$CRAFT_PART_SRC"
+
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          release_arch=amd64
+          checksum=67d7d011fed8c8543306022b985b9b2499ab9b74818df91d8727c7e9ebc5ba06
+          ;;
+        arm64)
+          release_arch=arm64
+          checksum=6cefcf7100e23a99447c26f89d1ff5b253f3407fcef99a9e27ae06f3ed16cb82
+          ;;
+        *)
+          echo "apostrophe: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      # The hashes above are the SHA-256 of the official 3.12 Linux tarballs
+      # and are pinned here so a changed download is rejected.
+      url="https://github.com/jgm/pandoc/releases/download/3.12/pandoc-3.12-linux-${release_arch}.tar.gz"
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "$CRAFT_PART_SRC/pandoc.tar.gz" "$url"
+
+      cd "$CRAFT_PART_SRC"
+      printf '%s  pandoc.tar.gz\n' "$checksum" | sha256sum --check --strict -
+      tar --extract --gzip --file pandoc.tar.gz --strip-components=1
+      rm -f pandoc.tar.gz
+    override-build: |
+      set -eu
+
+      # Only the converter is needed; pandoc-server and pandoc-lua are not
+      # used by Apostrophe.
+      install -D -m 0755 "$CRAFT_PART_SRC/bin/pandoc" \
+        "$CRAFT_PART_INSTALL/usr/bin/pandoc"
+      install -D -m 0644 "$CRAFT_PART_SRC/share/man/man1/pandoc.1.gz" \
+        "$CRAFT_PART_INSTALL/usr/share/man/man1/pandoc.1.gz"
+      "$CRAFT_PART_INSTALL/usr/bin/pandoc" --version
+
+  # Apostrophe 3.3 replaced LaTeX with Typst as its default PDF engine, and
+  # the 26.04 archive has no typst package at all. Build the CLI from the
+  # upstream release tag that upstream's Flatpak pins next to pandoc 3.12;
+  # bundling TeX Live instead would add several gigabytes. The binary uses
+  # libssl/libcrypto (from the core26 base) and fontconfig (from gnome-core26).
+  typst:
+    source: https://github.com/typst/typst.git
+    source-type: git
+    source-tag: 'v0.15.1'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - cargo
+      - rustc
+      - libssl-dev
+      - pkg-config
+    override-build: |
+      set -eu
+
+      # Upstream's Cargo.lock pins the whole dependency tree; --locked keeps
+      # the build reproducible instead of resolving fresh versions.
+      cd "$CRAFT_PART_SRC"
+      cargo install --locked --path crates/typst-cli \
+        --root "$CRAFT_PART_INSTALL/usr"
+      "$CRAFT_PART_INSTALL/usr/bin/typst" --version
+
+  # Python dependencies that the GNOME platform does not ship. python3-gi,
+  # pycairo and the Gtk/Adw/GtkSource/WebKit typelibs come from gnome-core26.
+  python-deps:
+    plugin: nil
+    stage-packages:
+      - python3-chardet   # encoding detection when opening a document
+      - python3-pypandoc  # pandoc wrapper used by the preview and exports
+      - python3-regex     # the app uses the regex module instead of re
+    override-build: |
+      craftctl default
+      # python3-pypandoc depends on the archive's pandoc 3.7, which is too old
+      # for the --math-method option (see the pandoc part). Drop it so the
+      # 3.12 binary is the only pandoc in the snap.
+      rm -rf "$CRAFT_PART_INSTALL/usr/bin/pandoc" \
+             "$CRAFT_PART_INSTALL/usr/share/pandoc" \
+             "$CRAFT_PART_INSTALL/usr/share/man"
+    prime:
+      - usr/lib/python3/dist-packages/chardet
+      - usr/lib/python3/dist-packages/chardet-*.dist-info
+      - usr/lib/python3/dist-packages/pypandoc
+      - usr/lib/python3/dist-packages/pypandoc-*.dist-info
+      - usr/lib/python3/dist-packages/regex
+      - usr/lib/python3/dist-packages/regex-*.dist-info
+
+  # Apostrophe spell-checks through libspelling (Spelling-1). The platform
+  # ships GtkSourceView 5, WebKitGTK 6.0 and enchant-2 but not libspelling,
+  # which is why GNOME Text Editor builds it in this repository too. Stage the
+  # archive package and keep only the library and its typelib: libspelling's
+  # own dependencies (GTK 4, GtkSourceView 5, pango, glib, enchant-2, hunspell,
+  # ICU) are already in the platform, and duplicating them would shadow the
+  # platform's newer copies on the library path.
+  spelling:
+    plugin: nil
+    stage-packages:
+      - gir1.2-spelling-1
+    prime:
+      - usr/lib/*/libspelling-1.so.*
+      - usr/lib/*/girepository-1.0/Spelling-1.typelib

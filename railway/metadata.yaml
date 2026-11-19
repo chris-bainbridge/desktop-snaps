@@ -1,0 +1,7 @@
+# Build metadata for railway (new core26 recipe, 2026-11).
+snap: railway
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.com/schmiddi-on-mobile/railway (2.10.1)
+imported: '2026-11-19'

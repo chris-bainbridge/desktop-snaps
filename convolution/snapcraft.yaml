@@ -1,0 +1,104 @@
+name: convolution
+adopt-info: convolution
+title: Convolution
+summary: Maze escaping game
+contact: https://gitlab.gnome.org/bazylevnik0/convolution/-/issues
+issues: https://gitlab.gnome.org/bazylevnik0/convolution/-/issues
+source-code: https://gitlab.gnome.org/bazylevnik0/convolution
+description: |
+  Convolution is a logic game about escaping from a maze. Every reset generates
+  a new maze, and computer-controlled opponents with simple AIs try to catch
+  the player before they can find a way out.
+
+  The game is based on the idea of "Theseus and the Minotaur" by Robert Abbott.
+
+  Strict-confinement notes:
+   * Files are accessible under the home directory; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * Sound is routed to the desktop's PulseAudio/PipeWire server through the
+     audio-playback interface.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # Upstream's launcher script is executed with gjs from the platform; the
+  # interpreter path compiled into it is /usr/bin/gjs.
+  /usr/bin/gjs:
+    symlink: $SNAP/gnome-platform/usr/bin/gjs
+
+slots:
+  # for GtkApplication registration
+  convolution:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitlab.bazylevnik0.Convolution
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - org.gnome.gitlab.bazylevnik0.Convolution
+
+apps:
+  convolution:
+    extensions: [gnome]
+    command: usr/bin/org.gnome.gitlab.bazylevnik0.Convolution
+    desktop: usr/share/applications/org.gnome.gitlab.bazylevnik0.Convolution.desktop
+    common-id: org.gnome.gitlab.bazylevnik0.Convolution.desktop
+    plugs:
+      - gsettings      # the app's own GSettings schema
+      - home           # game data and settings in the user's home
+      - audio-playback # playback through the desktop's PulseAudio/PipeWire
+
+# Convolution 0.2.7 is a GJS (JavaScript) application using GTK 4 and
+# libadwaita, built with Meson. gjs, GTK 4 and libadwaita come from the
+# gnome-core26 SDK/content snaps, so there is nothing to build or stage
+# besides the application itself.
+#
+# Upstream has never pushed a git tag: 0.2.7 is the commit that bumped
+# meson.build and the AppStream release entry, and main is one "new icon"
+# commit later at e2229ee7e2 (2024-06-28, also the tip of the `stable`
+# branch). Flathub builds that same commit, so pin it and take the version
+# from the AppStream file with parse-info.
+#
+# The prefix is the runtime mount path: the generated launcher embeds
+# prefix/libdir/datadir and gjs' package module uses them to find the
+# GResources at run time; a /usr prefix would resolve them inside the base.
+# organize moves the installed tree back under usr/.
+parts:
+  convolution:
+    source: https://gitlab.gnome.org/bazylevnik0/convolution.git
+    source-type: git
+    # No release tags exist; this is main HEAD (and stable) after 0.2.7.
+    source-commit: e2229ee7e2d8016e522cd7262e7a54143935febd
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.gitlab.bazylevnik0.Convolution.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/convolution/current/usr
+      - --buildtype=release
+    organize:
+      snap/convolution/current/usr: usr
+    override-pull: |
+      craftctl default
+      # Use the platform's gjs, which the layout above points at.
+      sed -i '1s|^#!.*|#!/usr/bin/gjs -m|' \
+        src/org.gnome.gitlab.bazylevnik0.Convolution.in
+    override-build: |
+      craftctl default
+      # meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. Compile the schema here.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/convolution/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so the launcher does not have to find
+      # it in the host theme.
+      sed -i 's|^Icon=org.gnome.gitlab.bazylevnik0.Convolution$|Icon=${SNAP}/meta/gui/org.gnome.gitlab.bazylevnik0.Convolution.svg|' \
+        "$CRAFT_PART_INSTALL/snap/convolution/current/usr/share/applications/org.gnome.gitlab.bazylevnik0.Convolution.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.gitlab.bazylevnik0.Convolution.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"

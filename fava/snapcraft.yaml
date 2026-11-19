@@ -1,0 +1,194 @@
+name: fava
+adopt-info: favagtk
+title: Fava
+summary: Personal finance manager using Fava and Beancount
+contact: https://gitlab.gnome.org/johannesjh/favagtk/-/issues
+license: GPL-3.0-or-later
+description: |
+  Fava is a desktop application for the Fava and Beancount double-entry
+  bookkeeping tools. Opening a Beancount ledger shows Fava's reports, charts,
+  account balances and transaction editor in an embedded web view.
+
+  Strict-confinement notes:
+   * Only non-hidden files in the home directory are visible. Ledgers under
+     hidden directories such as ~/.config or ~/.local, and files on removable
+     media, cannot be opened; other locations are reachable through the file
+     chooser (XDG document portal).
+   * Fava runs as a local web server on 127.0.0.1 with an ephemeral port and
+     is rendered by WebKitGTK 6.0 from the GNOME platform. WebKit detects the
+     snap environment and disables its own bubblewrap sandbox, so the web view
+     runs under snapd's AppArmor confinement only; the privileged
+     browser-support interface is not declared.
+   * Fava 1.30.16, Beancount 3.2.3 and upstream's pinned dependency set
+     (including the optional smart-importer, beancount-share and
+     fava-investor plugins) are installed from PyPI wheels at build time.
+     The 26.04 archive's fava 1.30.2 is not used: favagtk 2.1.0 pins
+     1.30.16 together with its static web assets.
+   * Settings, WebKit local storage and caches live in the snap's private XDG
+     directories below $SNAP_USER_DATA. An existing Fava browser profile is
+     not imported.
+   * The fava, bean-check, bean-query and bean-example command-line tools are
+     not installed; only the desktop application is shipped.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (Adw.Application in src/app.py)
+  fava:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitlab.johannesjh.favagtk
+
+apps:
+  fava:
+    extensions: [gnome]
+    command: usr/bin/favagtk
+    desktop: usr/share/applications/org.gnome.gitlab.johannesjh.favagtk.desktop
+    common-id: org.gnome.gitlab.johannesjh.favagtk.desktop
+    environment:
+      # The application module is installed under share/favagtk; the Python
+      # dependencies are installed by the python-deps part. The fava server
+      # runs in a multiprocessing child, so both paths must be visible in the
+      # environment rather than only in the launcher's sys.path.
+      PYTHONPATH: $SNAP/usr/share/favagtk:$SNAP/usr/lib/python3/fava-packages
+      # The python-deps part moves libmagic out of the multiarch directory
+      # (see there); the gnome extension only puts the platform on the
+      # library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      # python-magic loads libmagic with ctypes; libmagic's compiled-in
+      # database search path is a base path, so point it at the staged copy.
+      MAGIC: $SNAP/usr/share/misc/magic.mgc
+      PYTHONDONTWRITEBYTECODE: '1'
+    plugs:
+      # the snap's org.gnome.gitlab.johannesjh.favagtk GSettings schema
+      - gsettings
+      # open and edit Beancount ledgers in the user's home directory
+      - home
+      # the WebView connects to the local fava server; fava-investor/yfinance
+      # and beancount importers may fetch remote quotes
+      - network
+      # fava's web server listens on 127.0.0.1
+      - network-bind
+
+# favagtk 2.1.0 is the latest stable upstream release (2026-11-08). It is a
+# Python 3 + GTK 4/libadwaita application built with Meson; the UI is written
+# in Blueprint. The 26.04 archive's blueprint-compiler 0.19 compiles all three
+# .blp files, so the 0.22.2 Meson subproject pinned in subprojects/ is not
+# downloaded.
+#
+# The prefix is the runtime mount path, not /usr: the generated launcher
+# embeds pkgdatadir and localedir, and a /usr prefix would resolve them to the
+# core26 base. organize moves the installed tree back under usr/.
+parts:
+  favagtk:
+    source: https://gitlab.gnome.org/johannesjh/favagtk.git
+    source-type: git
+    source-tag: 'v2.1.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/fava/current/usr
+      - --buildtype=release
+      # Without this the app adds its "devel" style class.
+      - -Dprofile=release
+    organize:
+      snap/fava/current/usr: usr
+    build-packages:
+      - blueprint-compiler
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs, so the GSettings schema is never compiled. The
+      # window creates its Gio.Settings object at start-up and aborts without
+      # gschemas.compiled.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/fava/current/usr/share/glib-2.0/schemas"
+
+      # Use the icon bundled in the snap so the launcher does not depend on a
+      # themed icon on the host.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.gitlab.johannesjh.favagtk.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.gitlab.johannesjh.favagtk.svg"
+      sed -i \
+        's|^Icon=org.gnome.gitlab.johannesjh.favagtk$|Icon=${SNAP}/meta/gui/org.gnome.gitlab.johannesjh.favagtk.svg|' \
+        "$CRAFT_PART_INSTALL/snap/fava/current/usr/share/applications/org.gnome.gitlab.johannesjh.favagtk.desktop"
+
+      # core26 has no /usr/bin/python3. Run the launcher with the interpreter
+      # from the GNOME platform snap that the gnome extension mounts at
+      # $SNAP/gnome-platform: it is the Python 3.14 the wheels are built for.
+      sed -i '1s|^#!.*|#!/snap/fava/current/gnome-platform/usr/bin/python3|' \
+        "$CRAFT_PART_INSTALL/snap/fava/current/usr/bin/favagtk"
+
+  # Python dependencies that gnome-core26 does not ship. Upstream's
+  # requirements/python3-main.txt is the uv-compiled lock of the 61 packages
+  # its Flatpak installs: fava 1.30.16, beancount 3.2.3, their transitive
+  # dependencies and the optional smart-importer, beancount-share and
+  # fava-investor plugins. Every package has CPython 3.14 manylinux wheels
+  # for amd64 and arm64, so pip only unpacks wheels; --only-binary makes the
+  # build fail rather than attempt a source build if a wheel disappears.
+  #
+  # The 26.04 archive has a fava package, but it is 1.30.2+dfsg and repacked
+  # for Debian; upstream pins 1.30.16 together with the static web assets
+  # that ship inside the PyPI wheel.
+  #
+  # The wheels go to a private directory rather than /usr/lib/python3/
+  # dist-packages: the gnome/cleanup part deletes any primed library whose
+  # path also exists in gnome-core26-sdk, and the SDK ships Python packages
+  # such as lxml and markupsafe at the dist-packages path. The private tree
+  # is on PYTHONPATH above, so none of its extension modules are removed.
+  python-deps:
+    source: https://gitlab.gnome.org/johannesjh/favagtk.git
+    source-type: git
+    source-tag: 'v2.1.0'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - python3
+      - python3-pip
+    stage-packages:
+      # python-magic (used by beangulp's file-type detection) loads libmagic
+      # with ctypes; the mgc package provides the magic database.
+      - libmagic1t64
+      - libmagic-mgc
+    override-build: |
+      set -eu
+
+      target="$CRAFT_PART_INSTALL/usr/lib/python3/fava-packages"
+      install -d "$target"
+      /usr/bin/python3 -m pip install \
+        --no-cache-dir --disable-pip-version-check \
+        --no-warn-script-location --no-deps --only-binary=:all: \
+        --target "$target" -r "$CRAFT_PART_SRC/requirements/python3-main.txt"
+
+      # The interpreter comes from gnome-core26; the console scripts that pip
+      # would place in the target's bin/ point at the build interpreter and
+      # are not part of the desktop application.
+      rm -rf "$target/bin"
+      find "$target" -type d -name __pycache__ -prune -exec rm -rf {} +
+      find "$target" -name '*.pyc' -delete
+
+      # libmagic is not in gnome-core26, but it is in gnome-core26-sdk, and
+      # the gnome/cleanup part deletes any primed library whose path also
+      # exists in the SDK. Move it out of the SDK's multiarch path; the app's
+      # LD_LIBRARY_PATH includes $SNAP/usr/lib.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libmagic.so.*; do
+        [ -e "$lib" ] || continue
+        mv "$lib" "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    prime:
+      - usr/lib/python3/fava-packages
+      - usr/lib/libmagic.so.*
+      - usr/lib/file
+      - usr/share/file
+      - usr/share/misc/magic*

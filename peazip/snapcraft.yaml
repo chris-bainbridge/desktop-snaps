@@ -1,0 +1,234 @@
+name: peazip
+title: PeaZip
+version: '11.4.0'
+summary: Archive manager for 7Z, ZIP, TAR, RAR and many other formats
+description: |
+  PeaZip is a free archive manager and compression utility. It browses,
+  creates, extracts, tests and converts archives, with its own PEA format and
+  support for 7Z, ZIP, TAR, GZ, BZ2, XZ, Zstandard, Brotli, ISO, CAB, DEB,
+  RPM and many other formats. It includes an archive browser, a checksum and
+  integrity tool, a secure-delete tool and archive password handling.
+
+  The snap is built from the upstream source with the GTK2 widgetset, the
+  widgetset upstream ships and tests for Linux. Strict confinement is
+  required on Core Desktop, which has no classic snaps, and has these
+  consequences:
+
+  - The GTK2 build has no native Wayland backend. On a Wayland session PeaZip
+    runs as an X11 application through XWayland.
+  - Files in the real home directory are readable and writable, except
+    hidden entries. Other locations, including removable media, are not
+    visible to the snap: the GTK2 file chooser cannot use the desktop
+    document portal, so archives outside the home directory cannot be
+    opened from inside PeaZip.
+  - The Nautilus/Nemo/Thunar scripts, KDE service menus and other file
+    manager integration in res/share/batch cannot be installed into the
+    host. "Open containing folder" and opening files in external
+    applications do not work.
+  - RAR archives are read through 7-Zip; creating RAR archives needs the
+    proprietary rar binary, which is not shipped. The optional 32-bit ARC,
+    LPAQ, PAQ, QUAD and ZPAQ add-on binaries from the Windows/i386 builds are
+    not available for amd64 or arm64.
+  - PeaZip keeps its configuration in the snap's private writable area,
+    ~/snap/peazip/current/.config/peazip, not in ~/.config/peazip. The
+    portable configuration stored next to the binary is disabled because the
+    snap is read-only.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: LGPL-3.0-only
+website: https://peazip.github.io/
+source-code: https://github.com/peazip/PeaZip
+issues: https://github.com/peazip/PeaZip/issues
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  peazip:
+    extensions: [gnome]
+    command: peazip/peazip
+    desktop: usr/share/applications/peazip.desktop
+    common-id: peazip.desktop
+    plugs:
+      # open and save archives below the user's home directory; the gnome
+      # extension already adds desktop, desktop-legacy, opengl, wayland and
+      # x11 for the GTK2/X11 window
+      - home
+  pea:
+    # command-line engine, also called by the GUI; useful for scripting
+    command: peazip/pea
+    plugs:
+      - home
+
+# PeaZip is a Lazarus/Free Pascal application. The official Linux binaries
+# are built from this same source archive with the GTK2 widgetset, and
+# upstream's own CI installs lazarus + libgtk2.0-dev on Ubuntu and runs
+# "lazbuild --build-all --recursive" over the two .lpi projects. The 26.04
+# archive provides lazarus 4.4, the compiled GTK2 LCL units and libgtk2.0-dev,
+# so no Free Pascal SDK is needed. The Qt6 build used by Flathub would
+# require compiling the LCL Qt6 interface and qt6pas by hand; GTK2 is the
+# supported, already-packaged path and avoids that.
+#
+# The release .src.zip is architecture independent and ships res/bin/ empty
+# on purpose (third-party helpers are added by each packager). The helpers
+# are taken from the archive and linked into res/bin, where PeaZip looks for
+# them: 7-Zip is /usr/lib/7zip/7z (the /usr/bin/7z wrapper execs the absolute
+# /usr/lib/7zip/7z path, which would resolve into the core26 base, so link the
+# real binary), zstd, brotli and upx provide the matching formats.
+parts:
+  peazip:
+    source: https://github.com/peazip/PeaZip/releases/download/11.4.0/peazip-11.4.0.src.zip
+    source-checksum: sha256/d406cd13ef02908ad47af085dffed10dc0591b6214c06088df5849e384e325e0
+    source-type: zip
+    plugin: nil
+    build-packages:
+      # lazbuild, the LCL sources and the precompiled GTK2 units
+      - lazarus
+      - lcl-gtk2
+      # upstream's CI dependency; the GTK2 LCL interface links against GTK2
+      - libgtk2.0-dev
+      # the archive binutils provide the ld used for the final link (see
+      # build-environment below); fp-compiler depends on it already
+      - binutils
+      # --build-all --recursive rebuilds LCLBase and LCL from the Lazarus
+      # sources, so the FPC unit packages that Debian itself uses to build
+      # Lazarus are needed. lcl-gtk2 only pulls the GTK2 subset: in 26.04,
+      # LCLBase's clipbrd.pp needs fasthtmlparser, which ships in the chm
+      # units of fp-units-misc (not in fp-units-fcl).
+      - fp-units-db
+      - fp-units-fcl
+      - fp-units-gtk2
+      - fp-units-math
+      - fp-units-misc
+      - fp-units-net
+    build-environment:
+      # FPC looks up the linker in PATH. The gnome extension puts the
+      # gnome-core26 SDK's bin directory first, so the final link ran the
+      # SDK's ld.bfd, whose default search path found the SDK's Pango 1.58
+      # libpangocairo/libpangoft2 for GTK2's indirect dependencies while the
+      # 26.04 archive's libpango-1.0 1.57 supplied the explicit ones. That
+      # mixed stack failed with undefined pango_renderer_{set,get}_components
+      # and pango_font_description_get_width. Force the archive binutils and
+      # library path for the whole build; Pango 1.57 is ABI-compatible with
+      # the Pango 1.58 that gnome-core26 provides at run time.
+      - PATH: /usr/bin:$PATH
+    override-build: |
+      set -eu
+
+      # The archive contains a single peazip-11.4.0.src/ directory.
+      cd "$CRAFT_PART_SRC/peazip-11.4.0.src"
+      cd dev
+
+      # MetaDarkStyle is bundled with the sources; project_pea and
+      # project_peach list it in RequiredPackages, so register it first.
+      # --add-package-link is a flag with no argument in lazbuild 4.4: the
+      # .lpk path must follow it as a separate argument (the "=" form is
+      # rejected with "Option ... does not allow an argument"). The package
+      # link is stored in the primary config path and resolved by name below.
+      lazbuild --add-package-link "$PWD/metadarkstyle/metadarkstyle.lpk"
+
+      # project_pea builds the command-line engine ("pea"), project_peach the
+      # GUI ("peazip"). --recursive also builds the required Lazarus packages
+      # (MetaDarkStyle, SynEdit). --no-write-project keeps the .lpi files
+      # unmodified.
+      #
+      # -Xr passes --rpath-link /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR to ld.
+      # GTK2's DT_NEEDED libraries (libpangocairo, libpangoft2) are resolved
+      # from the rpath-link paths, and something in the gnome-core26 SDK
+      # environment put its directory ahead of the archive: the SDK's Pango
+      # 1.58 libpangocairo/libpangoft2 were then linked against the archive's
+      # Pango 1.57 libpango, producing undefined references to
+      # pango_renderer_{set,get}_components and
+      # pango_font_description_get_width. --rpath-link has priority over the
+      # linker script's SEARCH_DIR and the default paths, so this keeps the
+      # whole Pango 1.57 stack from the 26.04 archive; Pango 1.57 is
+      # ABI-compatible with the 1.58 that gnome-core26 provides at run time.
+      lazbuild --widgetset=gtk2 --build-all --recursive --no-write-project \
+        --opt=-Xr/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR \
+        project_pea.lpi
+      lazbuild --widgetset=gtk2 --build-all --recursive --no-write-project \
+        --opt=-Xr/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR \
+        project_peach.lpi
+
+      install -d "$CRAFT_PART_INSTALL/peazip"
+      install -D -m 0755 pea "$CRAFT_PART_INSTALL/peazip/pea"
+      install -D -m 0755 peazip "$CRAFT_PART_INSTALL/peazip/peazip"
+
+      # The GUI resolves resource_path as executable_path/res and reads its
+      # themes, translations, presets and help from there; the CLI engine
+      # does the same. Keep res next to the binaries.
+      cp -a ../res "$CRAFT_PART_INSTALL/peazip/res"
+
+      # res/portable selects portable mode (configuration written next to
+      # the binary) and res/conf is the fallback configuration directory.
+      # Both live in the read-only snap, so remove them: PeaZip then uses
+      # XDG_CONFIG_HOME/peazip, i.e. ~/snap/peazip/current/.config/peazip.
+      rm -rf "$CRAFT_PART_INSTALL/peazip/res/portable" \
+             "$CRAFT_PART_INSTALL/peazip/res/conf"
+
+      # PeaZip looks for helpers in res/bin/<tool>/ and disables a format
+      # when the binary is missing. The source archive leaves res/bin empty,
+      # so point the directories at the tools staged by the libraries part.
+      # Relative links keep the snap name out of the recipe.
+      mkdir -p "$CRAFT_PART_INSTALL/peazip/res/bin/7z" \
+               "$CRAFT_PART_INSTALL/peazip/res/bin/zstd" \
+               "$CRAFT_PART_INSTALL/peazip/res/bin/brotli" \
+               "$CRAFT_PART_INSTALL/peazip/res/bin/upx"
+      ln -s ../../../../usr/lib/7zip/7z \
+        "$CRAFT_PART_INSTALL/peazip/res/bin/7z/7z"
+      ln -s ../../../../usr/lib/7zip/7zCon.sfx \
+        "$CRAFT_PART_INSTALL/peazip/res/bin/7z/7zCon.sfx"
+      ln -s ../../../../usr/bin/zstd \
+        "$CRAFT_PART_INSTALL/peazip/res/bin/zstd/zstd"
+      ln -s ../../../../usr/bin/brotli \
+        "$CRAFT_PART_INSTALL/peazip/res/bin/brotli/brotli"
+      # Debian/Ubuntu name the UPX binary upx-ucl to coexist with the
+      # non-free upx package; PeaZip expects the name "upx".
+      ln -s ../../../../usr/bin/upx-ucl \
+        "$CRAFT_PART_INSTALL/peazip/res/bin/upx/upx"
+
+      # Desktop entry and icons from the upstream freedesktop integration
+      # directory. snapd exports the desktop file and expands ${SNAP}; the
+      # icons are bundled in meta/gui so the launcher does not depend on the
+      # host icon theme.
+      integration=../res/share/batch/freedesktop_integration
+      install -D -m 0644 "$integration/peazip.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/peazip.desktop"
+      sed -i \
+        -e 's|^Icon=peazip$|Icon=${SNAP}/meta/gui/peazip.png|' \
+        -e 's|^Icon=peazip_add$|Icon=${SNAP}/meta/gui/peazip_add.png|' \
+        -e 's|^Icon=peazip_extract$|Icon=${SNAP}/meta/gui/peazip_extract.png|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/peazip.desktop"
+      install -D -m 0644 "$integration/peazip.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/peazip.png"
+      install -D -m 0644 "$integration/peazip_add.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/peazip_add.png"
+      install -D -m 0644 "$integration/peazip_extract.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/peazip_extract.png"
+      # hicolor copy for in-snap lookups by icon name
+      install -D -m 0644 "$integration/peazip.png" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/peazip.png"
+
+  libraries:
+    # The GTK2 libraries are not part of gnome-core26 (which is GTK3/GTK4
+    # only); stage libgtk2.0-0t64 and let apt pull the rest of its stack. The
+    # gnome/cleanup part removes the copies that the content snap also ships,
+    # so the snap keeps little more than libgtk-x11-2.0, libgdk-x11-2.0 and
+    # the helpers. The helpers are Ubuntu's builds of the upstream 7-Zip,
+    # Zstandard, Brotli and UPX releases; no vendor binary is committed to
+    # the repository.
+    plugin: nil
+    stage-packages:
+      - libgtk2.0-0t64
+      - 7zip
+      - zstd
+      - brotli
+      - upx-ucl
+    prime:
+      - -usr/include
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian

@@ -1,0 +1,377 @@
+name: endeavour
+adopt-info: endeavour
+title: Endeavour
+license: GPL-3.0-or-later
+summary: Manage your tasks
+website: https://gitlab.gnome.org/World/Endeavour
+source-code: https://gitlab.gnome.org/World/Endeavour
+issues: https://gitlab.gnome.org/World/Endeavour/issues
+contact: https://gitlab.gnome.org/World/Endeavour/issues
+description: |
+  Endeavour (formerly GNOME To Do) is a personal task manager for GNOME.
+  It stores tasks in multiple lists, supports priorities, due dates, notes and
+  starring, and integrates with the GNOME desktop.
+
+  Strict-confinement notes:
+   * Only non-hidden files in the home directory are visible. Files elsewhere
+     can be selected through the desktop file chooser portal.
+   * Task data and settings live in the snap's private per-user data
+     directory; an existing deb or Flatpak installation is not imported.
+   * There are no online accounts: the accounts-service and
+     password-manager-service interfaces are not declared, so Google,
+     Exchange and ownCloud task lists are unavailable. Only the local
+     "On This Computer" lists are usable.
+   * The local task backend is evolution-data-server, which is built into the
+     snap with org.gnome.Todo-prefixed D-Bus service names. The host EDS and
+     its data are neither used nor disturbed.
+   * There is no network plug: CalDAV and other remote task lists cannot be
+     reached even if a provider were added.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # EDS compiles its private module/backend and data directories below /usr,
+  # which does not exist in the base. Map them onto the snap's copies.
+  /usr/lib/evolution-data-server:
+    bind: $SNAP/usr/lib/evolution-data-server
+  /usr/share/evolution-data-server:
+    bind: $SNAP/usr/share/evolution-data-server
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  endeavour:
+    interface: dbus
+    bus: session
+    name: org.gnome.Todo
+  # The private EDS is built with -DDBUS_SERVICES_PREFIX=org.gnome.Todo, so
+  # its service names cannot collide with a host evolution-data-server.
+  eds-sources:
+    interface: dbus
+    bus: session
+    name: org.gnome.Todo.org.gnome.evolution.dataserver.Sources5
+  eds-calendar:
+    interface: dbus
+    bus: session
+    name: org.gnome.Todo.org.gnome.evolution.dataserver.Calendar8
+  # The calendar factory spawns backend subprocesses with dynamically
+  # suffixed names below this prefix; the slot grants ownership of <name>.*
+  eds-subprocess:
+    interface: dbus
+    bus: session
+    name: org.gnome.evolution.dataserver.Subprocess.Backend
+
+environment:
+  # libpeas, EDS and libical are installed outside the SDK's multiarch path
+  # or in the EDS private directory. Keep them all on the loader path.
+  LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/evolution-data-server
+  # EDS compiles /usr/libexec into the calendar factory. The base has no
+  # such directory; point the factory at the snap's subprocess binary.
+  EDS_SUBPROCESS_CAL_PATH: $SNAP/usr/libexec/evolution-calendar-factory-subprocess
+  EDS_CALENDAR_MODULES: $SNAP/usr/lib/evolution-data-server/calendar-backends
+
+apps:
+  endeavour:
+    extensions: [gnome]
+    command: usr/bin/endeavour
+    desktop: usr/share/applications/org.gnome.Todo.desktop
+    common-id: org.gnome.Todo.desktop
+    plugs:
+      - gsettings
+      - home
+
+  # D-Bus-activated evolution-data-server services used by libecal.
+  source-registry:
+    extensions: [gnome]
+    command: usr/libexec/evolution-source-registry
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-sources]
+    plugs:
+      - gsettings
+      - home
+
+  calendar-factory:
+    extensions: [gnome]
+    command: usr/libexec/evolution-calendar-factory
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-calendar]
+    plugs:
+      - gsettings
+      - home
+
+# Endeavour 43.0 is the latest stable upstream release (2022-11-02); later
+# work on main is the unreleased 45.alpha series. It is a C GTK4/libadwaita
+# application built with Meson.
+#
+# All task lists, including "On This Computer", are implemented on top of
+# evolution-data-server (libecal), which gnome-core26 does not ship. A private
+# EDS is therefore built with namespaced D-Bus services. GNOME Online
+# Accounts support is removed at build time: the snap has no accounts-service
+# interface, so the upstream GOA client would only produce a start-up error.
+#
+# The prefix is the runtime mount path, not /usr: Endeavour compiles
+# PACKAGE_DATA_DIR, PACKAGE_LIB_DIR and the locale directory into the binary,
+# and a /usr prefix would make them point into the base instead of the snap.
+# organize moves the installed tree back under usr/.
+parts:
+  libpeas:
+    # 43.0 uses libpeas 1.x as its in-process plugin framework. Only the C
+    # loader is needed: all upstream plugins are built in and embedded.
+    source: https://gitlab.gnome.org/GNOME/libpeas.git
+    source-type: git
+    source-tag: 'libpeas-1.38.1'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dpython3=false
+      - -Dpython2=false
+      - -Dlua51=false
+      - -Dwidgetry=false
+      - -Dglade_catalog=false
+      - -Ddemos=false
+      - -Dintrospection=false
+      - -Dgtk_doc=false
+      - -Dvapi=false
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/gtk-doc
+      - -usr/share/man
+      - -usr/share/doc
+
+  evolution-data-server:
+    # gnome-core26 does not ship EDS. 3.62.1 matches the GNOME 51 platform and
+    # builds against the archive's libical 3 (it supports both 3.x and 4.x).
+    source: https://gitlab.gnome.org/GNOME/evolution-data-server.git
+    source-type: git
+    source-tag: '3.62.1'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DLIB_INSTALL_DIR=/usr/lib
+      # Namespace the D-Bus services to this snap so libecal inside the snap
+      # cannot reach a host evolution-data-server.
+      - -DDBUS_SERVICES_PREFIX=org.gnome.Todo
+      - -DENABLE_GTK=OFF
+      - -DENABLE_GTK4=OFF
+      - -DENABLE_GOA=OFF
+      - -DENABLE_WEATHER=OFF
+      - -DENABLE_CANBERRA=OFF
+      - -DWITH_LIBDB=OFF
+      - -DWITH_OPENLDAP=OFF
+      - -DENABLE_FILE_LOCKING=fcntl
+      - -DENABLE_DOT_LOCKING=OFF
+      - -DWITH_SYSTEMDUSERUNITDIR=OFF
+      - -DENABLE_INTROSPECTION=OFF
+      - -DENABLE_VALA_BINDINGS=OFF
+      - -DENABLE_GTK_DOC=OFF
+      - -DWITH_PRIVATE_DOCS=OFF
+      - -DENABLE_EXAMPLES=OFF
+      - -DENABLE_TESTS=OFF
+      - -DENABLE_INSTALLED_TESTS=OFF
+    build-packages:
+      - gperf
+      - libical-dev
+    build-environment:
+      # Resolve the SDK's indirect shared-library dependencies when linking
+      # the EDS services.
+      - LDFLAGS: -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib
+    override-pull: |
+      craftctl default
+      # gnome-core26-sdk's gio-2.0.pc and sqlite3.pc add -I${includedir},
+      # i.e. the SDK's /usr/include, which contains a copy of glibc's nss.h.
+      # A bare "nss.h" therefore resolves to the C library header and the
+      # Mozilla NSS API is undeclared. Use the nss/ path instead.
+      sed -i \
+        -e 's|#include "nss.h"|#include <nss/nss.h>|g' \
+        -e 's|#include <nss.h>|#include <nss/nss.h>|g' \
+        src/camel/camel-smime-context.c \
+        src/camel/camel.c \
+        src/libedataserverui/e-certificate-widget.c
+    override-stage: |
+      craftctl default
+      # craft-parts rewrites only the "prefix=" line of staged .pc files.
+      # These files put the include and library directories in absolute
+      # /usr paths, which do not exist in the build environment where the
+      # Endeavour part consumes them. Make the build-time variables relative
+      # to the rewritten stage prefix; the runtime variables (privlibdir,
+      # D-Bus names) stay absolute because the layout binds provide them.
+      for pc in "$CRAFT_STAGE"/usr/lib/pkgconfig/*.pc; do
+        [ -e "$pc" ] || continue
+        sed -i \
+          -e 's|^libdir=/usr/lib$|libdir=${prefix}/lib|' \
+          -e 's|^includedir=/usr/include$|includedir=${prefix}/include|' \
+          -e 's|^datarootdir=/usr/share$|datarootdir=${prefix}/share|' \
+          -e 's|^datadir=/usr/share$|datadir=${prefix}/share|' \
+          -e 's|^privincludedir=/usr/include/evolution-data-server$|privincludedir=${prefix}/include/evolution-data-server|' \
+          "$pc"
+      done
+      # libedbus-private.so is installed into privlibdir and the public
+      # libraries carry a RUNPATH of /usr/lib/evolution-data-server, which the
+      # layout provides at runtime. Keep a copy in the stage's usr/lib so the
+      # Endeavour link step resolves the indirect dependency too.
+      if [ -f "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" ]; then
+        cp -a "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" \
+          "$CRAFT_STAGE/usr/lib/"
+      fi
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/lib/cmake
+      - -usr/lib/*.a
+      - -usr/share/GConf
+      - -usr/share/applications
+      - -usr/share/dbus-1/interfaces
+      # snapd creates the activation files for the daemon apps above at
+      # install time; the upstream copies point at /usr/libexec and are
+      # redundant.
+      - -usr/share/dbus-1/services
+      - -usr/share/doc
+      - -usr/share/gir-1.0
+      - -usr/share/gtk-doc
+      - -usr/share/installed-tests
+      - -usr/share/man
+      - -usr/share/vala
+      - -usr/libexec/installed-tests
+
+  libraries:
+    after: [evolution-data-server]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 does not ship EDS, libical or libxml2. libical-glib is
+      # part of libical3t64; libxml2 is linked directly by libedataserver.
+      - libical3t64
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path;
+      # $SNAP/usr/lib is part of LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/*/libical*.so.*
+      - usr/lib/libxml2.so.*
+
+  endeavour:
+    after: [libpeas, evolution-data-server, libraries]
+    source: https://gitlab.gnome.org/World/Endeavour.git
+    source-type: git
+    source-tag: '43.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/endeavour/current/usr
+      - --buildtype=release
+      # Only the application and its private library are needed; GIR/VAPI
+      # are not consumed at runtime.
+      - -Dintrospection=false
+    organize:
+      snap/endeavour/current/usr: usr
+    build-environment:
+      # The linker must find the staged libpeas/EDS libraries, the EDS private
+      # library directory and the SDK's indirect shared-library dependencies.
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - LDFLAGS: -L$CRAFT_STAGE/usr/lib -L$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=$CRAFT_STAGE/usr/lib -Wl,-rpath-link=$CRAFT_STAGE/usr/lib/evolution-data-server -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # The snap has no accounts-service interface, so the upstream GOA client
+      # would fail at every start and show an error notification. Remove the
+      # optional online-accounts code; the local EDS provider is unaffected.
+      python3 - <<'PY'
+      from pathlib import Path
+      import re
+
+      def edit(path, transform):
+          p = Path(path)
+          p.write_text(transform(p.read_text()))
+
+      edit("meson.build", lambda s: s.replace(
+          "  dependency('goa-1.0', version: '>= 3.2.0'),\n", ""))
+      edit("src/plugins/eds/meson.build", lambda s: s.replace(
+          "  'gtd-provider-goa.c',\n", ""))
+
+      def strip_goa(s):
+          s = s.replace('#include "gtd-provider-goa.h"\n', '')
+          s = s.replace(
+              ' * #GtdProviderLocal. Immediately after that, it loads\n'
+              ' * #GoaClient which provides one #GtdProviderGoa per\n'
+              ' * supported account.\n'
+              ' *\n'
+              ' * The currently supported Online Accounts are Google,\n'
+              ' * ownCloud and Microsoft Exchange ones.\n',
+              ' * #GtdProviderLocal.\n')
+          s = re.sub(r"\nconst gchar \*supported_accounts\[\] = \{.*?\n\};\n",
+                     "\n", s, flags=re.S)
+          s = re.sub(
+              r"static void\ngtd_plugin_eds_goa_account_removed_cb.*?\n\n\n\n"
+              r"(?=static void\ngtd_plugin_eds_source_registry_finish_cb)",
+              "", s, flags=re.S)
+          s = re.sub(
+              r"\n  /\* We only start loading Goa accounts after.*?self\);\n",
+              "\n", s, flags=re.S)
+          if "goa" in s.lower():
+              raise SystemExit("GOA references remain in gtd-plugin-eds.c")
+          return s
+
+      edit("src/plugins/eds/gtd-plugin-eds.c", strip_goa)
+
+      # girepository.h and g_irepository_get_option_group() belong to the
+      # obsolete GIRepository 1.0 API. They are only useful to the
+      # introspection build, which is disabled, and GIRepository 2.0 renamed
+      # both the header and the function. Drop them rather than adding a
+      # second, deprecated GIRepository development package.
+      def strip_girepository(s):
+          s = s.replace('#include <girepository.h>\n', '')
+          s = s.replace(
+              '  g_application_add_option_group (application, '
+              'g_irepository_get_option_group());\n', '')
+          if 'girepository' in s.lower():
+              raise SystemExit('girepository references remain in gtd-application.c')
+          return s
+
+      edit("src/gui/gtd-application.c", strip_girepository)
+      PY
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i.bak -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/org.gnome.Todo.svg|' \
+        data/org.gnome.Todo.desktop.in.in
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Todo.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/gtk-doc
+      - -usr/share/man
+      - -usr/share/doc
+
+  cleanup:
+    after: [endeavour, evolution-data-server, libraries, libpeas]
+    plugin: nil
+    override-prime: |
+      set -eux
+      # meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs, and EDS's CMake install does not compile its
+      # schemas either. Compile every schema after all parts are primed.
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .

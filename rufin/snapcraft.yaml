@@ -1,0 +1,250 @@
+name: rufin
+adopt-info: rufin
+summary: Native music player for local and remote libraries
+description: |
+  Rufin is a native music player for local folders, network shares and music
+  servers. It plays a local library, WebDAV/Nextcloud and Samba shares, and
+  Jellyfin, Emby, Plex and Navidrome/OpenSubsonic servers, with playlists,
+  smart playlists, synced lyrics, metadata editing, loudness normalization,
+  an equalizer and MPRIS media controls.
+
+  Playback is powered by GStreamer. The GNOME platform provides the base and
+  good plugin sets; this snap adds the libav decoders and the additional
+  plugins needed for AAC/ALAC, APE, MusePack, WavPack, tracker modules and
+  other formats.
+
+  Strict-confinement notes:
+   * Local music is read from the user's home directory; other locations are
+     reachable only through the file chooser (XDG document portal).
+   * Server and scrobbling credentials cannot be stored in the host keyring,
+     because the password-manager-service interface is not connected. Select
+     the config-file secret storage mode, or connect that interface manually.
+   * Discord Rich Presence cannot see the host Discord socket.
+   * The tray icon depends on a StatusNotifier host and may not appear on
+     GNOME Shell.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://github.com/screwys/Rufin
+source-code: https://github.com/screwys/Rufin
+issues: https://github.com/screwys/Rufin/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  rufin:
+    interface: dbus
+    bus: session
+    name: io.github.screwys.Rufin
+  # MPRIS remote control (org.mpris.MediaPlayer2.io.github.screwys.Rufin)
+  mpris:
+    interface: dbus
+    bus: session
+    name: org.mpris.MediaPlayer2.io.github.screwys.Rufin
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - io.github.screwys.Rufin
+
+apps:
+  rufin:
+    extensions: [gnome]
+    command: usr/bin/rufin
+    desktop: usr/share/applications/io.github.screwys.Rufin.desktop
+    common-id: io.github.screwys.Rufin.desktop
+    environment:
+      # libav links libxml2, and the GStreamer bad plugin libraries that the
+      # content snap lacks, from $SNAP/usr/lib (see the parts below).
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      - gsettings      # theme, fonts and the app's own preferences
+      - home           # the local music library
+      - network        # servers, WebDAV/SMB, cover art, scrobbling, casting
+      - network-bind   # the optional web controller / HTTP API
+      - audio-playback # playback through the desktop's PulseAudio/PipeWire
+
+# Rufin 0.18.0 is a Rust + GTK4/libadwaita application built with CMake, which
+# drives cargo itself. It requires Rust 1.96 (edition 2024); the 26.04 archive
+# has rustc 1.93, so a current stable toolchain is installed with rustup.
+#
+# GTK 4.24, libadwaita 1.10, GStreamer 1.28 and their development files and
+# pkg-config come from the gnome-core26 SDK; the cmake plugin adds cmake and
+# gcc, and the gettext build package provides msgfmt. aws-lc-sys (pulled in by
+# rustls) is built with CMake and needs nasm on amd64.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR is compiled in from
+# the CMake install prefix and a /usr prefix would make gettext look in the
+# core26 base instead of the snap. organize moves the installed tree back under
+# usr/.
+parts:
+  rufin:
+    source: https://github.com/screwys/Rufin.git
+    source-type: git
+    source-tag: 'v0.18.0'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/snap/rufin/current/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DRUFIN_BUILD_IDENTITY=stable
+    organize:
+      snap/rufin/current/usr: usr
+    build-packages:
+      - curl
+      - gettext       # msgfmt builds the message catalogs
+      - libsqlite3-dev
+      - perl          # aws-lc-sys generates assembly with perl
+      - to amd64:
+        - nasm        # aws-lc-sys assembly on amd64
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      # Rufin 0.18.0 requires rustc 1.96. Install a fixed stable toolchain so
+      # the build does not depend on the archive's rustc 1.93.
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.99.1
+      . "$HOME/.cargo/env"
+      # craftctl resets the environment to the part's build-environment, which
+      # drops the PATH entry rustup added; expose the proxies from a directory
+      # that is always on PATH.
+      for tool in cargo rustc rustdoc rustup; do
+        ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool"
+      done
+      rustc --version
+      # Upstream's official Linux packaging trims the workspace manifest to
+      # the desktop crates; the root workspace also contains the Android and
+      # xtask crates, which are not needed for the snap.
+      cp "$CRAFT_PART_SRC/packaging/linux/Cargo.toml" "$CRAFT_PART_SRC/Cargo.toml"
+      cp "$CRAFT_PART_SRC/packaging/linux/Cargo.lock" "$CRAFT_PART_SRC/Cargo.lock"
+      craftctl default
+
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/io.github.screwys.Rufin.svg|' \
+        "$CRAFT_PART_INSTALL/snap/rufin/current/usr/share/applications/io.github.screwys.Rufin.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/resources/icons/hicolor/scalable/apps/io.github.screwys.Rufin.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  # gnome-core26 ships GStreamer core, base, good, extra and the GTK 4 sink,
+  # but no bad, ugly or libav plugins. The full gstreamer1.0-plugins-bad pulls
+  # in the ONNX/TensorFlow/OpenCV stack, so fetch the package without its
+  # dependencies and keep only the plugins a music player needs. The bad
+  # plugin libraries (adaptivedemux, badaudio, insertbin, mpegts,
+  # uridownloader) are a separate archive package; they are moved out of the
+  # multiarch path because the gnome extension's cleanup deletes primed
+  # libraries that also exist in the SDK, while the content snap does not ship
+  # them.
+  gst-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-ugly \
+        libgstreamer-plugins-bad1.0-0
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in \
+        libgstadaptivedemux-1.0.so.0 \
+        libgstbadaudio-1.0.so.0 \
+        libgstinsertbin-1.0.so.0 \
+        libgstmpegts-1.0.so.0 \
+        libgsturidownloader-1.0.so.0; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+          "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstaiff.so
+      - usr/lib/*/gstreamer-1.0/libgstasf.so
+      - usr/lib/*/gstreamer-1.0/libgstaudiobuffersplit.so
+      - usr/lib/*/gstreamer-1.0/libgstbs2b.so
+      - usr/lib/*/gstreamer-1.0/libgstchromaprint.so
+      - usr/lib/*/gstreamer-1.0/libgstdebugutilsbad.so
+      - usr/lib/*/gstreamer-1.0/libgstfaad.so
+      - usr/lib/*/gstreamer-1.0/libgstgme.so
+      - usr/lib/*/gstreamer-1.0/libgsthls.so
+      - usr/lib/*/gstreamer-1.0/libgstinsertbin.so
+      - usr/lib/*/gstreamer-1.0/libgstmpegtsdemux.so
+      - usr/lib/*/gstreamer-1.0/libgstmusepack.so
+      - usr/lib/*/gstreamer-1.0/libgstopenmpt.so
+      - usr/lib/*/gstreamer-1.0/libgstsrtp.so
+      - usr/lib/libgstadaptivedemux-1.0.so.0*
+      - usr/lib/libgstbadaudio-1.0.so.0*
+      - usr/lib/libgstinsertbin-1.0.so.0*
+      - usr/lib/libgstmpegts-1.0.so.0*
+      - usr/lib/libgsturidownloader-1.0.so.0*
+
+  # libav supplies the decoders the platform does not ship (AAC/ALAC, APE,
+  # WMA, ...). The remaining packages are the runtime libraries of the bad
+  # plugins kept above.
+  libraries:
+    after: [rufin]
+    plugin: nil
+    stage-packages:
+      - gstreamer1.0-libav
+      - libbs2b0
+      - libchromaprint1
+      - libfaad2
+      - libgme0
+      - libmpcdec6
+      - libopenmpt0t64
+      - libsrtp2-1
+      # libavformat links libxml2, which gnome-core26 does not ship.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the multiarch path; the app's
+      # LD_LIBRARY_PATH includes $SNAP/usr/lib.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/*/*.la
+      - -usr/share/doc
+      - -usr/share/doc-base
+      - -usr/share/man
+      - -usr/share/lintian
+      - -usr/share/bug
+      - -usr/share/apport
+      # libav's dependencies also stage these libraries, but the platform
+      # already ships (newer) copies and the snap's LD_LIBRARY_PATH puts the
+      # platform first. Drop the duplicates so only one version of each is
+      # present.
+      - -usr/lib/*/libcairo.so.*
+      - -usr/lib/*/libcairo-gobject.so.*
+      - -usr/lib/*/libfontconfig.so.*
+      - -usr/lib/*/libgdk_pixbuf-2.0.so.*
+      - -usr/lib/*/libharfbuzz.so.*
+      - -usr/lib/*/libpango-1.0.so.*
+      - -usr/lib/*/libpangocairo-1.0.so.*
+      - -usr/lib/*/libpangoft2-1.0.so.*
+      - -usr/lib/*/librsvg-2.so.*
+
+  cleanup:
+    after: [rufin, libraries, gst-extras]
+    plugin: nil
+    build-snaps: [gnome-core26]
+    override-prime: |
+      set -eux
+      # Staging libav and the GStreamer plugins pulls in copies of libraries
+      # and plugins that the gnome-core26 content snap already provides. Drop
+      # every primed file whose path also exists in the content snap, so the
+      # platform copy is the one that is loaded.
+      cd /snap/gnome-core26/current
+      find usr/lib \( -type f -o -type l \) | while IFS= read -r file; do
+        rm -f "$CRAFT_PRIME/$file"
+      done

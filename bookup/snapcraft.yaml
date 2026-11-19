@@ -1,0 +1,125 @@
+name: bookup
+title: Bookup
+adopt-info: bookup
+license: GPL-3.0-or-later
+website: https://gitlab.gnome.org/ilhooq/bookup
+source-code: https://gitlab.gnome.org/ilhooq/bookup
+issues: https://gitlab.gnome.org/ilhooq/bookup/-/issues
+contact: https://gitlab.gnome.org/ilhooq/bookup/-/issues
+summary: Take notes with Markdown syntax
+description: |
+  Bookup is a note-taking application that streamlines the process with the
+  use of Markdown syntax. Notes are organised in books (SQLite databases) as
+  a tree of sections and pages, with tags, bookmarks, a Markdown editor with
+  syntax highlighting and an HTML preview. Notes can be exported to Markdown
+  and PDF.
+
+  Strict-confinement notes:
+   * Only non-hidden files under the home directory are directly readable and
+     writable. Books on mounted volumes or in hidden directories (for
+     example ~/.local/share) must be selected through the file chooser, which
+     hands them to the application as document-portal copies; writing changes
+     back to the original file then depends on the portal.
+   * A snap cannot add the custom application/x-bookup-sqlite3 MIME type to
+     the host's shared MIME database, so double-clicking a .bdb file in the
+     file manager will not offer Bookup. Open books from the application's own
+     file chooser instead.
+   * PDF export uses GTK's built-in "Print to File" virtual printer. Bookup
+     has no physical printing, so no cups-control interface is declared.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (the app-id is org.gnome.gitlab.ilhooq.Bookup, src/main.c)
+  bookup:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitlab.ilhooq.Bookup
+
+apps:
+  bookup:
+    extensions: [gnome]
+    command: usr/bin/bookup
+    desktop: usr/share/applications/org.gnome.gitlab.ilhooq.Bookup.desktop
+    common-id: org.gnome.gitlab.ilhooq.Bookup.desktop
+    plugs:
+      # the snap's org.gnome.gitlab.ilhooq.bookup GSettings schema
+      - gsettings
+      # books (.bdb SQLite databases), images and exported notes
+      - home
+
+# Bookup 1.1.7 is a C GTK4 + libadwaita application (meson build) with a
+# GtkSourceView 5 Markdown editor and a WebKitGTK 6.0 HTML preview. GTK 4,
+# libadwaita, gtksourceview-5, webkitgtk-6.0, SQLite, gettext, itstool and
+# msgfmt come from the gnome extension (gnome-core26-sdk content); only
+# libmarkdown (discount) is missing from the platform and is staged from the
+# 26.04 archive below.
+#
+# WebKitGTK detects that it runs inside a snap and disables its own bubblewrap
+# sandbox for the web process (WTF::shouldUseBubblewrap() returns false), so
+# the web view needs no browser-support interface and does not fail to start.
+#
+# The prefix is the runtime mount path, not /usr: DATA_DIR and LOCALEDIR are
+# compiled in from it, and page.css and the translations live under
+# $SNAP/usr/share. A /usr prefix would make the binary look in the core26
+# base instead. organize moves the installed tree back under usr/.
+parts:
+  bookup:
+    source: https://gitlab.gnome.org/ilhooq/bookup.git
+    source-type: git
+    source-tag: 'v1.1.7'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.gitlab.ilhooq.Bookup.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/bookup/current/usr
+      - --buildtype=release
+    organize:
+      snap/bookup/current/usr: usr
+    build-packages:
+      # The gnome-core26 SDK has GTK4 (with gtk4-unix-print), libadwaita,
+      # gtksourceview-5, webkitgtk-6.0, SQLite and the GNOME build tools, but
+      # not discount. meson.build accepts libmarkdown 2.2.7 as well as 3.x,
+      # and 26.04 ships 2.2.7, the same release the Flatpak builds.
+      - libmarkdown2-dev
+      # update-mime-database, used below to register the .bdb MIME type
+      - shared-mime-info
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^v//')
+    override-build: |
+      craftctl default
+      # meson's gnome.post_install() skips glib-compile-schemas and
+      # update-mime-database when DESTDIR is set, which is how snapcraft
+      # installs. The GSettings schema is created at start-up, so compile it
+      # here, and register application/x-bookup-sqlite3 so opening a .bdb
+      # path is accepted.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/bookup/current/usr/share/glib-2.0/schemas"
+      update-mime-database \
+        "$CRAFT_PART_INSTALL/snap/bookup/current/usr/share/mime"
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i 's|^Icon=org.gnome.gitlab.ilhooq.Bookup$|Icon=${SNAP}/meta/gui/org.gnome.gitlab.ilhooq.Bookup.svg|' \
+        "$CRAFT_PART_INSTALL/snap/bookup/current/usr/share/applications/org.gnome.gitlab.ilhooq.Bookup.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.gitlab.ilhooq.Bookup.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  libraries:
+    after: [bookup]
+    plugin: nil
+    stage-packages:
+      # discount's libmarkdown is in neither the core26 base nor gnome-core26,
+      # but bookup links it directly for its Markdown rendering.
+      - libmarkdown2
+    prime:
+      # Keep only the library; the package's docs/man pages are not needed.
+      - usr/lib/*/libmarkdown.so.*

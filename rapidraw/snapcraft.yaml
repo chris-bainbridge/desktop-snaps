@@ -1,0 +1,148 @@
+name: rapidraw
+adopt-info: rapidraw
+title: RapidRAW
+license: AGPL-3.0-only
+website: https://github.com/CyberTimon/RapidRAW
+source-code: https://github.com/CyberTimon/RapidRAW
+issues: https://github.com/CyberTimon/RapidRAW/issues
+summary: GPU-accelerated, non-destructive RAW image editor
+description: |
+  RapidRAW is a fast, non-destructive RAW photo editor with a GPU
+  processing pipeline, lens correction, film LUTs, HDR output, and optional
+  AI-powered denoising and inpainting.
+
+  The snap is strictly confined, as required on Core Desktop:
+
+   * Photos in non-hidden paths under the user's home directory are read
+     and written directly. Hidden directories and locations outside home,
+     such as SD cards and mounted disks, are reachable only through the
+     XDG document portal in the file chooser.
+   * Settings, caches, logs and AI models live in the snap's private
+     per-user area under ~/snap/rapidraw/current, not in ~/.config or
+     ~/.local/share, and are not shared with a distribution install.
+   * Deleted photos go to the snap's private trash, not to the desktop
+     trash, so they do not appear in the file manager's Trash view.
+   * Camera tethering is not built: it would need libgphoto2 and the camera
+     interface, which this batch does not declare.
+   * Immich API keys cannot be stored in the host keyring, because the
+     password-manager-service interface is not connected, so the Immich
+     integration cannot remember its credentials between runs.
+   * The Tauri window uses WebKitGTK. WebKit detects the snap environment
+     and disables its own bubblewrap sandbox, relying on the snap's
+     confinement; the web content is therefore not sandboxed a second time.
+   * Rendering uses Vulkan/OpenGL through the opengl interface and the Mesa
+     content snap. With NVIDIA drivers on Wayland the window can stay blank
+     or crash; launch with WEBKIT_DISABLE_DMABUF_RENDERER=1 in that case.
+   * AI models are downloaded on demand from the network; the ONNX Runtime
+     library itself is bundled.
+
+grade: stable
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # tauri-plugin-single-instance owns this name on the session bus
+  single-instance:
+    interface: dbus
+    bus: session
+    name: io.github.CyberTimon.RapidRAW.SingleInstance
+
+apps:
+  rapidraw:
+    extensions: [gnome]
+    command: usr/bin/RapidRAW
+    desktop: usr/share/applications/io.github.CyberTimon.RapidRAW.desktop
+    common-id: io.github.CyberTimon.RapidRAW
+    plugs:
+      - home
+      - network
+      - gsettings
+
+# RapidRAW 1.7.0 is a Tauri 2 application: a React/Vite frontend served by
+# the Rust backend (src-tauri) in a WebKitGTK 4.1 webview, on GTK 3. The
+# build follows the upstream and Flathub flow: npm ci, then
+# `tauri build --no-bundle`, then install the binary and the resources that
+# the Tauri bundler would normally install.
+#
+# GTK 3, WebKitGTK 4.1, libsoup 3, the Rust-facing pkg-config files and the
+# compilers come from the gnome-core26 SDK content; WebKitGTK 4.1 itself is
+# in the gnome-core26 content snap at runtime, and the extension maps
+# /usr/lib/<triplet>/webkit2gtk-4.1 for the web process.
+#
+# rust-version is 1.98, src-tauri/rust-toolchain.toml pins channel 1.98, and
+# the crate is edition 2024, while the 26.04 archive has rustc 1.93: rustup
+# installs the pinned stable toolchain. aws-lc-sys (used by rustls) builds
+# with cmake, perl and, on amd64, nasm.
+#
+# src-tauri/build.rs downloads the architecture-matched libonnxruntime.so
+# from HuggingFace into src-tauri/resources and checks its pinned sha256, so
+# no ONNX Runtime package is staged from the archive.
+#
+# Tauri resolves BaseDirectory::Resource as <exe dir>/../lib/<product name>,
+# so the resources, film LUTs, licences and lensfun database are installed
+# under usr/lib/RapidRAW, exactly where an upstream .deb would put them.
+parts:
+  rapidraw:
+    source: https://github.com/CyberTimon/RapidRAW.git
+    source-type: git
+    source-tag: 'v1.7.0'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - build-essential  # cc/make for the C parts of the Rust crates
+      - cmake       # aws-lc-sys
+      - curl        # rustup installer
+      - git         # cargo fetches the rawler git dependency
+      - libssl-dev  # native-tls/openssl-sys when a crate enables it
+      - nodejs      # 26.04 archive node 22, as in upstream CI
+      - npm
+      - perl        # aws-lc-sys generates assembly with perl
+      - pkg-config
+      - to amd64:
+        - nasm      # aws-lc-sys assembly on amd64
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      set -euxo pipefail
+      # plugin: nil does not build in the source tree; run everything there.
+      cd "$CRAFT_PART_SRC"
+      # Rust 1.98 is required (src-tauri/rust-toolchain.toml); install the
+      # pinned toolchain so the build does not use the archive's rustc 1.93.
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.98.0
+      export PATH="$HOME/.cargo/bin:$PATH"
+      rustc --version
+
+      # package-lock.json is npm lockfileVersion 3 and pins the tauri CLI and
+      # the platform-specific Vite/esbuild/Tailwind binaries.
+      npm ci --no-audit --no-fund
+
+      # `tauri build` runs `npm run build` (Vite) first. --no-bundle skips the
+      # .deb/AppImage bundlers; resources are installed by hand below.
+      npm run tauri build -- --no-bundle
+
+      install -Dm755 src-tauri/target/release/RapidRAW \
+        "$CRAFT_PART_INSTALL/usr/bin/RapidRAW"
+      install -Dm644 data/io.github.CyberTimon.RapidRAW.desktop \
+        "$CRAFT_PART_INSTALL/usr/share/applications/io.github.CyberTimon.RapidRAW.desktop"
+      install -Dm644 data/io.github.CyberTimon.RapidRAW.metainfo.xml \
+        "$CRAFT_PART_INSTALL/usr/share/metainfo/io.github.CyberTimon.RapidRAW.metainfo.xml"
+
+      # This is Tauri's resource directory for a binary in usr/bin. build.rs
+      # has put libonnxruntime.so into src-tauri/resources by now.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib/RapidRAW"
+      cp -a src-tauri/resources src-tauri/lensfun_db \
+        "$CRAFT_PART_INSTALL/usr/lib/RapidRAW/"
+
+      # Use the icon bundled in the snap so the launcher does not have to find
+      # io.github.CyberTimon.RapidRAW in the host icon theme.
+      sed -i 's|^Icon=RapidRAW$|Icon=${SNAP}/meta/gui/io.github.CyberTimon.RapidRAW.png|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/io.github.CyberTimon.RapidRAW.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp src-tauri/icons/128x128@2x.png \
+        "$CRAFT_PART_INSTALL/meta/gui/io.github.CyberTimon.RapidRAW.png"

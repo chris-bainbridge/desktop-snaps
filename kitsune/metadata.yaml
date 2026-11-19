@@ -1,0 +1,7 @@
+# Build metadata for kitsune (new core26 recipe, 2026-11).
+snap: kitsune
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://altlinux.space/alt-gnome/Kitsune (1.0.0)
+imported: '2026-11-19'

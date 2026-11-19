@@ -1,0 +1,156 @@
+name: pinpoint
+adopt-info: pinpoint
+title: Pinpoint
+summary: Presentation tool for hackers
+website: https://wiki.gnome.org/Attic%282f%29Pinpoint.html
+contact: https://gitlab.gnome.org/Archive/pinpoint
+source-code: https://gitlab.gnome.org/Archive/pinpoint
+description: |
+  Pinpoint is a simple presentation tool that avoids bullet-point-heavy
+  slides in favour of beautiful images and small amounts of concise text.
+
+  Slides are written in a small plain-text format with per-slide overrides
+  for text position, colours, backgrounds, transitions and speaker notes.
+  Image and video backgrounds, Pango markup, JSON-defined transitions,
+  live reloading of the source file and PDF export are supported.
+
+  Strict-confinement notes:
+   * Pinpoint 0.1.8 opens presentations by file name only
+     (`snap run pinpoint ~/talk.pin`); it has no file chooser, so starting
+     it from the launcher shows its built-in usage slide. Only files under
+     the home directory can be read; there is no portal integration.
+   * Commands embedded in slides are run inside the snap sandbox, so they
+     can only execute binaries shipped in the snap or the base, not
+     arbitrary host commands.
+   * The camera background is unavailable (it would need the camera
+     interface, which this batch does not use).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (gtk_application_new ("org.gnome.Pinpoint"))
+  pinpoint:
+    interface: dbus
+    bus: session
+    name: org.gnome.Pinpoint
+
+apps:
+  pinpoint:
+    extensions: [gnome]
+    command: usr/bin/pinpoint
+    desktop: usr/share/applications/org.gnome.Pinpoint.desktop
+    common-id: org.gnome.Pinpoint.desktop
+    environment:
+      # The Clutter stack is staged in the snap's multiarch directory (see
+      # the libraries part); the gnome extension only puts the platform
+      # runtime on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # read GTK settings (theme, fonts) from the host
+      - gsettings
+      # open presentations and their images/videos under the home directory
+      - home
+      # sound from video backgrounds played through ClutterGst
+      - audio-playback
+
+# Pinpoint 0.1.8 (2015-09-22) is the last release; upstream has been moved
+# to the GNOME Archive namespace and the master branch only received build
+# fixes after the tag. The release tarball is used because it ships the
+# generated configure script; the project is C with autotools, GTK3,
+# Clutter/ClutterGtk and optionally ClutterGst for video backgrounds.
+#
+# The prefix is the runtime mount path, not /usr: the binary has PKGDATADIR
+# compiled in (the JSON transition definitions) and a /usr prefix would make
+# it look in the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+parts:
+  pinpoint:
+    source: https://download.gnome.org/sources/pinpoint/0.1/pinpoint-0.1.8.tar.xz
+    source-checksum: sha256/5a207dd1a35681b7268e6aa5ff9b2c5381f4cc63e5f2e5695997ca9d3264e8ca
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/snap/pinpoint/current/usr
+      # PDF export, SVG backgrounds in the PDF, video backgrounds via
+      # ClutterGst. Dax (the experimental SVG renderer) is not packaged.
+      - --enable-pdf
+      - --enable-rsvg
+      - --enable-cluttergst
+      - --disable-dax
+    organize:
+      snap/pinpoint/current/usr: usr
+    build-packages:
+      # The Clutter stack is not part of gnome-core26-sdk or the content snap.
+      - libclutter-1.0-dev
+      - libclutter-gtk-1.0-dev
+      - libclutter-gst-3.0-dev
+      # ClutterGst needs the GStreamer development files
+      - libgstreamer1.0-dev
+      # PDF export embeds SVG backgrounds through librsvg
+      - librsvg2-dev
+      # GTK3, GLib, cairo, Pango and gdk-pixbuf headers come from the
+      # gnome-core26 SDK, but configure probes the cairo-pdf and
+      # gdk-pixbuf pkg-config modules explicitly.
+      - libcairo2-dev
+      - libpango1.0-dev
+      - libgdk-pixbuf-2.0-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(awk -F', ' \
+        '/^m4_define\(pinpoint_(major|minor|micro)_version/{v=$2; gsub(/\)/,"",v); printf "%s%s", sep, v; sep="."}' \
+        configure.ac)
+    override-build: |
+      craftctl default
+      # Upstream 0.1.8 predates the desktop file and icon conventions: it
+      # installs neither. Add a launcher and a small placeholder icon of our
+      # own (no upstream artwork exists) so the snap appears in the menu.
+      # The install tree is still under the runtime prefix here; organize
+      # moves it to usr/ afterwards.
+      install -Dm644 /dev/stdin \
+        "$CRAFT_PART_INSTALL/snap/pinpoint/current/usr/share/applications/org.gnome.Pinpoint.desktop" <<'EOF'
+      [Desktop Entry]
+      Type=Application
+      Name=Pinpoint
+      GenericName=Presentation Tool
+      Comment=Present images and concise text without bullet-point slides
+      Exec=pinpoint %f
+      Icon=${SNAP}/meta/gui/org.gnome.Pinpoint.svg
+      Terminal=false
+      Categories=Office;Presentation;
+      StartupNotify=true
+      EOF
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cat > "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Pinpoint.svg" <<'EOF'
+      <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+        <rect x="4" y="4" width="120" height="120" rx="24" fill="#241f31"/>
+        <rect x="22" y="30" width="84" height="58" rx="6" fill="#f6f5f4"/>
+        <circle cx="64" cy="57" r="9" fill="#e01b24"/>
+        <rect x="60" y="82" width="8" height="10" fill="#f6f5f4"/>
+        <rect x="52" y="94" width="24" height="5" rx="2.5" fill="#f6f5f4"/>
+      </svg>
+      EOF
+
+  libraries:
+    # gnome-core26 ships GTK3, GLib/GIO, cairo, Pango, gdk-pixbuf,
+    # GStreamer and librsvg, and the core26 base ships libdrm; Mesa comes
+    # from the gpu-2604 content snap added by the gnome extension. None of
+    # the Clutter stack is provided, so stage it from the 26.04 archive.
+    after: [pinpoint]
+    plugin: nil
+    stage-packages:
+      - libclutter-1.0-0
+      - libclutter-gtk-1.0-0
+      - libclutter-gst-3.0-0
+      - libcogl20
+      - libcogl-pango20
+      - libcogl-path20
+    prime:
+      # Dependencies staged by apt (GTK3, GStreamer, X11, ...) are already
+      # in the content snap/base/Mesa; keep only the Clutter stack itself.
+      - usr/lib/*/libclutter-*
+      - usr/lib/*/libcogl*

@@ -1,0 +1,320 @@
+name: errands
+adopt-info: errands
+title: Errands
+summary: Manage your tasks
+website: https://github.com/mrvladus/Errands
+source-code: https://github.com/mrvladus/Errands
+issues: https://github.com/mrvladus/Errands/issues
+contact: https://github.com/mrvladus/Errands/issues
+description: |
+  Errands is a todo application for those who prefer simplicity. It organises
+  tasks into lists with sub-tasks, notes, tags, attachments, priorities,
+  colours, recurring due dates and reminders. Tasks can be imported from and
+  exported to iCalendar files and synchronised with Nextcloud Tasks or any
+  other CalDAV server.
+
+  Strict-confinement notes:
+   * Only non-hidden files under the home directory are visible. Files on
+     mounted volumes and other locations can be selected through the desktop
+     file chooser portal.
+   * Task data and settings live in the snap's private per-user data
+     directory. An existing deb or Flatpak installation is not imported
+     automatically; export and re-import through iCalendar files in a visible
+     home directory.
+   * CalDAV synchronisation needs libsecret to store and look up the account
+     password in the host keyring. The password-manager-service interface is
+     not declared, so the keyring is unavailable. Errands 51.2 keeps the
+     password only in the keyring (its setter does not update the in-memory
+     value), so synchronisation cannot authenticate and is unavailable. Local
+     task lists, attachments and iCalendar import/export still work; adding
+     password-manager-service would be required for CalDAV sync.
+   * GNOME Online Accounts credential autofill needs the accounts-service
+     interface, which is not declared. Enter the server URL, user name and
+     password manually (subject to the keyring limitation above).
+   * The snap contains a self-contained evolution-data-server built with
+     prefixed D-Bus names; the host evolution-data-server is neither used nor
+     disturbed. CalDAV authentication is limited by the keyring note above.
+   * The upstream "run on startup" and "run in background" settings are inert:
+     the portal request behind them is commented out in 51.2 and the snap
+     installs no autostart entry.
+   * Printing uses GTK's CUPS backend; the cups-control interface is not
+     declared, so printing task lists may be unavailable.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # evolution-data-server compiles its private module/backend directory and
+  # its data directory into its libraries and services. Both paths are below
+  # /usr, which does not exist in the base; map them onto the snap's copies.
+  /usr/lib/evolution-data-server:
+    bind: $SNAP/usr/lib/evolution-data-server
+  /usr/share/evolution-data-server:
+    bind: $SNAP/usr/share/evolution-data-server
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  errands:
+    interface: dbus
+    bus: session
+    name: io.github.mrvladus.List
+  # The self-contained evolution-data-server is built with
+  # -DDBUS_SERVICES_PREFIX=io.github.mrvladus.List, so its service names are
+  # namespaced to this snap and cannot collide with a host instance.
+  eds-sources:
+    interface: dbus
+    bus: session
+    name: io.github.mrvladus.List.org.gnome.evolution.dataserver.Sources5
+  eds-calendar:
+    interface: dbus
+    bus: session
+    name: io.github.mrvladus.List.org.gnome.evolution.dataserver.Calendar8
+  # The calendar factory spawns backend subprocesses that own dynamically
+  # suffixed names below this prefix. The dbus interface's slot rule grants
+  # this snap ownership of <name>.* so those subprocesses can register.
+  eds-subprocess:
+    interface: dbus
+    bus: session
+    name: org.gnome.evolution.dataserver.Subprocess.Backend
+
+environment:
+  # libical and evolution-data-server are staged outside the SDK's multiarch
+  # path (the gnome extension's cleanup part removes same-path copies taken
+  # from the SDK), so keep $SNAP/usr/lib on the loader path.
+  LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/evolution-data-server
+  # evolution-data-server compiles /usr/libexec and
+  # /usr/lib/evolution-data-server/calendar-backends into its factory. The
+  # first does not exist in the base, so point the factory at the snap's
+  # subprocess binary; the second is also provided by the layout below.
+  EDS_SUBPROCESS_CAL_PATH: $SNAP/usr/libexec/evolution-calendar-factory-subprocess
+  EDS_CALENDAR_MODULES: $SNAP/usr/lib/evolution-data-server/calendar-backends
+
+apps:
+  errands:
+    extensions: [gnome]
+    command: usr/bin/errands
+    desktop: usr/share/applications/io.github.mrvladus.List.desktop
+    common-id: io.github.mrvladus.List.desktop
+    plugs:
+      # theme, font and toolkit settings from the host
+      - gsettings
+      # task attachments and iCalendar import/export files
+      - home
+      # CalDAV synchronisation
+      - network
+
+  # D-Bus-activated evolution-data-server services used by libecal.
+  # daemon-scope: user keeps them in the user session.
+  source-registry:
+    extensions: [gnome]
+    command: usr/libexec/evolution-source-registry
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-sources]
+    plugs:
+      - gsettings
+      - home
+      - network
+
+  calendar-factory:
+    extensions: [gnome]
+    command: usr/libexec/evolution-calendar-factory
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [eds-calendar]
+    plugs:
+      - gsettings
+      - home
+      - network
+
+parts:
+  libical:
+    # Errands 51 needs the libical 4 API (icalrecurrencetype_new_from_string
+    # and ref-counted recurrence types) plus libical-glib; the 26.04 archive
+    # only has 3.0.20. evolution-data-server 3.62.1 supports libical-glib 4.x.
+    source: https://github.com/libical/libical.git
+    source-type: git
+    source-tag: 'v4.0.8'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DLIBICAL_CXX_BINDINGS=OFF
+      - -DLIBICAL_JAVA_BINDINGS=OFF
+      - -DLIBICAL_GOBJECT_INTROSPECTION=OFF
+      - -DLIBICAL_BUILD_DOCS=OFF
+      - -DLIBICAL_GLIB_BUILD_DOCS=OFF
+      - -DLIBICAL_GLIB_VAPI=OFF
+      - -DLIBICAL_BUILD_TESTING=OFF
+      - -DLIBICAL_BUILD_EXAMPLES=OFF
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/lib/cmake
+      - -usr/lib/*.a
+      - -usr/share/doc
+      - -usr/share/gtk-doc
+      - -usr/share/man
+
+  evolution-data-server:
+    # gnome-core26 does not ship evolution-data-server. 3.62.1 is the EDS
+    # release matching GNOME 51 and is built from source so it can use
+    # libical 4 instead of the archive's libical 3.
+    after: [libical]
+    source: https://gitlab.gnome.org/GNOME/evolution-data-server.git
+    source-type: git
+    source-tag: '3.62.1'
+    source-depth: 1
+    plugin: cmake
+    cmake-parameters:
+      - -DCMAKE_INSTALL_PREFIX=/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # Namespace the D-Bus services to the snap so libecal inside the snap
+      # cannot reach a host evolution-data-server.
+      - -DDBUS_SERVICES_PREFIX=io.github.mrvladus.List
+      - -DENABLE_GTK=OFF
+      - -DENABLE_GTK4=OFF
+      - -DENABLE_GOA=OFF
+      - -DENABLE_WEATHER=OFF
+      - -DENABLE_CANBERRA=OFF
+      - -DWITH_LIBDB=OFF
+      - -DWITH_OPENLDAP=OFF
+      - -DENABLE_FILE_LOCKING=fcntl
+      - -DENABLE_DOT_LOCKING=OFF
+      - -DWITH_SYSTEMDUSERUNITDIR=OFF
+      - -DENABLE_INTROSPECTION=OFF
+      - -DENABLE_VALA_BINDINGS=OFF
+      - -DENABLE_GTK_DOC=OFF
+      - -DWITH_PRIVATE_DOCS=OFF
+      - -DENABLE_EXAMPLES=OFF
+      - -DENABLE_TESTS=OFF
+      - -DENABLE_INSTALLED_TESTS=OFF
+    build-packages:
+      - gperf
+    build-environment:
+      # Resolve the SDK's indirect shared-library dependencies and the
+      # staged libical libraries when linking the EDS services.
+      - LDFLAGS: -L$CRAFT_STAGE/usr/lib -Wl,-rpath-link=$CRAFT_STAGE/usr/lib -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib
+    override-pull: |
+      craftctl default
+      # gnome-core26-sdk's gio-2.0.pc and sqlite3.pc add -I${includedir},
+      # i.e. the SDK's /usr/include, which contains a copy of glibc's nss.h.
+      # A bare "nss.h" therefore resolves to the C library header and the
+      # Mozilla NSS API is undeclared. Use the nss/ path instead.
+      sed -i \
+        -e 's|#include "nss.h"|#include <nss/nss.h>|g' \
+        -e 's|#include <nss.h>|#include <nss/nss.h>|g' \
+        src/camel/camel-smime-context.c \
+        src/camel/camel.c \
+        src/libedataserverui/e-certificate-widget.c
+    override-stage: |
+      craftctl default
+      # craft-parts rewrites only the "prefix=" line of staged .pc files.
+      # These files put the include and library directories in absolute
+      # /usr paths, which do not exist in the build environment where the
+      # Errands part consumes them. Make the build-time variables relative
+      # to the rewritten stage prefix; the runtime variables (privlibdir,
+      # D-Bus names) stay absolute because the layout binds provide them.
+      for pc in "$CRAFT_STAGE"/usr/lib/pkgconfig/*.pc; do
+        sed -i \
+          -e 's|^libdir=/usr/lib$|libdir=${prefix}/lib|' \
+          -e 's|^includedir=/usr/include$|includedir=${prefix}/include|' \
+          -e 's|^datarootdir=/usr/share$|datarootdir=${prefix}/share|' \
+          -e 's|^datadir=/usr/share$|datadir=${prefix}/share|' \
+          -e 's|^privincludedir=/usr/include/evolution-data-server$|privincludedir=${prefix}/include/evolution-data-server|' \
+          "$pc"
+      done
+      # libedbus-private.so is installed into privlibdir and the public
+      # libraries carry a RUNPATH of /usr/lib/evolution-data-server, which the
+      # layout above provides at runtime. Keep a copy in the stage's usr/lib
+      # so the Errands link step resolves the indirect dependency too.
+      if [ -f "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" ]; then
+        cp -a "$CRAFT_STAGE/usr/lib/evolution-data-server/libedbus-private.so" \
+          "$CRAFT_STAGE/usr/lib/"
+      fi
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/lib/cmake
+      - -usr/lib/*.a
+      - -usr/share/GConf
+      - -usr/share/applications
+      - -usr/share/dbus-1/interfaces
+      # snapd creates the activation files for the daemon apps above at
+      # install time; the upstream copies point at /usr/libexec and are
+      # redundant.
+      - -usr/share/dbus-1/services
+      - -usr/share/doc
+      - -usr/share/gir-1.0
+      - -usr/share/gtk-doc
+      - -usr/share/installed-tests
+      - -usr/share/man
+      - -usr/share/vala
+      - -usr/libexec/installed-tests
+
+  libraries:
+    after: [evolution-data-server]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships libsoup, json-glib, libsecret, NSS/NSPR, SQLite
+      # and ICU, but not libxml2, which libedataserver, libical-glib and
+      # GtkSourceView 5 link directly.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path;
+      # $SNAP/usr/lib is part of LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
+
+  errands:
+    after: [evolution-data-server, libraries]
+    source: https://github.com/mrvladus/Errands.git
+    source-type: git
+    source-tag: '51.2'
+    source-depth: 1
+    # Upstream is a plain C11/GTK4/libadwaita application built with a
+    # Makefile; the .blp UI files are compiled by blueprint-compiler.
+    plugin: nil
+    build-packages:
+      - make
+      # goa-1.0 development files are not in gnome-core26-sdk; the runtime
+      # library comes from gnome-core26.
+      - libgoa-1.0-dev
+    build-environment:
+      # The linker must find the SDK's indirect shared-library dependencies
+      # (epoxy, X11, ...) as well as the staged libical/EDS libraries and the
+      # EDS private library directory.
+      - LDFLAGS: -L$CRAFT_STAGE/usr/lib -L$CRAFT_STAGE/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=$CRAFT_STAGE/usr/lib -Wl,-rpath-link=$CRAFT_STAGE/usr/lib/evolution-data-server -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR -Wl,-rpath-link=/snap/gnome-core26-sdk/current/usr/lib
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap rather than a themed one
+      sed -i -e 's|^Icon=@APP_ID@$|Icon=${SNAP}/meta/gui/io.github.mrvladus.List.svg|' \
+        data/errands.desktop.in
+    override-build: |
+      set -eux
+      # The upstream Makefile still says 51.1.3; take the version from the
+      # release tag. LOCALE_DIR is compiled in from prefix, so install into
+      # the runtime mount path and organize the tree back under usr/.
+      make -j"${CRAFT_PARALLEL_BUILD_COUNT:-$(nproc)}" \
+        VERSION="$(craftctl get version)" \
+        prefix=/snap/errands/current/usr \
+        install DESTDIR="$CRAFT_PART_INSTALL"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/io.github.mrvladus.List.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    organize:
+      snap/errands/current/usr: usr

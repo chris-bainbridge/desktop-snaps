@@ -1,0 +1,135 @@
+name: akizip
+adopt-info: akizip
+title: Akizip
+summary: Modern 7-Zip frontend for GNOME
+contact: https://github.com/AkiZip/AkiZip/issues
+license: GPL-3.0-or-later
+description: |
+  Akizip is a graphical front-end for 7-Zip on GNOME. It browses archives,
+  creates and extracts them with cancellable background jobs and progress
+  reporting, shows a log panel, and handles password-protected archives.
+
+  It creates 7z, zip and tar archives, and opens those formats plus gz, bz2,
+  xz, zstd (including the tar.* variants) and ISO images read-only.
+
+  Akizip is Flatpak-first and normally runs the 7-Zip engine at
+  /app/bin/7zz. This snap bundles the archive's 7zz 26.00 and invokes it from
+  /snap/akizip/current/usr/lib/7zip/7zz instead.
+
+  Strict-confinement notes:
+   * Archives in the home directory can be opened, created and extracted;
+     files elsewhere are reachable through the file chooser (XDG document
+     portal).
+   * The archive's DFSG 7zz build omits the non-free unRAR decoder, so RAR
+     archives cannot be opened. Upstream's Flatpak bundles the official
+     7-Zip build, which can read them.
+   * "Send Error Report" opens the upstream issue tracker in the host browser
+     through the desktop portal.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (the app owns this bus name)
+  akizip:
+    interface: dbus
+    bus: session
+    name: top.akizip.akizip
+
+apps:
+  akizip:
+    extensions: [gnome]
+    # core26 has no /usr/bin/python3; override-build points the launcher's
+    # shebang at the interpreter from the GNOME platform snap.
+    command: usr/bin/akizip
+    desktop: usr/share/applications/top.akizip.akizip.desktop
+    common-id: top.akizip.akizip
+    plugs:
+      # the snap's top.akizip.akizip GSettings schema
+      - gsettings
+      # open, create and extract archives in the user's home directory
+      - home
+
+# Akizip is a Python/PyGObject GTK4/libadwaita application. The gnome-core26
+# content snap provides Python 3.14, PyGObject 3.58, GTK 4 and libadwaita;
+# the application module itself is installed into the snap and located by
+# the launcher through its compiled-in pkgdatadir.
+parts:
+  akizip:
+    source: https://github.com/AkiZip/AkiZip.git
+    source-type: git
+    source-tag: '0.4.4'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      # The launcher has PKGDATADIR and LOCALEDIR compiled in from the meson
+      # prefix and inserts PKGDATADIR into sys.path, so a /usr prefix would
+      # resolve them to the core26 base instead of the snap. organize moves
+      # the installed tree back under usr/.
+      - --prefix=/snap/akizip/current/usr
+      - --buildtype=release
+    organize:
+      snap/akizip/current/usr: usr
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+
+      # The application is Flatpak-first and hardcodes the Flatpak runtime
+      # path of its 7-Zip engine. Point it at the 7zz bundled in the snap;
+      # /usr/bin/7zz is a wrapper around the base's /usr/lib/7zip/7zz, which
+      # does not exist in the base.
+      sed -i "s|^SEVENZIP_PATH = '/app/bin/7zz'$|SEVENZIP_PATH = '/snap/akizip/current/usr/lib/7zip/7zz'|" \
+        src/plugins/sevenzip.py
+      grep -qF "SEVENZIP_PATH = '/snap/akizip/current/usr/lib/7zip/7zz'" \
+        src/plugins/sevenzip.py
+
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      # Disable D-Bus activation: snapd does not export the upstream service
+      # file, and its bare-launcher Exec would bypass the extension's
+      # environment anyway.
+      sed -i \
+        -e 's|^Icon=top.akizip.akizip$|Icon=${SNAP}/meta/gui/top.akizip.akizip.svg|' \
+        -e 's|^DBusActivatable=true$|DBusActivatable=false|' \
+        data/top.akizip.akizip.desktop.in
+    override-build: |
+      craftctl default
+
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs, so the GSettings schema is never compiled. The
+      # launcher itself creates a Gio.Settings object before main(), so the
+      # snap aborts without gschemas.compiled.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/akizip/current/usr/share/glib-2.0/schemas"
+
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/top.akizip.akizip.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+      # Run the launcher with the interpreter from the GNOME platform snap,
+      # which the gnome extension mounts at $SNAP/gnome-platform.
+      sed -i '1s|^#!.*|#!/snap/akizip/current/gnome-platform/usr/bin/python3|' \
+        "$CRAFT_PART_INSTALL/snap/akizip/current/usr/bin/akizip"
+
+      # The upstream D-Bus service file starts the bare script without the
+      # gnome extension's environment; the desktop file launches the snap
+      # wrapper instead (DBusActivatable is turned off above).
+      rm -f "$CRAFT_PART_INSTALL/snap/akizip/current/usr/share/dbus-1/services/top.akizip.akizip.service"
+    prime:
+      # Upstream checks in a stale byte-code cache for the UI module.
+      - -usr/share/akizip/akizip/ui/__pycache__/**
+
+  # Akizip drives 7-Zip for every archive operation. Stage the archive's
+  # standalone DFSG build, which is a single self-contained binary, and keep
+  # only the binary: the packaged /usr/bin/7zz is a wrapper around the base's
+  # /usr/lib/7zip/7zz, which does not exist under strict confinement.
+  sevenzip:
+    plugin: nil
+    stage-packages:
+      - 7zip-standalone
+    prime:
+      - usr/lib/7zip/7zz

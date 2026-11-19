@@ -1,0 +1,7 @@
+# Build metadata for yacreader (new core26 recipe, 2026-11).
+snap: yacreader
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/YACReader/yacreader (10.5.1)
+imported: '2026-11-19'

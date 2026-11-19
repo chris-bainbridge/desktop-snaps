@@ -1,0 +1,7 @@
+# Build metadata for cine (new core26 recipe, 2026-11).
+snap: cine
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/diegopvlk/Cine (1.8.8)
+imported: '2026-11-19'

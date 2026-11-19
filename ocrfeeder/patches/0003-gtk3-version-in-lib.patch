@@ -1,0 +1,21 @@
+Origin: local fix (same class of bug as upstream MR 27)
+Subject: Require GTK 3 in util.lib so the CLI does not load GTK 4
+
+ocrfeeder-cli imports ocrfeeder.util.lib before ocrfeeder.studio.studioBuilder.
+The latter calls gi.require_version('Gtk', '3.0'), but lib.py imports
+gi.repository.Gtk without a version, so on systems where GTK 4 is also
+installed PyGObject loads GTK 4 and Gtk.IconSize.SMALL_TOOLBAR no longer
+exists. The GUI is unaffected because it requires the version first.
+
+ src/ocrfeeder/util/lib.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/src/ocrfeeder/util/lib.py
++++ b/src/ocrfeeder/util/lib.py
+@@ -27,4 +27,6 @@
+ import xml.etree.ElementTree as etree
+ 
+ import sane
++import gi
++gi.require_version('Gtk', '3.0')
+ from gi.repository import Gtk

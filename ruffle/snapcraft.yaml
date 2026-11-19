@@ -1,0 +1,215 @@
+name: ruffle
+adopt-info: ruffle
+title: Ruffle
+summary: Flash Player emulator for games and animations
+description: |
+  Ruffle is an Adobe Flash Player emulator written in Rust. It opens SWF
+  files, Flash animations and Flash games in a native desktop window with
+  ActionScript 1/2/3 support, a GPU renderer, audio and a built-in player
+  UI, and does not need Adobe's discontinued Flash Player.
+
+  This is the desktop player, not the browser extension. Movies are opened
+  from the file manager, through the player's Open dialog, or by passing a
+  path on the command line (for example "ruffle movie.swf").
+
+  The snap is strictly confined, as required by Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Ruffle's configuration, preferences, recent files and its private
+    OpenH264 download live in the snap's per-user area
+    (~/snap/ruffle/current), not in ~/.config/ruffle, and are not shared
+    with a distribution-packaged Ruffle.
+  - The home interface exposes only the non-hidden entries of the real home
+    directory. Movies in hidden directories such as ~/.cache, in another
+    application's private data, or on system paths are not visible. Any
+    other location can still be opened through the desktop's XDG file
+    chooser portal, which is how the player's Open dialog works.
+  - Removable media is not declared: movies on USB sticks, optical discs or
+    network shares are only reachable by copying them into the home
+    directory or by picking them through the file chooser portal.
+  - Ruffle supports gamepads, but the joystick interface is not part of this
+    batch's confinement set, so gamepads are not visible. Keyboard and mouse
+    input work normally.
+  - There is no /dev/snd inside the sandbox. Audio is routed through
+    libasound's PulseAudio plugin to the PulseAudio/PipeWire sound server
+    that the audio-playback interface exposes, so playback works on the
+    desktop but ALSA hardware access, JACK and MIDI devices do not.
+  - Rendering goes through wgpu on Vulkan or OpenGL ES. The drivers come
+    from the mesa-2604 content snap that the gnome extension connects; the
+    snap ships no Mesa of its own. Software rendering falls back to llvmpipe
+    from that same content snap.
+  - H.264 video inside a movie needs Cisco's OpenH264 binary, which Ruffle
+    downloads at first use from Cisco's servers into its private directory
+    and loads dynamically. That download needs the network interface and is
+    subject to Cisco's binary licence; without it H.264 video does not play.
+    Other video codecs are decoded by Ruffle itself.
+  - Remote SWF and asset URLs work through the network interface, but there
+    is no DRM support and no NPAPI/PPAPI plug-in hosting.
+
+  Built from the upstream release source with cargo; no prebuilt Ruffle
+  binary is embedded.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: MIT OR Apache-2.0
+website: https://ruffle.rs/
+source-code: https://github.com/ruffle-rs/ruffle
+issues: https://github.com/ruffle-rs/ruffle/issues
+
+platforms:
+  amd64:
+  arm64:
+
+# Ruffle is an egui/wgpu application: it is not GTK and does not use GLib.
+# The [gnome] extension is still the right integration point on Core Desktop,
+# for the same reasons as in the kitty and wezterm recipes:
+#   * it mounts the gnome-core26 platform, which supplies fontconfig (and its
+#     configuration), freetype, libpulse, libasound and the font stack that
+#     Ruffle's fontconfig/freetype back ends need - none of that is in the
+#     base;
+#   * it runs the mesa-2604 provider wrapper, which is where wgpu finds the
+#     Vulkan ICDs, libEGL/libGLES and the DRI drivers;
+#   * it adds the desktop, desktop-legacy, opengl, wayland and x11 plugs and
+#     the desktop-launch command chain that sets up XDG directories,
+#     fontconfig, the GPU and the platform library path;
+#   * it keeps the host's fonts and the XDG desktop portal (file chooser,
+#     colour scheme, game mode) reachable.
+# The extension's GSettings and theme content is inert for Ruffle; no
+# gsettings plug is declared because the application has no GLib code.
+apps:
+  ruffle:
+    extensions: [gnome]
+    command: bin/ruffle-launcher
+    desktop: usr/share/applications/rs.ruffle.Ruffle.desktop
+    common-id: rs.ruffle.Ruffle
+    plugs:
+      - home            # open movies from the user's non-hidden home paths
+      - network         # remote SWFs/assets and the OpenH264 download
+      - audio-playback  # PulseAudio/PipeWire sound server
+      - opengl          # /dev/dri and the rest of the GPU device access
+      - wayland         # native Wayland windowing (winit)
+      - x11             # X11/XWayland windowing and clipboard
+
+parts:
+  # Ruffle v0.7.1 (2026-10-07) is the newest non-prerelease tag. The nightly-*
+  # tags are the pre-release nightlies that upstream publishes every day and
+  # are not a stable stream.
+  #
+  # Upstream's desktop build is a plain cargo workspace member; the browser
+  # WebAssembly target and its wasm-bindgen/emsdk toolchain are not involved.
+  # Two build-time extras are not obvious:
+  #   * Java is required for the ActionScript 3 "playerglobal" library. The
+  #     core build script runs the Flex SDK compiler checked in as
+  #     tools/asc/asc.jar (java -classpath asc.jar); there is no download and
+  #     no Node/npm step.
+  #   * the 26.04 archive's rustc 1.93 is too old: the locked egui 0.36
+  #     crates need Rust 1.95 and vergen 10 needs 1.96. A pinned stable
+  #     toolchain is installed with rustup, as in the rufin recipe.
+  #
+  # Cargo profile "dist" is upstream's own release profile (LTO, one codegen
+  # unit), the same one the official desktop builds and the Flathub package
+  # use. It is a large build; there is no practical prebuilt alternative that
+  # would still count as building from source.
+  ruffle:
+    source: https://github.com/ruffle-rs/ruffle.git
+    source-type: git
+    source-tag: 'v0.7.1'
+    source-depth: 1
+    plugin: nil
+    parse-info: [usr/share/metainfo/rs.ruffle.Ruffle.metainfo.xml]
+    build-packages:
+      - build-essential     # cc/g++ for the vendored C (libdeflate, bzip2, ...)
+      - pkg-config
+      - git                 # vergen-gitcl reads the checkout and cargo fetches git deps
+      - curl                # rustup installer
+      - ca-certificates     # rustup and crates.io over TLS
+      - default-jre-headless # java for tools/asc/asc.jar (playerglobals)
+      - libasound2-dev      # cpal's ALSA backend (alsa-sys)
+      - libudev-dev         # gilrs gamepad enumeration (libudev-sys)
+      - libfontconfig-dev   # Ruffle's fontconfig font back end
+      - libfreetype-dev     # freetype-rs, for loading font faces
+      - libssl-dev          # native-tls through openssl-sys (remote assets)
+    build-environment:
+      # Upstream's build.rs records this string as the release channel; the
+      # Flathub build does the same. Without it the player reports "local".
+      - CFG_RELEASE_CHANNEL: stable
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+
+      # Ruffle 0.7.1 needs a newer rustc than the 26.04 archive's 1.93.
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.99.1
+      . "$HOME/.cargo/env"
+      # craftctl resets the environment to the part's build-environment, which
+      # drops the PATH entry rustup added; expose the proxies from a directory
+      # that is always on PATH.
+      for tool in cargo rustc rustdoc rustup; do
+        ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool"
+      done
+      rustc --version
+
+      # --locked keeps upstream's Cargo.lock; --profile dist is the LTO
+      # release profile defined in the workspace manifest.
+      cargo build --locked --profile dist --package ruffle_desktop
+
+      install -Dm755 target/dist/ruffle_desktop \
+        "$CRAFT_PART_INSTALL/usr/bin/ruffle"
+
+      # Desktop integration. The icon is installed in the hicolor theme so
+      # snapcraft resolves the desktop file's Icon= key from the prime tree
+      # and copies it into meta/gui for the launcher.
+      install -Dm644 desktop/packages/linux/rs.ruffle.Ruffle.desktop \
+        "$CRAFT_PART_INSTALL/usr/share/applications/rs.ruffle.Ruffle.desktop"
+      install -Dm644 desktop/packages/linux/rs.ruffle.Ruffle.metainfo.xml \
+        "$CRAFT_PART_INSTALL/usr/share/metainfo/rs.ruffle.Ruffle.metainfo.xml"
+      install -Dm644 desktop/packages/linux/rs.ruffle.Ruffle.svg \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/rs.ruffle.Ruffle.svg"
+
+      install -Dm644 LICENSE.md \
+        "$CRAFT_PART_INSTALL/usr/share/doc/ruffle/LICENSE.md"
+
+  # The launcher only exists to point the dynamic loader and ALSA at the two
+  # staged libraries that do not live in their default locations (see the
+  # comments on the audio and xkbcommon-x11 parts).
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      ruffle-launcher: bin/ruffle-launcher
+      asound.conf: etc/asound.conf
+
+  # Ruffle plays audio through cpal, which on Linux only has an ALSA backend.
+  # A strictly confined snap has no /dev/snd, but the audio-playback interface
+  # exposes the desktop's PulseAudio/PipeWire server, so the default ALSA
+  # device is pointed at libasound's PulseAudio plugin (see asound.conf and
+  # the launcher). The plugin module is staged from the archive; its libpulse,
+  # libasound and libc dependencies come from the gnome-core26 platform and the
+  # base. Only the module itself is primed: libasound2-plugins pulls the
+  # FFmpeg, JACK and samplerate stacks, none of which are used by this plugin.
+  audio:
+    plugin: nil
+    stage-packages:
+      - libasound2-plugins
+    stage:
+      - usr/lib/ruffle/alsa-lib/libasound_module_pcm_pulse.so
+    organize:
+      usr/lib/*/alsa-lib/libasound_module_pcm_pulse.so: usr/lib/ruffle/alsa-lib/libasound_module_pcm_pulse.so
+
+  # winit's X11 backend loads libxkbcommon-x11 at runtime with dlopen. The
+  # base, gnome-core26 and mesa-2604 all ship libxkbcommon.so.0 but none of
+  # them has the X11 half, and the extension's cleanup part would delete a
+  # staged copy from the normal multiarch path (it removes every primed .so
+  # that also exists in the SDK). Keep it outside that path; the launcher adds
+  # this directory to LD_LIBRARY_PATH. Only needed for X11/XWayland sessions.
+  xkbcommon-x11:
+    plugin: nil
+    stage-packages:
+      - libxkbcommon-x11-0
+    stage:
+      - usr/lib/ruffle/lib/libxkbcommon-x11.so*
+    organize:
+      usr/lib/*/libxkbcommon-x11.so*: usr/lib/ruffle/lib/
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib/ruffle/lib"

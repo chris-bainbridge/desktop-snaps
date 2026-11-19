@@ -1,0 +1,132 @@
+name: app-icon-preview
+adopt-info: app-icon-preview
+title: App Icon Preview
+license: GPL-3.0-or-later
+website: https://gitlab.gnome.org/World/design/app-icon-preview
+contact: https://gitlab.gnome.org/World/design/app-icon-preview/-/issues
+issues: https://gitlab.gnome.org/World/design/app-icon-preview/-/issues
+source-code: https://gitlab.gnome.org/World/design/app-icon-preview
+summary: Icon design helper for GNOME application icons
+description: |
+  App Icon Preview is a tool for designing icons which target the GNOME
+  desktop. It renders an SVG at the standard icon sizes, on the GNOME
+  wallpapers and inside the usual application-icon shape, so an icon can be
+  checked while it is being drawn and exported at the right size.
+
+  Strict-confinement notes:
+   * Files in the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * There is no direct access to system icon themes or other applications'
+     files.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.design.AppIconPreview.service.in)
+  app-icon-preview:
+    interface: dbus
+    bus: session
+    name: org.gnome.design.AppIconPreview
+
+apps:
+  app-icon-preview:
+    extensions: [gnome]
+    command: usr/bin/app-icon-preview
+    desktop: usr/share/applications/org.gnome.design.AppIconPreview.desktop
+    common-id: org.gnome.design.AppIconPreview.desktop
+    environment:
+      # gnome-core26's librsvg links libxml2 directly, but neither the content
+      # snap nor the core26 base ships it. The libraries part below bundles it
+      # in $SNAP/usr/lib, which snapcraft only adds to the library path when
+      # the gnome extension has not already defined LD_LIBRARY_PATH.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.design.AppIconPreview GSettings schema
+      - gsettings
+      # open icon SVGs and save exports in the home directory
+      - home
+
+# App Icon Preview 3.5.1 is a Rust + GTK4/libadwaita application (edition
+# 2024). Its Meson build drives cargo itself on the upstream Cargo.lock
+# (src/meson.build), like the gnome-2048, solanum and packet recipes: one
+# custom_target runs `cargo build --release` and copies the binary to its
+# output. Ninja executes that command through /bin/sh, so the chained copy
+# works; nothing is vendored in this repository and cargo fetches the pinned
+# crates from crates.io during the build.
+#
+# GTK 4, libadwaita, gdk-pixbuf, cairo, librsvg and gettext come from the
+# gnome-core26 SDK/content snaps. cargo and rustc are not part of the platform;
+# the 26.04 archive has cargo/rustc 1.93.1, which satisfies the crates' MSRV
+# and edition 2024. librsvg2-dev only supplies librsvg-2.0.pc for the librsvg
+# crate's pkg-config probe; the runtime library is the content snap's.
+#
+# The prefix is the runtime mount path, not /usr: PKGDATADIR (the gresource
+# bundle with the UI, CSS, templates, wallpapers and sample icons), LOCALEDIR
+# and the D-Bus service Exec line are compiled in, and a /usr prefix would
+# resolve them to the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+parts:
+  app-icon-preview:
+    source: https://gitlab.gnome.org/World/design/app-icon-preview.git
+    source-type: git
+    source-tag: '3.5.1'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/app-icon-preview/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to
+      # org.gnome.design.AppIconPreviewDevel and build a debug binary; the
+      # release profile is the default.
+      - -Dprofile=default
+    organize:
+      snap/app-icon-preview/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      # librsvg-2.0.pc for the librsvg crate; gnome-core26-sdk does not ship it
+      - librsvg2-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # Meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. The app creates its Gio.Settings object at
+      # start-up, so make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/app-icon-preview/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i 's|^Icon=org.gnome.design.AppIconPreview$|Icon=${SNAP}/meta/gui/org.gnome.design.AppIconPreview.svg|' \
+        "$CRAFT_PART_INSTALL/snap/app-icon-preview/current/usr/share/applications/org.gnome.design.AppIconPreview.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.design.AppIconPreview.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.design.AppIconPreview.svg"
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26's librsvg links libxml2 directly, but the content snap
+      # does not ship libxml2. The app renders the user's SVG through librsvg.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup deletes every primed library whose path also exists in
+      # the gnome-core26 SDK. libxml2 is in the SDK but in neither core26 nor
+      # the content snap, so move it out of the multiarch path that cleanup
+      # walks; $SNAP/usr/lib is on the app's LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for file in "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16"*; do
+        if [ -e "$file" ]; then
+          mv "$file" "$CRAFT_PART_INSTALL/usr/lib/"
+        fi
+      done
+    prime:
+      - -usr/share/doc

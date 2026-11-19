@@ -1,0 +1,88 @@
+name: typography
+adopt-info: typography
+title: Typography
+license: GPL-3.0-or-later
+website: https://gitlab.gnome.org/World/design/typography
+contact: https://gitlab.gnome.org/World/design/typography/-/issues
+issues: https://gitlab.gnome.org/World/design/typography/-/issues
+source-code: https://gitlab.gnome.org/World/design/typography
+summary: Look up GNOME text styles
+description: |
+  Typography is a small tool for working with the GNOME typography design
+  guidelines. It shows the standard text styles (title, heading, body,
+  caption and their variants) in the current theme and copies the matching
+  style class name to the clipboard when one is selected.
+
+  Strict-confinement notes:
+   * The app is stateless and does not open or save files itself. Files in the
+     home directory are accessible; other locations are only reachable
+     through the file chooser (XDG document portal).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.design.Typography.service.in)
+  typography:
+    interface: dbus
+    bus: session
+    name: org.gnome.design.Typography
+
+apps:
+  typography:
+    extensions: [gnome]
+    command: usr/bin/org.gnome.design.Typography
+    desktop: usr/share/applications/org.gnome.design.Typography.desktop
+    common-id: org.gnome.design.Typography.desktop
+    plugs:
+      # the user's home directory
+      - home
+
+# Typography 0.3.0 (2024-03-20) is the latest upstream release tag. It is a
+# C GTK4/libadwaita application with a Meson build. master carries an
+# unreleased 0.4.0 rework (AdwToolbarView, GTK 4.18 / libadwaita 1.7, extra
+# text styles) that has never been tagged or shipped; Flathub still builds
+# 0.3.0, so this recipe follows the latest stable tag.
+#
+# GTK 4, libadwaita, gettext and the icon/desktop tools come from the
+# gnome-core26 SDK and content snaps. No archive packages are staged.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR and the D-Bus
+# service Exec line are compiled in, and a /usr prefix would resolve them to
+# the core26 base instead of the snap. organize moves the installed tree back
+# under usr/.
+parts:
+  typography:
+    source: https://gitlab.gnome.org/World/design/typography.git
+    source-type: git
+    source-tag: '0.3.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/typography/current/usr
+      - --buildtype=release
+      # core26's glibc 2.42 headers redeclare scanf/fscanf/sscanf/reallocarray,
+      # which trips the project's -Werror=redundant-decls under GCC 15.
+      - -Dc_args=-Wno-error=redundant-decls
+    organize:
+      snap/typography/current/usr: usr
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i.bak -e 's|^Icon=org.gnome.design.Typography$|Icon=${SNAP}/meta/gui/org.gnome.design.Typography.svg|' \
+        data/org.gnome.design.Typography.desktop.in
+    override-build: |
+      craftctl default
+      # Typography has no GSettings schema (meson passes glib_compile_schemas:
+      # false), so there is nothing to compile here.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.design.Typography.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.design.Typography.svg"

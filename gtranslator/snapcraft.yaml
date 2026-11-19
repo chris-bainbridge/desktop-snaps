@@ -1,0 +1,149 @@
+name: gtranslator
+adopt-info: gtranslator
+title: Translation Editor
+summary: Translate applications into your language
+description: |
+  Gtranslator is an enhanced gettext PO file editor for the GNOME desktop.
+  It handles all forms of gettext PO files and includes find and replace, a
+  translation memory, translator profiles, a message table with an overview
+  of the translations in a file, and easy navigation and editing of messages
+  and comments.
+
+  The GNOME Damned Lies integration can download teams and modules, reserve
+  translations, upload finished PO files and query translation statistics.
+
+  Strict-confinement notes:
+   * PO files under the home directory are accessible; other locations are
+     only reachable through the file chooser (XDG document portal).
+   * The Damned Lies features need the network plug, which is auto-connected.
+     Opening a string's source code in the browser goes through the desktop's
+     URL handler.
+   * The help pages are installed in the snap, but the Help action asks the
+     desktop to open help:gtranslator, and yelp is not bundled. Whether the
+     pages open depends on the host's help handler.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+website: https://gitlab.gnome.org/GNOME/gtranslator
+contact: https://gitlab.gnome.org/GNOME/gtranslator/-/issues
+issues: https://gitlab.gnome.org/GNOME/gtranslator/-/issues
+source-code: https://gitlab.gnome.org/GNOME/gtranslator
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Gtranslator.service.in)
+  gtranslator:
+    interface: dbus
+    bus: session
+    name: org.gnome.Gtranslator
+
+apps:
+  gtranslator:
+    extensions: [gnome]
+    command: usr/bin/gtranslator
+    desktop: usr/share/applications/org.gnome.Gtranslator.desktop
+    common-id: org.gnome.Gtranslator.desktop
+    environment:
+      # gnome-core26's libgtksourceview-5 links libxml2, which the content
+      # snap does not ship. The libraries part below bundles it in usr/lib;
+      # the gnome extension only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.Gtranslator GSettings schemas
+      - gsettings
+      # open and save PO files under $HOME
+      - home
+      # GNOME Damned Lies API (l10n.gnome.org)
+      - network
+
+# Gtranslator 51.0 (2026-09-16) is the latest upstream release. It is a C
+# application on GTK 4, libadwaita and GtkSourceView 5, built with Meson.
+# GTK, libadwaita, GtkSourceView, libsoup-3.0, json-glib and SQLite come from
+# the gnome-core26 SDK/content snaps; libspelling, libgettextpo and libxml2
+# (the last one only as a dependency of the platform's GtkSourceView) are
+# staged from the 26.04 archive.
+#
+# The prefix is the runtime mount path, not /usr: gtr-dirs.c loads the UI
+# files, language tables and the profile-migration script from the compiled-in
+# PACKAGE_DATADIR (and translations from PACKAGE_LOCALEDIR), and a /usr prefix
+# would resolve those to the core26 base instead of the snap. organize moves
+# the installed tree back under usr/.
+parts:
+  gtranslator:
+    source: https://gitlab.gnome.org/GNOME/gtranslator.git
+    source-type: git
+    source-tag: '51.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Gtranslator.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/gtranslator/current/usr
+      - --buildtype=release
+    organize:
+      snap/gtranslator/current/usr: usr
+    build-packages:
+      # gnome.yelp and the translated UI/help files
+      - itstool
+      # gettext-po.h for gtr-po.c (not in the SDK)
+      - libgettextpo-dev
+      # optional spell-checking in the source view; the platform has no
+      # libspelling, but it has its dependency enchant-2
+      - libspelling-1-dev
+      # gsettings-desktop-schemas.pc is in the -dev package, which the SDK
+      # does not contain
+      - gsettings-desktop-schemas-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/org.gnome.Gtranslator.svg|g' \
+        data/org.gnome.Gtranslator.desktop.in.in
+    override-build: |
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schemas are never compiled. Gtranslator creates its Gio.Settings
+      # objects at start-up; make sure gschemas.compiled is present.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gtranslator/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Gtranslator.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      # don't include files needed to develop against the app
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/gtk-doc
+      - -usr/share/man
+      - -usr/share/doc
+
+  libraries:
+    after: [gtranslator]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has no libgettextpo, but the PO parser links it
+      - libgettextpo0
+      # optional spell-checking, built into the app above
+      - libspelling-1-2
+      # the platform's libgtksourceview-5 links libxml2 directly
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/*/libgettextpo.so.*
+      - usr/lib/*/libspelling-1.so.*
+      - usr/lib/libxml2.so.*

@@ -1,0 +1,307 @@
+name: iotas
+adopt-info: iotas
+title: Iotas
+license: GPL-3.0-or-later
+summary: Simple note taking
+contact: https://gitlab.gnome.org/World/iotas/-/issues
+website: https://gitlab.gnome.org/World/iotas
+issues: https://gitlab.gnome.org/World/iotas/-/issues
+source-code: https://gitlab.gnome.org/World/iotas
+description: |
+  Iotas aims to provide distraction-free note taking with a mobile-first
+  design. Notes are written in Markdown and kept in a local SQLite database;
+  categories, favourites, search, spell checking, a focus mode and a
+  formatted render view are built in. Notes can be exported to Markdown,
+  HTML and PDF, and through the bundled pandoc to ODT and other pandoc
+  formats.
+
+  Strict-confinement notes:
+   * Nextcloud Notes synchronisation is unavailable. Iotas stores the
+     account password in the Secret Service, but the password-manager-service
+     interface is not declared, so the app reports a missing Secret Service
+     and remains local-only. GNOME Online Accounts is not used (the server,
+     user name and password are entered manually), and its accounts-service
+     interface is not declared either.
+   * Notes, attachments and backups are kept in the snap's private per-user
+     area under ~/snap/iotas/, not in the host's ~/.local/share. A deb or
+     Flatpak installation is not imported automatically; the CLI backup and
+     restore options operate on the private directory.
+   * Files under the home directory are readable and writable. Other
+     locations are only reachable through the desktop file chooser portal.
+   * Physical printers need the cups-control interface, which is not
+     declared. PDF export uses GTK's local print-to-file backend and writes
+     the chosen file directly.
+   * The GNOME Shell search provider is not installed. A snap cannot own
+     org.gnome.World.Iotas.SearchProvider on the host session bus, and the
+     host cannot launch the provider outside the snap wrapper.
+   * Spell checking uses the bundled enchant/hunspell stack with an en_US
+     dictionary; other languages would need their dictionaries added.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # libenchant loads its provider modules from the compiled-in multiarch
+  # path. The staged tree is kept at $SNAP/usr/lib/enchant-2 so the gnome
+  # extension's cleanup part does not delete it (see the libraries part);
+  # map the path libenchant looks in onto that copy.
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/enchant-2:
+    bind: $SNAP/usr/lib/enchant-2
+  /usr/share/enchant-2:
+    bind: $SNAP/usr/share/enchant-2
+  # enchant's hunspell provider looks for dictionaries here.
+  /usr/share/hunspell:
+    bind: $SNAP/usr/share/hunspell
+
+slots:
+  # for GtkApplication registration and the app's own D-Bus name
+  iotas:
+    interface: dbus
+    bus: session
+    name: org.gnome.World.Iotas
+
+apps:
+  iotas:
+    extensions: [gnome]
+    command: usr/bin/iotas
+    desktop: usr/share/applications/org.gnome.World.Iotas.desktop
+    common-id: org.gnome.World.Iotas.desktop
+    environment:
+      # The iotas package and the pip-installed modules live in this private
+      # directory. The interpreter, PyGObject, pycairo and the
+      # Gtk/Adw/GtkSource/Secret/WebKit typelibs come from gnome-core26.
+      PYTHONPATH: $SNAP/usr/lib/python3/iotas-packages
+      # pyenchant locates libenchant with ctypes.util.find_library(), which
+      # only reads the base's ld.so.cache and cannot see the staged copy.
+      PYENCHANT_LIBRARY_PATH: $SNAP/usr/lib/libenchant-2.so.2
+      # pypandoc otherwise searches PATH for the converter; pin the bundled
+      # one so ODT and custom-format export do not depend on the environment.
+      PYPANDOC_PANDOC: $SNAP/usr/bin/pandoc
+      # enchant's hunspell provider also honours DICPATH; the layout below
+      # already maps the compiled-in dictionary path, but naming it keeps the
+      # bundled dictionary authoritative.
+      DICPATH: $SNAP/usr/share/hunspell
+      # libenchant, libhunspell and libxml2 are kept outside the multiarch
+      # directory so the gnome extension's cleanup does not remove them;
+      # the latter is a dependency of the platform's libgtksourceview-5.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.World.Iotas GSettings schema and host settings
+      - gsettings
+      # notes, attachments and exported files under the user's home directory
+      - home
+      # Nextcloud Notes REST API (needs the keyring note above to authenticate)
+      - network
+
+# Iotas 2026.10 (2026-10-21) is the latest upstream release. It is a Python
+# 3.11+ application on GTK 4.20, libadwaita 1.8 and GtkSourceView 5.16,
+# built with Meson. GTK, libadwaita, GtkSourceView, WebKitGTK 6.0, libsecret,
+# PyGObject, pycairo and the Gtk/Adw/GtkSource/Secret/WebKit typelibs come
+# from the gnome-core26 SDK/content snaps.
+#
+# The UI is written in Blueprint and data/meson.build passes --minify to
+# blueprint-compiler, an option added in 0.20. The 26.04 archive only has
+# 0.19, so rely on the upstream wrap (subprojects/blueprint-compiler.wrap,
+# pinned to v0.20.4); Meson downloads and builds it at configure time.
+#
+# The prefix is the runtime mount path, not /usr: const.PKGDATADIR and
+# const.LOCALEDIR are compiled into the Python package from the Meson prefix,
+# and a /usr prefix would resolve the gresource bundle, media files and
+# translations to the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+#
+# The Python modules go to a private directory rather than the platform's
+# dist-packages path, because the gnome extension's cleanup part deletes any
+# primed file whose path also exists in the SDK, and the SDK carries Python
+# packages at the dist-packages path.
+parts:
+  iotas:
+    source: https://gitlab.gnome.org/World/iotas.git
+    source-type: git
+    source-tag: '2026.10'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/iotas/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to ...Iotas.Devel and produce a
+      # debug build; the release profile is the default but pin it explicitly.
+      - -Dprofile=default
+      # Pin the Python module location so the PYTHONPATH above always matches,
+      # whatever interpreter the SDK puts first in PATH.
+      - -Dpython.purelibdir=/snap/iotas/current/usr/lib/python3/iotas-packages
+      - -Dpython.platlibdir=/snap/iotas/current/usr/lib/python3/iotas-packages
+    organize:
+      snap/iotas/current/usr: usr
+    build-packages:
+      # msgfmt for i18n.merge_file (desktop file and AppStream metadata)
+      - gettext
+      # Meson's wrap-git fallback clones blueprint-compiler v0.20.4 during
+      # configure; core26 does not carry git in the build environment.
+      - git
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      set -eu
+      craftctl default
+
+      prefix="$CRAFT_PART_INSTALL/snap/iotas/current/usr"
+
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs, so the GSettings schema is never compiled. Iotas
+      # creates its Gio.Settings object at start-up and aborts without
+      # gschemas.compiled.
+      glib-compile-schemas "$prefix/share/glib-2.0/schemas"
+
+      # Use the icon bundled in the snap so it shows up in the launcher even
+      # when the host theme does not carry the application icon.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.World.Iotas.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+      desktop="$prefix/share/applications/org.gnome.World.Iotas.desktop"
+      sed -i \
+        -e 's|^Icon=org.gnome.World.Iotas$|Icon=${SNAP}/meta/gui/org.gnome.World.Iotas.svg|' \
+        -e 's|^DBusActivatable=true$|DBusActivatable=false|' \
+        "$desktop"
+
+      # The upstream service file starts the bare script below /snap/iotas,
+      # which is not the snap's command wrapper and therefore has none of the
+      # gnome extension's environment; the desktop file launches the snap
+      # itself and the app owns its bus name through the slot above. The
+      # search provider is a host session service and cannot be owned by the
+      # snap; its files would only be dead weight.
+      rm -f "$prefix/share/dbus-1/services/org.gnome.World.Iotas.service" \
+            "$prefix/share/dbus-1/services/org.gnome.World.Iotas.SearchProvider.service" \
+            "$prefix/share/gnome-shell/search-providers/org.gnome.World.Iotas.SearchProvider.ini" \
+            "$prefix/libexec/iotas-search-provider"
+
+      # core26 has no /usr/bin/python3. The gnome extension puts the platform
+      # interpreter on PATH, so run the launcher through env (the Meson-
+      # generated shebang points at the build-time SDK interpreter).
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' "$prefix/bin/iotas"
+
+  # Python modules that gnome-core26 does not ship. The versions are those
+  # pinned by upstream's Flatpak manifest for 2026.10
+  # (build-aux/flatpak/python3-requirements.json). pygtkspellcheck and
+  # pyenchant are installed with --no-deps because their metadata also asks
+  # for PyGObject, which is already in the platform. Every package has a
+  # CPython 3.14 wheel for amd64 and arm64; --only-binary makes the build
+  # fail rather than attempt a source build if a wheel disappears.
+  python-deps:
+    plugin: nil
+    build-packages:
+      - python3
+      - python3-pip
+    override-build: |
+      set -eu
+
+      target="$CRAFT_PART_INSTALL/usr/lib/python3/iotas-packages"
+      install -d "$target"
+      /usr/bin/python3 -m pip install \
+        --no-cache-dir --disable-pip-version-check \
+        --no-warn-script-location --no-deps --only-binary=:all: \
+        --target "$target" \
+        pygtkspellcheck==5.0.4 \
+        pyenchant==3.3.0 \
+        requests==2.34.2 \
+        certifi==2026.7.22 \
+        charset-normalizer==3.5.2 \
+        idna==3.20 \
+        urllib3==2.8.0 \
+        markdown-it-py==4.2.0 \
+        mdurl==0.1.2 \
+        linkify-it-py==2.2.0 \
+        mdit-py-plugins==0.6.1 \
+        pypandoc==1.17 \
+        packaging==26.0
+
+      # The interpreter comes from gnome-core26; console scripts that pip
+      # would place in the target's bin/ point at the build interpreter and
+      # are not used by the application.
+      rm -rf "$target/bin"
+      find "$target" -type d -name __pycache__ -prune -exec rm -rf {} +
+      find "$target" -name '*.pyc' -delete
+    prime:
+      - usr/lib/python3/iotas-packages
+
+  # Iotas exports to ODT and to user-defined formats through pandoc, and
+  # expects the converter on PATH. The archive has pandoc 3.7, older than the
+  # 3.10.1 upstream's Flatpak pins, so package the official static release;
+  # the checksums are those in upstream's 2026.10 Flatpak manifest.
+  pandoc:
+    plugin: nil
+    build-packages:
+      - curl      # download the release tarball
+    override-pull: |
+      set -eu
+      mkdir -p "$CRAFT_PART_SRC"
+
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          release_arch=amd64
+          checksum=72948bf5784f560d5ad1876709daca27e0667f262da727bb33f77b58e52df2f5
+          ;;
+        arm64)
+          release_arch=arm64
+          checksum=cd3963da375793a4804c65ae538b4f7b9c23f87cac7f6c74a1cf5e2fff7e8d59
+          ;;
+        *)
+          echo "iotas: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      url="https://github.com/jgm/pandoc/releases/download/3.10.1/pandoc-3.10.1-linux-${release_arch}.tar.gz"
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "$CRAFT_PART_SRC/pandoc.tar.gz" "$url"
+
+      cd "$CRAFT_PART_SRC"
+      printf '%s  pandoc.tar.gz\n' "$checksum" | sha256sum --check --strict -
+      tar --extract --gzip --file pandoc.tar.gz --strip-components=1
+      rm -f pandoc.tar.gz
+    override-build: |
+      set -eu
+
+      # Only the converter is needed; pandoc-server and pandoc-lua are not
+      # used by Iotas.
+      install -D -m 0755 "$CRAFT_PART_SRC/bin/pandoc" \
+        "$CRAFT_PART_INSTALL/usr/bin/pandoc"
+
+  # Runtime libraries that gnome-core26 does not ship. libgtksourceview-5 in
+  # the platform links libxml2 directly. libenchant is pyenchant's engine and
+  # its hunspell provider needs libhunspell plus a dictionary. The staged
+  # libraries are moved out of the SDK's multiarch path because the gnome
+  # extension's cleanup part deletes any primed library whose path also
+  # exists in the SDK; the app environment adds $SNAP/usr/lib to the loader
+  # path.
+  libraries:
+    plugin: nil
+    stage-packages:
+      - libxml2-16
+      - libenchant-2-2
+      - libhunspell-1.7-0
+      - hunspell-en-us
+    override-build: |
+      set -eu
+      craftctl default
+
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for library in libxml2.so.* libenchant-2.so.* libhunspell-1.7.so.*; do
+        mv "$libdir"/$library "$CRAFT_PART_INSTALL/usr/lib/" || true
+      done
+      mv "$libdir/enchant-2" "$CRAFT_PART_INSTALL/usr/lib/enchant-2"
+    prime:
+      - usr/lib/libxml2.so.*
+      - usr/lib/libenchant-2.so.*
+      - usr/lib/libhunspell-1.7.so.*
+      - usr/lib/enchant-2/enchant_hunspell.so
+      - usr/share/enchant-2
+      - usr/share/hunspell

@@ -1,0 +1,7 @@
+# Build metadata for convolution (new core26 recipe, 2026-11).
+snap: convolution
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/bazylevnik0/convolution (0.2.7, commit e2229ee7)
+imported: '2026-11-19'

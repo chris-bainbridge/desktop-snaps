@@ -1,0 +1,110 @@
+name: solanum
+adopt-info: solanum
+title: Solanum
+license: GPL-3.0-or-later
+website: https://apps.gnome.org/Solanum/
+contact: https://gitlab.gnome.org/World/Solanum/-/issues
+issues: https://gitlab.gnome.org/World/Solanum/-/issues
+source-code: https://gitlab.gnome.org/World/Solanum
+summary: Balance working time and break time
+description: |
+  Solanum is a time tracking app that uses the pomodoro technique. Work in 4
+  sessions, with breaks in between each session and one long break after all 4.
+
+  Strict-confinement notes:
+   * Timer sounds are played through the host's PulseAudio/PipeWire service
+     with the audio-playback interface; there is no direct ALSA or JACK access.
+   * Files in the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * Notifications go through the host's notification service and work while
+     the application is running.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  solanum:
+    interface: dbus
+    bus: session
+    name: org.gnome.Solanum
+
+apps:
+  solanum:
+    extensions: [gnome]
+    command: usr/bin/solanum
+    desktop: usr/share/applications/org.gnome.Solanum.desktop
+    common-id: org.gnome.Solanum.desktop
+    plugs:
+      # the snap's org.gnome.Solanum GSettings schema
+      - gsettings
+      # the user's home directory and the app's own state below it
+      - home
+      # timer chime/beep playback through the desktop's PulseAudio/PipeWire
+      - audio-playback
+
+# Solanum 6.0.0 is a Rust + GTK4/libadwaita application. Its Meson build
+# drives cargo itself on the upstream Cargo.lock (src/meson.build), like the
+# gnome-2048 and keypunch recipes.
+#
+# GTK 4, libadwaita, GStreamer, gettext and meson/ninja come from the
+# gnome-core26 SDK/content snaps. cargo, rustc and blueprint-compiler are not
+# part of the platform; the 26.04 archive has cargo/rustc 1.93.1 (the gtk4
+# 0.9 crates need Rust 1.83) and blueprint-compiler for the .blp UI files.
+# Cargo downloads the crates pinned in Cargo.lock from crates.io during the
+# build; nothing is vendored in this repository.
+#
+# gstreamer-play-1.0 (GstPlay, used for the chime and beep) is in GStreamer's
+# "extra" library set; only its pkg-config file is missing from the SDK, so
+# libgstreamer-plugins-extra1.0-dev is installed for the meson checks and the
+# gstreamer-play-sys probe. The runtime library and the ogg/vorbis, playback
+# and gio plugins come from gnome-core26.
+#
+# The prefix is the runtime mount path, not /usr: PKGDATADIR and LOCALEDIR are
+# compiled into the binary, and a /usr prefix would resolve the gresource
+# bundle (UI, CSS, sounds) and translations to the core26 base instead of the
+# snap. organize moves the installed tree back under usr/.
+parts:
+  solanum:
+    source: https://gitlab.gnome.org/World/Solanum.git
+    source-type: git
+    source-tag: '6.0.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Solanum.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/solanum/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to org.gnome.Solanum.Devel and
+      # build a debug binary; the release profile is the default.
+      - -Dprofile=default
+    organize:
+      snap/solanum/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      # find_program('blueprint-compiler') in data/meson.build
+      - blueprint-compiler
+      # gstreamer-play-1.0.pc for the meson checks and gstreamer-play-sys
+      - libgstreamer-plugins-extra1.0-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # Meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. The app creates its Gio.Settings object at
+      # start-up, so make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/solanum/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i 's|^Icon=org.gnome.Solanum$|Icon=${SNAP}/meta/gui/org.gnome.Solanum.svg|' \
+        "$CRAFT_PART_INSTALL/snap/solanum/current/usr/share/applications/org.gnome.Solanum.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Solanum.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Solanum.svg"

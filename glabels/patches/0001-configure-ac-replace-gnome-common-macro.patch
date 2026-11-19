@@ -1,0 +1,20 @@
+From: Jakob Haufe <sur5r@sur5r.net>
+Subject: Use AX_COMPILER_FLAGS instead of GNOME_COMPILE_WARNINGS
+
+GNOME_COMPILE_WARNINGS comes from gnome-common, which is deprecated and
+not needed for anything else. ax_COMPILER_FLAGS from autoconf-archive
+provides the same warning flags without gnome-common.
+
+Taken from the Debian glabels package (0004-gnome-common-cleanup).
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -43,7 +43,7 @@ AC_SEARCH_LIBS([strerror],[cposix])
+ AC_PROG_CC
+ AC_PROG_INSTALL
+ 
+-GNOME_COMPILE_WARNINGS
++AX_COMPILER_FLAGS
+ 
+ AC_PATH_PROG(GLIB_GENMARSHAL,         glib-genmarshal)
+ AC_PATH_PROG(GDK_PIXBUF_CSOURCE,      gdk-pixbuf-csource)

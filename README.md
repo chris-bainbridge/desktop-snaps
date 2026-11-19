@@ -5,15 +5,16 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 140 repackage snaps: the 13
+one-repository-per-snap setup. It contains 190 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 42 packaging recipes imported
 from `~desktop-snappers` and the personal packaging repositories of
 Canonical staff on 2026-11-17, one infrastructure recipe imported from
 Canonical's pipewire-snap repository on 2026-11-18, 64 new recipes written
-on 2026-11-17, and 20 apps/utilities added on 2026-11-19.
+on 2026-11-17, 20 apps/utilities added on 2026-11-19, and 50 more new
+recipes written on 2026-11-19.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the eighty-two packages written here, which are not in the store yet;
+the 132 packages written here, which are not in the store yet;
 `gthumb` and `quadrapassel` are refreshed imports of existing store snaps.
 Every package is on `core26`; the 36 legacy imports were migrated during
 the 2026-11-19 refresh.
@@ -203,7 +204,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (140)
+## Snaps in scope (190)
 
 ### Migrated to core26 (13)
 
@@ -268,6 +269,41 @@ provided by the `pipewire` snap.
 `gthumb` (from `nbuechner/gthumb-snap`) and `quadrapassel` (from Canonical's
 `ubuntu/quadrapassel`), both refreshed to the current upstream release and
 migrated to `core26`.
+
+### New recipes written 2026-11-19 (50)
+
+A second gap-fill batch, all strict and built from upstream source. They use
+only default desktop plugs (`home`, `network`, `desktop`, `wayland`/`x11`,
+`audio-playback`, `opengl`, `gsettings`), and deliberately exclude
+Flatpak/AppImage tooling, Chromium/CEF apps that need a disabled sandbox or
+DRM, and apps that need `udisks2` or other manual interfaces.
+
+GNOME, design and productivity (30):
+
+`apostrophe`, `app-icon-preview`, `bookup`, `buffer`, `contrast`,
+`convolution`, `crossword-editor`, `decibels`, `emblem`, `endeavour`,
+`errands`, `fava`, `frogr`, `genius`, `glabels`, `gmetronome`,
+`gnome-crosswords`, `gtranslator`, `hamster`, `iotas`, `lollypop`, `lorem`,
+`manuals`, `ocrfeeder`, `palette`, `pinpoint`, `planify`, `pulp`,
+`solanum`, `typography`.
+
+Media, graphics and games (9):
+
+`cine`, `koreader`, `libresprite`, `mediathekview`, `parabolic`, `ruffle`,
+`soundconverter`, `spotube`, `tauon`.
+
+Utilities, network and development (11):
+
+`akizip`, `keypunch`, `kitsune`, `minder`, `packet`, `peazip`, `railway`,
+`rapidraw`, `rufin`, `text-pieces`, `yacreader`.
+
+`fava` and `iotas` use WebKitGTK, which disables its own sandbox inside a
+snap and relies on snap confinement. `errands` and `endeavour` bundle a
+private, D-Bus-namespaced evolution-data-server for local tasks; online
+accounts and CalDAV passwords are unavailable without keyring/GOA plugs.
+`frogr` keeps its OAuth token in its own config rather than the host keyring.
+All 50 build on `core26`; the less obvious confinement limits are documented
+in each recipe description.
 
 ### Imported 2026-11-18 (1)
 
@@ -406,13 +442,13 @@ unavailable and face detection is not built; `gnome-terminal` still needs
 the `dot-files` personal-files connection for `~/.bashrc` and friends;
 `tigervnc` is built from upstream 1.16.2 with H.264 disabled.
 
-The last group repackages distinct upstream projects; only the recipes are
-checked in. snapcraft fetches upstream sources, and for the proprietary
-launchers the vendor artifacts, at build time - no vendor binaries are
-tracked in this repository. `element-desktop` is not included: it has no
-public recipe.
+The 2026-11-17 and 2026-11-19 batches repackage distinct upstream projects;
+only the recipes are checked in. snapcraft fetches upstream sources, and for
+the proprietary launchers the vendor artifacts, at build time - no vendor
+binaries are tracked in this repository. `element-desktop` is not included:
+it has no public recipe.
 
-All 140 repackage another upstream project. Nearly all are GNOME
+All 190 repackage another upstream project. Nearly all are GNOME
 applications whose source lives at gitlab.gnome.org; the others include
 Mozilla (thunderbird), Matrix (fractal), Element (not imported), Epic,
 NVIDIA, Lunar Client, Godot, Ghostty, TigerVNC, Widelands, Thrive,

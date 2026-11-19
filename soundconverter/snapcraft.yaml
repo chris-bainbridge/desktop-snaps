@@ -1,0 +1,174 @@
+name: soundconverter
+adopt-info: soundconverter
+title: SoundConverter
+summary: Convert audio files into other formats
+description: |
+  SoundConverter is a simple and fast audio converter for the GNOME desktop.
+  It converts multiple files at once, extracts the audio track from video
+  files, and can copy tags and rebuild directory structures from tag fields.
+
+  It writes Ogg Vorbis, Opus, FLAC, WAV, MP3, AAC/M4A and WMA files. The
+  GStreamer base, good and ugly plugin sets from the GNOME runtime provide
+  the Vorbis, Opus, FLAC, WAV and MP3 encoders. The snap also bundles the
+  libav plugin (AAC/M4A and WMA encoding, plus the decoders the platform
+  does not ship) and the ASF and ID3 muxers from gst-plugins-bad.
+
+  Strict-confinement notes:
+   * Only the user's home directory is visible, so files elsewhere must be
+     opened through the XDG document portal. Output cannot be written to
+     removable media, because the removable-media interface is not declared.
+   * Settings are kept in the snap's private per-user area, not in the host
+     dconf database.
+   * Audio CDs and MTP portable players cannot be accessed. Audio can still
+     be played through the desktop's PulseAudio/PipeWire server.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+contact: https://github.com/kassoulet/soundconverter/issues
+website: https://soundconverter.org/
+source-code: https://github.com/kassoulet/soundconverter
+issues: https://github.com/kassoulet/soundconverter/issues
+
+platforms:
+  amd64:
+  arm64:
+
+layout:
+  # setup.py installs a launcher with a #!/usr/bin/python3 shebang. The
+  # core26 base has no Python; the interpreter and PyGObject live in the
+  # GNOME platform, so point the absolute path at the platform's copy.
+  /usr/bin/python3:
+    symlink: $SNAP/gnome-platform/usr/bin/python3
+
+apps:
+  soundconverter:
+    extensions: [gnome]
+    command: usr/bin/soundconverter
+    desktop: usr/share/applications/soundconverter.desktop
+    common-id: soundconverter.desktop
+    environment:
+      # setup.py installs the application module outside the platform
+      # interpreter's default sys.path.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # libavformat links libxml2, which is in the build SDK but not in the
+      # GNOME content snap; the libav part moves it to $SNAP/usr/lib so the
+      # extension cleanup keeps it. The multiarch directory is where the
+      # staged libav plugin's dependencies live.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings      # the snap's org.soundconverter settings schema
+      - home           # input and output files in the user's home directory
+      - audio-playback # preview/playback through PulseAudio or PipeWire
+
+# 4.1.3 (2026-02-25) is the latest stable upstream release. It is still
+# built with setup.py and python-distutils-extra; the Meson build lives on
+# main after the 4.1.3 tag and has not been released yet. The recipe uses the
+# release tag and the same installation path Flathub uses, rather than the
+# unreleased development branch.
+#
+# gnome-core26 provides Python 3.14/PyGObject, GTK3, GStreamer core and the
+# base, good and ugly plugin sets. Those cover the Vorbis, Opus, FLAC, WAV,
+# MP3 and WAVPACK encoders/decoders. The archive additions below supply the
+# rest:
+#  * gst-libav: avenc_aac (AAC/M4A output) and avenc_wmav2 (WMA output),
+#    plus AAC, ALAC, WMA, APE, Musepack and video-container decoding. The
+#    preferred fdkaacenc and the old faac encoder are not built in Ubuntu
+#    because their codec libraries are non-free, so SoundConverter falls
+#    back to avenc_aac and logs a warning about fdkaacenc; this is expected.
+#  * gst-plugins-bad extras: asfmux (the WMA muxer) and id3mux/id3v2mux
+#    (MP3 tag writing). The full bad package is not staged: it would pull in
+#    the ONNX/TensorFlow/OpenCV stack, so only these two plugin files are
+#    extracted from the archive package.
+#
+# Missing output encoders: fdkaacenc and faac (non-free codec libraries, not
+# in the Ubuntu archive). AAC output still works through avenc_aac from
+# gst-libav. WMA output works through avenc_wmav2 + asfmux.
+parts:
+  soundconverter:
+    source: https://github.com/kassoulet/soundconverter.git
+    source-type: git
+    source-tag: '4.1.3'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      # DistUtilsExtra.auto installs the application, data files, desktop
+      # file and translations (it pulls in intltool and setuptools).
+      - python3-distutils-extra
+      # msgfmt for the gettext catalogs.
+      - gettext
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # setup.py installs the launcher below /usr, i.e. $SNAP/usr at run
+      # time. The launcher first asks importlib.metadata for a glade file
+      # next to the installed package, then falls back to hard-coded /usr
+      # and /app paths; none of those point into the snap. Resolve the
+      # bundled copy through $SNAP instead, and bind the gettext domain to
+      # the snap's locale directory rather than the platform's.
+      sed -i \
+        -e 's|^GLADEFILE = str(dist.locate_file("data/soundconverter.glade"))$|GLADEFILE = os.path.join(os.environ.get("SNAP", "/"), "usr/share/soundconverter/soundconverter.glade")|' \
+        -e 's|^if GLADEFILE.startswith("/app"):$|if os.environ.get("SNAP") or GLADEFILE.startswith("/app"):|' \
+        -e 's|"/app/share/locale"|os.path.join(os.environ.get("SNAP", "/"), "usr/share/locale")|g' \
+        bin/soundconverter
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+      # Install with the explicit distutils paths: the default prefix in the
+      # build environment is /usr/local. --single-version-externally-managed
+      # keeps a regular dist-info-free egg-info, which the launcher needs
+      # for importlib.metadata (name and version).
+      /usr/bin/python3 setup.py install \
+        --root="$CRAFT_PART_INSTALL" \
+        --prefix=/usr \
+        --install-lib=/usr/lib/python3/dist-packages \
+        --install-scripts=/usr/bin \
+        --install-data=/usr \
+        --single-version-externally-managed \
+        --record=install-files.txt
+      # Use the icon bundled in the snap so the launcher does not depend on
+      # the host icon theme.
+      sed -i 's|^Icon=soundconverter$|Icon=${SNAP}/meta/gui/soundconverter.svg|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/soundconverter.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/soundconverter.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      - -usr/share/doc
+
+  # libgstlibav.so and the libav libraries it links. The plugin is not in
+  # gnome-core26, but libavformat links libxml2, which is in the SDK and not
+  # in the content snap. Move that one library out of the SDK's multiarch
+  # path, or the gnome extension's cleanup would delete it from prime.
+  gst-libav:
+    plugin: nil
+    stage-packages:
+      - gstreamer1.0-libav
+      - libxml2-16
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL"/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/*/*.la
+      - -usr/share/doc
+
+  # gstreamer1.0-plugins-bad drags in the whole ONNX/TensorFlow/OpenCV
+  # decoder stack. SoundConverter only needs two files from it: asfmux (WMA
+  # output) and id3tag (MP3 tag writing). Fetch the package without its
+  # dependencies and keep just those plugins.
+  gst-bad-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstasfmux.so
+      - usr/lib/*/gstreamer-1.0/libgstid3tag.so

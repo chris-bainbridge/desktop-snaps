@@ -1,0 +1,146 @@
+name: genius
+adopt-info: genius
+title: Genius
+license: GPL-3.0-or-later
+summary: General-purpose calculator and mathematics tool
+contact: https://gitlab.gnome.org/GNOME/genius/-/issues
+issues: https://gitlab.gnome.org/GNOME/genius/-/issues
+source-code: https://gitlab.gnome.org/GNOME/genius
+description: |
+  Genius is a general-purpose calculator with arbitrary-precision arithmetic.
+  It works as a simple desktop calculator and as an advanced scientific one:
+  it handles real and complex numbers, vectors and matrices, calculus,
+  symbolic computation, number theory and statistics, and plots functions.
+
+  Calculations and programs are written in GEL, Genius' own language. Programs
+  are edited in a notebook with syntax highlighting and can be saved as .gel
+  files for later use.
+
+  Strict-confinement notes:
+   * Files under the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * Genius keeps its GUI preferences, user plugins and user examples in the
+     ~/.genius dot-directory. The home interface does not expose hidden paths,
+     so those preferences are not persisted and user plugins/examples are not
+     loaded; the built-in GEL library and the shipped examples still work.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (gtk_application_new ("org.gnome.genius"))
+  genius:
+    interface: dbus
+    bus: session
+    name: org.gnome.genius
+
+apps:
+  genius:
+    extensions: [gnome]
+    command: usr/bin/gnome-genius
+    desktop: usr/share/applications/gnome-genius.desktop
+    common-id: gnome-genius.desktop
+    environment:
+      # GtkSourceView 4 and its libxml2 dependency are staged into the
+      # non-multiarch usr/lib (see the libraries part). The gnome extension
+      # only puts the platform on the library path, so add the snap's own
+      # directories.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the gnome extension no longer adds it on core26
+      - gsettings
+      # open and save .gel programs in the user's home directory
+      - home
+
+# Genius 1.0.29 is the current upstream release (2026-03-12). It is a C
+# application built with autotools, using GTK3 + VTE for the GUI and
+# GMP/MPFR for the arbitrary-precision arithmetic. The release tarball is
+# used rather than the git tag because it ships the generated configure
+# script, parser and lexer, which keeps bison, flex and autoconf-archive out
+# of the build dependencies.
+#
+# The prefix is the runtime mount path, not /usr: the binary has DATADIR,
+# LIBEXECDIR and GNOMELOCALEDIR compiled in (GEL library, examples, help,
+# the readline helper and translations), and a /usr prefix would make it
+# look in the core26 base. organize moves the installed tree back under usr/.
+#
+# gnome-core26 already ships GTK3, libvte-2.91, libgmp, libmpfr, libncurses
+# and the core26 base ships libreadline, so only GtkSourceView 4 has to be
+# staged from the archive (it is not part of the content snap or the SDK).
+parts:
+  genius:
+    source: https://download.gnome.org/sources/genius/1.0/genius-1.0.29.tar.xz
+    source-checksum: sha256/1df2549f25a84f9237620fbf0c9cba65080e49c76025bd50ce530cfd00f3eab5
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/snap/genius/current/usr
+      - --disable-static
+      # the mime database of the build environment must not be touched
+      - --disable-update-mimedb
+    organize:
+      snap/genius/current/usr: usr
+    build-packages:
+      # GTK3, GLib and gettext development files are in gnome-core26-sdk.
+      - intltool
+      # GMP and MPFR headers; the content snap only ships the runtime libs
+      - libgmp-dev
+      - libmpfr-dev
+      # terminal widget for the console, >= 0.72.0
+      - libvte-2.91-dev
+      # optional "better source editor"; GtkSourceView 4 is not in the SDK
+      - libgtksourceview-4-dev
+      # configure requires readline and ncurses/termcap
+      - libreadline-dev
+      - libncurses-dev
+    override-pull: |
+      craftctl default
+      # the tarball has AC_INIT([genius],[1.0.29]) in configure.ac
+      craftctl set version=$(sed -n 's/^AC_INIT(\[genius\],\[\([^]]*\)\]).*/\1/p' configure.ac)
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host icon theme.
+      sed -i -e 's|^Icon=gnome-genius$|Icon=${SNAP}/meta/gui/gnome-genius.svg|' \
+        "$CRAFT_PART_INSTALL/snap/genius/current/usr/share/applications/gnome-genius.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/pixmaps/scalable/gnome-genius.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      # headers for writing Genius plugins, and libtool archives, are not
+      # needed at run time
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/genius/*.la
+      - -usr/share/doc
+
+  libraries:
+    after: [genius]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships GtkSourceView 3 and 5, but Genius 1.0.29 needs the
+      # GtkSourceView 4 ABI for its program editor. The 26.04 archive has it.
+      - libgtksourceview-4-0
+      - libgtksourceview-4-common
+      # GtkSourceView 4 links libxml2, which neither the core26 base nor the
+      # gnome-core26 content snap ships (the SDK has it).
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every primed *.so that also exists in the SDK,
+      # and the gnome-core26 content snap ships neither libxml2 nor
+      # GtkSourceView 4. Keep both outside the SDK's usr/lib/<triplet> layout;
+      # $SNAP/usr/lib is in the app's LD_LIBRARY_PATH, so they are still found.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libgtksourceview-4.so.0 libxml2.so.16; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+          "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    prime:
+      - usr/lib/libgtksourceview-4.so.*
+      - usr/lib/libxml2.so.16*
+      - usr/share/gtksourceview-4

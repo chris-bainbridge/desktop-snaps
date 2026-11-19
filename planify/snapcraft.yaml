@@ -1,0 +1,210 @@
+name: planify
+adopt-info: planify
+title: Planify
+license: GPL-3.0-or-later
+website: https://github.com/alainm23/planify
+source-code: https://github.com/alainm23/planify
+issues: https://github.com/alainm23/planify/issues
+contact: https://github.com/alainm23/planify/issues
+summary: Task manager with Todoist, Nextcloud and CalDAV sync
+description: |
+  Planify is a task manager built with GTK 4 and libadwaita. It organizes
+  tasks into projects and sections, supports labels, priorities, recurring
+  tasks and reminders, attachments and links, and shows scheduled work in a
+  calendar, a list or a board.
+
+  Tasks live in a local SQLite database and can be synchronized with Todoist,
+  Nextcloud Tasks, Nextcloud Deck and generic CalDAV servers over the network.
+
+  Strict-confinement notes:
+   * Files are accessible under the home directory; other locations, such as
+     files on mounted volumes, are only reachable through the desktop file
+     chooser portal.
+   * Todoist OAuth returns through the planify:// URL scheme registered by the
+     snap's desktop file.
+   * The bundled GNOME Shell search provider is not visible to the host shell,
+     and the optional GNOME Online Accounts and Evolution calendar
+     integrations are not built.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  planify:
+    interface: dbus
+    bus: session
+    name: io.github.alainm23.planify
+  # the standalone quick-add window (usr/bin/io.github.alainm23.planify.quick-add)
+  quick-add:
+    interface: dbus
+    bus: session
+    name: io.github.alainm23.planify.quick-add
+  # the GNOME Shell search provider's GApplication
+  search-provider:
+    interface: dbus
+    bus: session
+    name: io.github.alainm23.planify.SearchProvider
+
+apps:
+  planify:
+    extensions: [gnome]
+    command: usr/bin/io.github.alainm23.planify
+    desktop: usr/share/applications/io.github.alainm23.planify.desktop
+    common-id: io.github.alainm23.planify.desktop
+    environment:
+      # The libraries part moves libxml2 out of the SDK's multiarch path
+      # (gnome-core26 does not ship it); keep $SNAP/usr/lib on the path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's io.github.alainm23.planify GSettings schema
+      - gsettings
+      # the SQLite database, attachments and backups
+      - home
+      # Todoist, Nextcloud and CalDAV sync
+      - network
+
+  quick-add:
+    extensions: [gnome]
+    command: usr/bin/io.github.alainm23.planify.quick-add
+    environment:
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings
+      - home
+      - network
+
+  cli:
+    extensions: [gnome]
+    command: usr/bin/io.github.alainm23.planify.cli
+    environment:
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings
+      - home
+      - network
+
+# Planify 4.20.0 is a GTK4/libadwaita application written in Vala. Its Meson
+# build needs libgxml (CalDAV/Todoist XML parsing), libical-glib (VTODO
+# conversion) and, with spell checking enabled, libspelling. The
+# gnome-core26-sdk provides GTK4, libadwaita, libgee, Vala, libsoup-3.0,
+# libsecret, json-glib, GtkSourceView 5, SQLite, ICU and libxml2 development
+# files; those three are not part of it and come from the 26.04 archive. The
+# runtime libraries gnome-core26 lacks are staged below.
+#
+# Granite and libpeas were requirements of older Planify releases; 4.20.0 no
+# longer uses either.
+#
+# The prefix is the runtime mount path, not /usr: Build.INSTALL_PREFIX and
+# Build.LOCALEDIR are compiled in (language packs, translation listing and the
+# search provider's gettext domain), and a /usr prefix would resolve them to
+# the core26 base. organize moves the installed tree back under usr/.
+#
+# The `chrono` submodule is built as a separate part instead of being fetched
+# by Meson's wrap file, so no source is downloaded during the build.
+parts:
+  chrono:
+    source: https://github.com/alainm23/chrono.git
+    source-type: git
+    source-tag: '1.0.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    prime:
+      # only the runtime library is needed; the build-time headers, vapi
+      # and pkg-config file are consumed from the stage by the part below
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/metainfo
+      - -usr/share/vala
+
+  planify:
+    after: [chrono]
+    source: https://github.com/alainm23/planify.git
+    source-type: git
+    source-tag: 'v4.20.0'
+    source-depth: 1
+    # the chrono submodule is built above; don't waste a checkout on it
+    source-submodules: []
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/planify/current/usr
+      - --buildtype=release
+      - -Dspelling=enabled
+      # Upstream declares evolution, goa and portal as plain booleans, which
+      # Meson defaults to true. portal stays on (libportal is in the SDK and
+      # the desktop interface grants the XDG portal), but the Evolution data
+      # server calendar sync and GNOME Online Accounts detection need session
+      # bus services that no default-connect interface grants, and their
+      # development files are not in gnome-core26-sdk.
+      - -Dportal=true
+      - -Devolution=false
+      - -Dgoa=false
+      # chrono's pkg-config file points at the runtime prefix, so point
+      # valac at the copy in the staging area
+      - -Dvala_args="--vapidir=$CRAFT_STAGE/usr/share/vala/vapi"
+    organize:
+      snap/planify/current/usr: usr
+    build-packages:
+      - libgxml-dev         # not shipped by gnome-core26-sdk
+      - libical-dev         # not shipped by gnome-core26-sdk
+      - libspelling-1-dev   # not shipped by gnome-core26-sdk
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^v//')
+    override-build: |
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. Planify creates its Gio.Settings object at
+      # start-up; make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/planify/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap rather than a themed one
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/io.github.alainm23.planify.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+      sed -i -e 's|^Icon=io.github.alainm23.planify$|Icon=${SNAP}/meta/gui/io.github.alainm23.planify.svg|' \
+        "$CRAFT_PART_INSTALL/snap/planify/current/usr/share/applications/io.github.alainm23.planify.desktop"
+    prime:
+      # Don't ship files only needed to build against libplanify
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/gtk-doc
+      - -usr/share/man
+      - -usr/share/doc
+
+  libraries:
+    after: [planify]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides GTK4, libadwaita, libgee, libsoup-3.0,
+      # libsecret, json-glib, GtkSourceView 5, SQLite and ICU. It does not
+      # ship GXml, libical(-glib), libspelling or libxml2, all of which the
+      # application (or GtkSourceView 5) links directly.
+      - libgxml-0.20-2.0.2
+      - libical3t64
+      - libspelling-1-2
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the
+      # apps' LD_LIBRARY_PATH includes $SNAP/usr/lib.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/*/libgxml-0.20.so.*
+      - usr/lib/*/libical*.so.*
+      - usr/lib/*/libspelling-1.so.*
+      - usr/lib/libxml2.so.*

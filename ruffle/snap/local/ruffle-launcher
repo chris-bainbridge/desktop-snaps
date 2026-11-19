@@ -1,0 +1,29 @@
+#!/bin/sh
+# Launcher for the Ruffle desktop player.
+#
+# This is only needed to point the dynamic loader and ALSA at two staged
+# libraries whose paths are not the defaults:
+#
+#   usr/lib/ruffle/alsa-lib  libasound's PulseAudio plugin, selected with
+#                            ALSA_PLUGIN_DIR; the default ALSA device is
+#                            routed to PulseAudio/PipeWire in etc/asound.conf,
+#                            because a strictly confined snap has no /dev/snd
+#                            and the audio-playback interface only exposes the
+#                            desktop's PulseAudio-compatible sound server.
+#   usr/lib/ruffle/lib       libxkbcommon-x11, which winit dlopens for its
+#                            X11 backend. It lives outside the multiarch path
+#                            because the gnome extension's cleanup part deletes
+#                            primed libraries that also exist in the SDK, and
+#                            it needs to survive that.
+#
+# Both settings are harmless when the library is unused: Wayland never loads
+# the X11 half of libxkbcommon, and without a reachable sound server Ruffle
+# logs the audio error and continues without sound.
+set -eu
+
+ALSA_CONFIG_PATH="$SNAP/etc/asound.conf"
+ALSA_PLUGIN_DIR="$SNAP/usr/lib/ruffle/alsa-lib"
+LD_LIBRARY_PATH="$SNAP/usr/lib/ruffle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export ALSA_CONFIG_PATH ALSA_PLUGIN_DIR LD_LIBRARY_PATH
+
+exec "$SNAP/usr/bin/ruffle" "$@"

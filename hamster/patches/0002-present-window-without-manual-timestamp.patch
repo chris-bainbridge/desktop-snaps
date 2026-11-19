@@ -1,0 +1,29 @@
+Upstream: projecthamster/hamster commit fcafe5326ce049ac09726264245d9af704ed137a
+Subject: Remove old window presentation workaround that causes timestamp overflows
+
+Gtk.Window.present_with_time() takes a 32-bit timestamp, but
+GLib.get_monotonic_time()/1000 exceeds 2^32 after about 49 days of uptime.
+PyGObject then raises OverflowError and the window is never presented. The
+workaround for GTK issue 624 is unnecessary since GTK 3.24.1, so use
+present() as upstream did.
+
+---
+ src/hamster/lib/configuration.py | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/src/hamster/lib/configuration.py b/src/hamster/lib/configuration.py
+index d2ba189..516fa16 100644
+--- a/src/hamster/lib/configuration.py
++++ b/src/hamster/lib/configuration.py
+@@ -74,10 +74,7 @@ class Controller(gobject.GObject):
+ 
+     def present(self):
+         """Show window and bring it to the foreground."""
+-        # workaround https://gitlab.gnome.org/GNOME/gtk/issues/624
+-        # fixed in gtk-3.24.1 (2018-09-19)
+-        # self.overview_controller.window.present()
+-        self.window.present_with_time(glib.get_monotonic_time() / 1000)
++        self.window.present()
+ 
+     def show(self):
+         """Show window.

@@ -1,0 +1,147 @@
+name: gmetronome
+adopt-info: gmetronome
+summary: Maintain a steady tempo
+description: |
+  GMetronome is a free/libre metronome for GNU/Linux. It has a tempo range
+  from 30 to 250 BPM, customizable accent patterns with three levels of
+  accentuation, divisible beats for simple and compound meters, predefined
+  patterns for common time signatures, a training function that raises or
+  lowers the tempo automatically, saveable profiles, a built-in synthesizer
+  for custom click sounds and configurable keyboard shortcuts.
+
+  Strict-confinement notes:
+   * Click output goes through PulseAudio, including PipeWire's
+     PulseAudio-compatible server. The direct ALSA and OSS backends are not
+     built.
+   * Profiles are saved in the snap's own per-user data directory
+     ($SNAP_USER_DATA/.local/share/gmetronome), not in the host's
+     ~/.local/share.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+contact: https://gitlab.gnome.org/dqpb/gmetronome/-/issues
+source-code: https://gitlab.gnome.org/dqpb/gmetronome
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  gmetronome:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitlab.dqpb.GMetronome
+
+apps:
+  gmetronome:
+    extensions: [gnome]
+    command: usr/bin/gmetronome
+    desktop: usr/share/applications/org.gnome.gitlab.dqpb.GMetronome.desktop
+    common-id: org.gnome.gitlab.dqpb.GMetronome.desktop
+    plugs:
+      # the snap's org.gnome.gitlab.dqpb.GMetronome GSettings schemas
+      - gsettings
+      # access files in the user's home
+      - home
+      # click output through PulseAudio / pipewire-pulse
+      - audio-playback
+
+# GMetronome is a C++17 GTK3 application that uses gtkmm-3.0 and
+# libpulse-simple; click sounds are synthesized in-process, there is no
+# GStreamer dependency. 0.5.1 is the latest upstream release (2026-08-14);
+# the 26.04 archive has no gmetronome package at all.
+#
+# The prefix is the runtime mount path, not /usr: PGRM_LOCALEDIR is compiled
+# into the binary from --datadir, and a /usr prefix would resolve the gettext
+# catalogue to the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+parts:
+  gmetronome:
+    source: https://gitlab.gnome.org/dqpb/gmetronome.git
+    source-type: git
+    source-tag: '0.5.1'
+    source-depth: 1
+    plugin: autotools
+    # The gnome extension points the build at gnome-core26-sdk, but that SDK
+    # only carries the GTK4/gtkmm-4 stack with GLib 2.90 headers. GMetronome
+    # is a GTK3/gtkmm-3.24 application, and gtkmm 3 exists only in the 26.04
+    # archive: mixing the archive's gtkmm headers with the SDK's GLib 2.90
+    # headers fails to compile (giomm-2.4 declares the G*Class typedefs
+    # itself and G_DECLARE_FINAL_TYPE in GLib 2.90 declares them too), and
+    # mixing the archive's Pango 1.57 libraries with the SDK's Pango 1.58
+    # libraries fails to link (pango_font_description_get_width). Build
+    # against the archive's stack throughout, as the cpu-x and rawtherapee
+    # recipes do: its GTK3 is 3.24.52, the same version the gnome-core26
+    # content snap provides at run time.
+    build-environment:
+      # The SDK compiler's specs put the SDK libdir ahead of the archive's.
+      - PATH: /usr/bin:$PATH
+      # Resolve GLib, GTK, gtkmm and pkg-config modules from the archive.
+      - PKG_CONFIG_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH
+      # Keep the archive's libraries first for anything the link step loads.
+      - LD_LIBRARY_PATH: /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$LD_LIBRARY_PATH
+    autotools-configure-parameters:
+      - --prefix=/snap/gmetronome/current/usr
+      # PulseAudio is the only backend a strictly confined snap can reach.
+      # configure.ac makes it the default when it is the only one enabled.
+      - --with-pulseaudio
+      - --without-alsa
+      - --without-oss
+    organize:
+      snap/gmetronome/current/usr: usr
+    build-packages:
+      - make
+      # Build with the archive's C++ compiler, headers and libraries rather
+      # than the SDK's GTK4/GLib 2.90 toolchain (see build-environment).
+      - g++
+      - gettext
+      # configure uses xmllint to strip blanks from the glade files while
+      # glib-compile-resources embeds them.
+      - libxml2-utils
+      # gtkmm 3.24 is not part of the gnome-core26 SDK, which only has the
+      # GTK4/gtkmm-4 stack.
+      - libgtkmm-3.0-dev
+      - libpulse-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i -e 's|^Icon=@PACKAGE_ID@$|Icon=${SNAP}/meta/gui/org.gnome.gitlab.dqpb.GMetronome.png|' \
+        data/org.gnome.gitlab.dqpb.GMetronome.desktop.in.in
+    override-build: |
+      craftctl default
+      # automake skips compiling the schema when DESTDIR is set, so the
+      # installed gschemas.compiled is missing. The application creates its
+      # Gio::Settings objects at start-up; compile the schema before organize
+      # moves the tree under usr/.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gmetronome/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/256x256/org.gnome.gitlab.dqpb.GMetronome.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  libraries:
+    # gnome-core26 provides GTK3, GLib/GIO, gdk-pixbuf, Pango, cairo,
+    # libsigc++-2.0, libpulse/libpulse-simple and libstdc++, and the core26
+    # base provides libgcc. Ship only the runtime libraries that are absent
+    # from all of them.
+    after: [gmetronome]
+    plugin: nil
+    stage-packages:
+      # gtkmm 3.24 and the ABI-specific C++ wrappers GTK3 does not provide:
+      # glibmm-2.4, giomm-2.4, gdkmm-3.0, atkmm-1.6, cairomm-1.0 and
+      # pangomm-1.4 (the content snap only has the 2.68/1.16/2.48 ABIs used
+      # by gtkmm-4.0).
+      - libgtkmm-3.0-1t64
+    prime:
+      - usr/lib/*/libgtkmm-3.0.so.*
+      - usr/lib/*/libgdkmm-3.0.so.*
+      - usr/lib/*/libglibmm-2.4.so.*
+      - usr/lib/*/libgiomm-2.4.so.*
+      - usr/lib/*/libatkmm-1.6.so.*
+      - usr/lib/*/libcairomm-1.0.so.*
+      - usr/lib/*/libpangomm-1.4.so.*

@@ -1,0 +1,210 @@
+name: koreader
+title: KOReader
+base: core26
+adopt-info: koreader
+
+summary: Ebook reader for PDF, EPUB, DjVu, CBZ and other document formats
+
+description: |
+  KOReader is an ebook reader for PDF, EPUB, DjVu, FB2, MOBI, CBZ/CBR, XPS and
+  plain-text documents, with a file manager, dictionaries, OPDS catalogue
+  support, reading statistics, Wikipedia lookup and progress sync between
+  devices.
+
+  This snap packages the official generic Linux build of KOReader. KOReader is
+  written in Lua on LuaJIT with native document engines; its release tarball
+  bundles LuaJIT, those engines and the third-party libraries they need, so it
+  is installed as published rather than rebuilt from source.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Settings, history, statistics, caches and user plugins live in
+    ~/snap/koreader/common/koreader, not in ~/.config/koreader. Copy an
+    existing desktop configuration into that directory before the first start
+    to keep it.
+  - Only non-hidden paths in your home directory are visible; hidden entries
+    such as ~/.config and ~/.local are not. KOReader's file browser starts in
+    your home directory.
+  - Books and dictionaries on USB drives, SD cards and other removable media
+    are not reachable: the removable-media interface is deliberately not
+    declared. Copy them into your home directory, or fetch them through an
+    OPDS or cloud-storage catalogue.
+  - Networking works: OPDS catalogues, Calibre's wireless connection to a
+    Calibre server running on the host, Wallabag, Wikipedia, news downloads,
+    cloud storage and KOReader's progress-sync service are available through
+    the network interface.
+  - KOReader cannot launch host programs. Opening a link in a document hands it
+    to the host's browser through the desktop interface, but external
+    dictionary applications such as GoldenDict, a host terminal for the
+    terminal plugin, and the host's calibre program are not visible.
+  - Game controllers are not available: the joystick interface is not
+    declared, so KOReader's gamepad support is disabled.
+  - Updates come from the snap store with "snap refresh koreader"; the
+    application tree is read-only and cannot update itself.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. There is no classic fallback and none is
+# proposed.
+#
+# Build versus package: KOReader is Lua on LuaJIT plus native components
+# (crengine, MuPDF, DjVuLibre, k2pdfopt, SDL3). Upstream's build system
+# compiles koreader-base, checks out and patches a set of third-party
+# libraries and downloads prebuilt dependencies; reproducing that for two
+# architectures in LXD is a long, fragile build. Upstream publishes the
+# generic Linux build as a prefix-style tarball (bin/, lib/koreader/,
+# share/), which is exactly the artifact Flathub repackages for
+# rocks.koreader.KOReader, and KOReader is AGPL-3.0, so it can be
+# redistributed. The tarball is downloaded at build time and verified against
+# the per-architecture SHA-256 below; no upstream binary is committed to this
+# repository.
+#
+# 2026.07.1 is the latest release with published Linux tarballs. The newer
+# v2026.07.2 tag has no release assets at import time (2026-11-19), and the
+# rolling "OTA" prerelease only carries e-reader update packages.
+#
+# Runtime dependency audit (26.04 platform):
+#   - bundled and loaded from $SNAP/opt/koreader/lib/koreader/libs: LuaJIT,
+#     SDL3, crengine, MuPDF wrap, DjVu, k2pdfopt, leptonica, lunasvg,
+#     libarchive, sqlite3, OpenSSL, ZeroMQ, freetype, harfbuzz, fribidi,
+#     png/jpeg/webp/tiff codecs, zlib, zstd, utf8proc, unibreak and lfs;
+#   - core26 base: glibc, libstdc++, libgcc_s, libm, and the xdg-open wrapper
+#     that forwards links to snapd;
+#   - gnome-core26, mounted by the [gnome] extension: fonts, fontconfig,
+#     GLib/GIO, libdbus-1, libasound/libpulse and libxkbcommon that SDL3
+#     dlopens;
+#   - mesa-2604, mounted by the extension's gpu adjunct: libX11/libxcb,
+#     libwayland-client, libEGL/libGLESv2, libgbm/libdrm and the Mesa
+#     drivers used by SDL3's accelerated renderer.
+# Nothing needs to be staged, so this part has no stage-packages.
+#
+# KOReader is not a GTK application: its user interface is drawn by SDL3. The
+# [gnome] extension is still the core26 desktop runtime platform here, as it
+# is for wesnoth and ardour: it supplies the fonts, X11/Wayland libraries and
+# Mesa content snaps plus the command-chain that sets up the XDG directories.
+# The alternative, [gpu] alone (as used by mupdf), would leave fontconfig,
+# fonts and libxkbcommon to be staged by hand.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+license: AGPL-3.0-only
+website: https://koreader.rocks/
+source-code: https://github.com/koreader/koreader
+issues: https://github.com/koreader/koreader/issues
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  koreader:
+    extensions: [gnome]
+    command: opt/koreader/bin/koreader
+    desktop: usr/share/applications/rocks.koreader.KOReader.desktop
+    common-id: rocks.koreader.KOReader.desktop
+    environment:
+      # KOReader's own data directory: settings, history, statistics, caches,
+      # downloaded dictionaries and user plugins. SNAP_USER_COMMON is shared
+      # by revisions, so a cache of a few hundred MB is not copied at every
+      # refresh; the home interface cannot write ~/.config anyway.
+      KO_HOME: $SNAP_USER_COMMON/koreader
+      # The SDL device profile opens the file browser in XDG_DOCUMENTS_DIR,
+      # falling back to HOME. The gnome command-chain points XDG_CONFIG_HOME
+      # at SNAP_USER_DATA and HOME is the private per-revision directory, so
+      # without this the browser would start in an empty private folder. The
+      # real home exists and is visible through the home interface; the
+      # localized XDG user-dirs list is not readable by KOReader itself.
+      XDG_DOCUMENTS_DIR: $SNAP_REAL_HOME
+    plugs:
+      - desktop # xdg-open / snapctl user-open for links in documents
+      - home    # books, sidecar settings, dictionaries, downloads
+      - network # OPDS, calibre wireless, wallabag, sync, cloud storage
+      - opengl  # /dev/dri for SDL3 through the mesa-2604 content snap
+      - wayland # native Wayland session
+      - x11     # X11 session and XWayland
+
+parts:
+  koreader:
+    # The tarball is fetched in override-pull rather than through source:
+    # because the URL and checksum differ per architecture.
+    plugin: nil
+    build-packages:
+      - ca-certificates
+      - curl
+      - xz-utils
+    override-pull: |
+      set -eux
+
+      tag=v2026.07.1
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          asset="koreader-linux-x86_64-$tag.tar.xz"
+          sha256=299aadb28147a25e9432ced1214ea444a4184393b5ae97cf42402c8a61b1a1b0
+          ;;
+        arm64)
+          asset="koreader-linux-arm64-$tag.tar.xz"
+          sha256=68b399a99a88bf3f036f5e8b67d043215a28e11d375cf0823900aef7b1523a0b
+          ;;
+        *)
+          echo "koreader: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+
+      # The release does not publish a checksum file next to the tarballs.
+      # The hashes above were computed from the official downloads (they
+      # match the GitHub release asset digests) and are pinned here; the
+      # download is rejected if the bytes change.
+      url="https://github.com/koreader/koreader/releases/download/$tag/$asset"
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "$CRAFT_PART_SRC/koreader.tar.xz" "$url"
+
+      # Verify from inside the source directory so that the checksum line does
+      # not have to quote a workspace path.
+      cd "$CRAFT_PART_SRC"
+      printf '%s  koreader.tar.xz\n' "$sha256" | sha256sum --check --strict -
+
+      # The tarball is rooted at the installation prefix itself (bin/, lib/,
+      # share/), so no path components are stripped.
+      tar --extract --xz --file koreader.tar.xz
+      rm -f koreader.tar.xz
+
+      # The release writes its tag to lib/koreader/git-rev; adopt-info takes
+      # the snap version from there so it always matches the verified bytes.
+      craftctl set version="$(sed -e 's/^v//' lib/koreader/git-rev)"
+
+    override-build: |
+      set -eux
+
+      craftctl default
+
+      # Keep the whole application under opt/: the gnome extension's cleanup
+      # part deletes staged shared objects that also exist in the SDK, and
+      # these libraries belong to the application, not to the platform.
+      install -d "$CRAFT_PART_INSTALL/opt/koreader"
+      cp -a "$CRAFT_PART_SRC/." "$CRAFT_PART_INSTALL/opt/koreader/"
+      chmod -R u+rwX,go+rX,go-w "$CRAFT_PART_INSTALL/opt/koreader"
+
+      # The release ships a desktop entry and AppStream data under the
+      # Flathub application id. Export the entry from the standard location;
+      # snapcraft rewrites Exec= to the snap command. The SDL frontend sets
+      # WM_CLASS to KOReader, so name it for the dock and window matching.
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/share/applications/rocks.koreader.KOReader.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/rocks.koreader.KOReader.desktop"
+      desktop="$CRAFT_PART_INSTALL/usr/share/applications/rocks.koreader.KOReader.desktop"
+      sed -i \
+        -e 's|^Exec=.*|Exec=koreader %u|' \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/koreader.png|' \
+        "$desktop"
+      grep -q '^StartupWMClass=' "$desktop" ||
+        sed -i '/^Type=Application/a StartupWMClass=KOReader' "$desktop"
+
+      # Reuse the icon shipped in the tarball instead of committing a copy.
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/share/icons/hicolor/512x512/apps/rocks.koreader.KOReader.png" \
+        "$CRAFT_PART_INSTALL/meta/gui/koreader.png"
+
+      # Make the release's AppStream file available for the store listing.
+      install -D -m 0644 \
+        "$CRAFT_PART_SRC/share/metainfo/rocks.koreader.KOReader.metainfo.xml" \
+        "$CRAFT_PART_INSTALL/usr/share/metainfo/rocks.koreader.KOReader.metainfo.xml"

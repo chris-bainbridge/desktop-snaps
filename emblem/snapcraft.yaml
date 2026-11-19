@@ -1,0 +1,115 @@
+name: emblem
+adopt-info: emblem
+title: Emblem
+license: GPL-3.0-or-later
+summary: Generate project avatars
+description: |
+  Emblem generates project avatars from a symbolic icon. Choose a background
+  gradient, corner radius and foreground colour, then export the result as a
+  PNG or SVG image, for example as a GitLab project avatar.
+
+  Strict-confinement notes:
+   * Files under the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+website: https://apps.gnome.org/Emblem/
+contact: https://gitlab.gnome.org/World/design/emblem/-/issues
+issues: https://gitlab.gnome.org/World/design/emblem/-/issues
+source-code: https://gitlab.gnome.org/World/design/emblem
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  emblem:
+    interface: dbus
+    bus: session
+    name: org.gnome.design.Emblem
+
+apps:
+  emblem:
+    extensions: [gnome]
+    command: usr/bin/emblem
+    desktop: usr/share/applications/org.gnome.design.Emblem.desktop
+    common-id: org.gnome.design.Emblem.desktop
+    environment:
+      # gnome-core26 ships librsvg (Emblem's SVG renderer) but not libxml2,
+      # which librsvg links directly. The libraries part below bundles it in
+      # usr/lib; the gnome extension only puts the platform on the library
+      # path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.design.Emblem GSettings schema
+      - gsettings
+      # open symbolic icons and save the exported avatar
+      - home
+
+# Emblem 1.7.0 (2026-09-17) is the latest upstream release. It is a Rust +
+# GTK4/libadwaita application (edition 2024, rust-version 1.92); its Meson
+# build drives cargo itself on the upstream Cargo.lock.
+#
+# cargo and rustc are not part of gnome-core26-sdk; the 26.04 archive has
+# 1.93.1. Meson >= 1.7 is required (the archive has 1.10.1), and libadwaita >=
+# 1.8.alpha comes from the gnome-core26 content snap. librsvg-rebind probes
+# librsvg with pkg-config, so librsvg2-dev is installed from the archive at
+# build time; gnome-core26 provides librsvg at run time.
+#
+# The prefix is the runtime mount path, not /usr: main.rs loads
+# PKGDATADIR/resources.gresource and binds LOCALEDIR, both compiled in from
+# the meson prefix. organize moves the installed tree back under usr/.
+parts:
+  emblem:
+    source: https://gitlab.gnome.org/World/design/emblem.git
+    source-type: git
+    source-tag: '1.7.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/emblem/current/usr
+      - --buildtype=release
+    organize:
+      snap/emblem/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      # librsvg-rebind-sys uses system-deps/pkg-config for librsvg-2.0
+      - librsvg2-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. The app ships a (currently empty) GSettings
+      # schema; compile it so gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/emblem/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i 's|^Icon=org.gnome.design.Emblem$|Icon=${SNAP}/meta/gui/org.gnome.design.Emblem.svg|' \
+        "$CRAFT_PART_INSTALL/snap/emblem/current/usr/share/applications/org.gnome.design.Emblem.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.design.Emblem.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.design.Emblem.svg"
+
+  libraries:
+    after: [emblem]
+    plugin: nil
+    stage-packages:
+      # gnome-core26's librsvg needs libxml2, which the content snap lacks.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*

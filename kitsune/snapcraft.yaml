@@ -1,0 +1,194 @@
+name: kitsune
+adopt-info: kitsune
+title: Kitsune
+license: GPL-3.0-or-later
+summary: Watch anime from AniLiberty
+description: |
+  Kitsune is a Libadwaita client for watching anime translated by the
+  AniLiberty team. Browse the release catalog with filters by genre, year,
+  season and type, search for titles, keep a library with tags and favorites,
+  follow franchises, and play episodes in the built-in HLS player with quality
+  selection. The client is available in English and Russian; the catalog,
+  descriptions and subtitles come from AniLiberty in Russian.
+
+  Strict-confinement notes:
+   * The snap can read and write the user's home directory; other locations
+     are only reachable through the file chooser (XDG document portal).
+   * Session tokens are not persisted. The auth module stores them through
+     keyring, but the host Secret Service is not reachable without the
+     password-manager-service interface, which this recipe does not declare.
+     The app handles the missing backend and asks for a new login after a
+     restart.
+   * Video is decoded with the platform's GStreamer. The snap adds the HLS
+     and MPEG-TS demuxers, the H.264/HEVC parsers and the libav decoders;
+     the platform's VA-API plugin is used when hardware decoding is available.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+website: https://altlinux.space/alt-gnome/Kitsune
+contact: https://altlinux.space/alt-gnome/Kitsune/issues
+issues: https://altlinux.space/alt-gnome/Kitsune/issues
+source-code: https://altlinux.space/alt-gnome/Kitsune
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  kitsune:
+    interface: dbus
+    bus: session
+    name: net.armatik.Kitsune
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - net.armatik.Kitsune
+
+apps:
+  kitsune:
+    extensions: [gnome]
+    command: usr/bin/kitsune
+    desktop: usr/share/applications/net.armatik.Kitsune.desktop
+    common-id: net.armatik.Kitsune.desktop
+    environment:
+      # The application's Python package and the bundled keyring live in the
+      # snap; the desktop command-chain appends the platform's dist-packages.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # libav and the moved GStreamer bad support libraries are here (see the
+      # libraries and gst-extras parts).
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings      # theme, fonts and the app's own preferences
+      - home           # read and write files in the user's home directory
+      - network        # the AniLiberty API, posters and HLS streams
+      - audio-playback # playback through the desktop's PulseAudio/PipeWire
+
+# Kitsune 1.0.0 is a Python 3 + GTK 4/libadwaita application built with
+# Meson. Its .blp UI files are compiled by blueprint-compiler at build time.
+# GTK 4, libadwaita, PyGObject, pycairo, libsoup 3, GdkPixbuf, GStreamer and
+# the GTK 4 paintable sink come from the gnome-core26 SDK/content snaps;
+# blueprint-compiler and gettext are not part of the SDK and come from the
+# 26.04 archive.
+#
+# The prefix is the runtime mount path, not /usr: main.py has PKGDATADIR and
+# LOCALEDIR compiled in from the Meson prefix, and a /usr prefix would make
+# the launcher look in the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+#
+# Upstream's alt-gnome URL redirects to https://altlinux.space/armatik/Kitsune;
+# the tag is 1.0.0 (2026-08-08), the latest stable release.
+parts:
+  kitsune:
+    source: https://altlinux.space/alt-gnome/Kitsune.git
+    source-type: git
+    source-tag: '1.0.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/kitsune/current/usr
+      - --buildtype=release
+    organize:
+      snap/kitsune/current/usr: usr
+    build-packages:
+      - blueprint-compiler  # .blp -> GtkBuilder XML
+      - gettext             # msgfmt merges the desktop/metainfo files
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # keyring is imported by the auth module only at run time. The SDK's
+      # Python does not ship it (the GNOME runtime does not either), so relax
+      # upstream's configure-time module check; python-keyring below bundles
+      # the module for the snap.
+      sed -i "s/modules: \['gi', 'cairo', 'keyring'\]/modules: ['gi', 'cairo']/" \
+        meson.build
+      # The build-time interpreter path from the SDK does not exist at run
+      # time. The gnome extension puts the gnome-core26 usr/bin on PATH, so
+      # the platform's python3 is found through env.
+      sed -i 's|^#!@PYTHON@$|#!/usr/bin/env python3|' src/main.py
+    override-build: |
+      craftctl default
+      # Meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs. Compile the schema here; the app creates its
+      # Gio.Settings objects at start-up.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/kitsune/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so the launcher does not have to find
+      # it in the host theme.
+      sed -i 's|^Icon=net.armatik.Kitsune$|Icon=${SNAP}/meta/gui/net.armatik.Kitsune.svg|' \
+        "$CRAFT_PART_INSTALL/snap/kitsune/current/usr/share/applications/net.armatik.Kitsune.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/net.armatik.Kitsune.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  # The auth module imports keyring unconditionally. It is not in the GNOME
+  # content snap and the host Secret Service cannot be reached without the
+  # password-manager-service interface (not declared by this recipe), so the
+  # module selects its fail backend and the app treats itself as logged out
+  # instead of aborting. Only the Python module is kept from this part's
+  # dependency tree.
+  python-keyring:
+    plugin: nil
+    stage-packages:
+      - python3-keyring
+    prime:
+      - usr/lib/python3/dist-packages/keyring
+      - usr/lib/python3/dist-packages/keyring-*.dist-info
+
+  # gnome-core26 ships GStreamer core, base, good and the GTK 4 sink, but no
+  # bad/libav plugins and no HLS support. The AniLiberty player needs HLS
+  # demuxing, MPEG-TS demuxing for the common segments, the H.264/HEVC
+  # parsers, and software decoders. The full gstreamer1.0-plugins-bad pulls
+  # the ONNX/TensorFlow/OpenCV stack, so fetch the package without its
+  # dependencies and keep only the plugin libraries needed here. The bad
+  # support libraries are a separate archive package; they are moved out of
+  # the multiarch path because the gnome extension's cleanup deletes primed
+  # libraries that also exist in the SDK, while the content snap does not ship
+  # them.
+  gst-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad libgstreamer-plugins-bad1.0-0
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in \
+        libgstadaptivedemux-1.0.so.0 \
+        libgstmpegts-1.0.so.0 \
+        libgsturidownloader-1.0.so.0; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+          "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgsthls.so
+      - usr/lib/*/gstreamer-1.0/libgstmpegtsdemux.so
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+      - usr/lib/libgstadaptivedemux-1.0.so.0*
+      - usr/lib/libgstmpegts-1.0.so.0*
+      - usr/lib/libgsturidownloader-1.0.so.0*
+
+  # libav supplies the software H.264/AAC decoders that the platform does not
+  # ship. libavformat links libxml2, which gnome-core26 does not ship; the
+  # library is moved out of the SDK's multiarch path so the extension cleanup
+  # does not delete it, and the app's LD_LIBRARY_PATH includes $SNAP/usr/lib.
+  libraries:
+    after: [kitsune]
+    plugin: nil
+    stage-packages:
+      - gstreamer1.0-libav
+      - libxml2-16
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* \
+          $CRAFT_PART_INSTALL/usr/lib/
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/*/*.la
+      - -usr/share/doc

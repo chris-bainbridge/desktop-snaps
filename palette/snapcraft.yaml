@@ -1,0 +1,86 @@
+name: palette
+adopt-info: palette
+title: Color Palette
+license: GPL-3.0-or-later
+summary: Look up GNOME colors
+contact: https://gitlab.gnome.org/World/design/palette/-/issues
+description: |
+  Color Palette is a small tool for looking up the GNOME color palette as
+  defined by the GNOME Human Interface Guidelines. Click a color to copy its
+  value, and export the whole palette as a GIMP palette (.gpl) file.
+
+  Strict-confinement notes:
+   * Files under the home directory are read and written directly; every
+     other location is only reachable through the desktop file chooser
+     portal, so removable media and system paths are not listed.
+   * The guidelines link opens in the host browser through the desktop
+     portal.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.design.Palette.service.in)
+  palette:
+    interface: dbus
+    bus: session
+    name: org.gnome.design.Palette
+
+apps:
+  palette:
+    extensions: [gnome]
+    command: usr/bin/org.gnome.design.Palette
+    desktop: usr/share/applications/org.gnome.design.Palette.desktop
+    common-id: org.gnome.design.Palette.desktop
+    plugs:
+      # export palettes as .gpl files in the home directory
+      - home
+
+# Palette 3.0.0 is a GTK4 + libadwaita application written in Vala with a
+# Meson build. GTK 4.20, libadwaita 1.8, valac and gettext come from the
+# gnome-core26 SDK/content snaps. The build itself needs Python 3.12+:
+# src/insert-buttons.py runs at configure time to generate palette.ui from
+# the palette file, and meson asserts the interpreter version.
+#
+# src/hig is a git submodule (Teams/Design/HIG-app-icons) supplying
+# "GNOME HIG.gpl"; it is compiled into the gresource bundle and is not
+# installed, so the submodule has to be fetched for the build to succeed.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR and BINDIR are
+# compiled in from the meson prefix, and a /usr prefix would resolve the
+# translations and the D-Bus service Exec to the core26 base instead of the
+# snap. organize moves the installed tree back under usr/.
+parts:
+  palette:
+    source: https://gitlab.gnome.org/World/design/palette.git
+    source-type: git
+    source-tag: '3.0.0'
+    source-depth: 1
+    source-submodules:
+      - src/hig
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.design.Palette.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/palette/current/usr
+      - --buildtype=release
+    organize:
+      snap/palette/current/usr: usr
+    build-packages:
+      - python3 # src/insert-buttons.py and meson's Python >= 3.12 check
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i 's|^Icon=org.gnome.design.Palette$|Icon=${SNAP}/meta/gui/org.gnome.design.Palette.svg|' \
+        "$CRAFT_PART_INSTALL/snap/palette/current/usr/share/applications/org.gnome.design.Palette.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/org.gnome.design.Palette.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"

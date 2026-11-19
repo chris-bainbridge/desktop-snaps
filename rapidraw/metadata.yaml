@@ -1,0 +1,7 @@
+# Build metadata for rapidraw (new core26 recipe, 2026-11).
+snap: rapidraw
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/CyberTimon/RapidRAW (v1.7.0)
+imported: '2026-11-19'

@@ -1,0 +1,53 @@
+From: Jakob Haufe <sur5r@sur5r.net>
+Subject: Fix pointer type errors that GCC 14 promotes to errors
+
+GCC 14 makes -Wincompatible-pointer-types an error by default. g_object_ref()
+takes a gpointer, so passing the result of G_OBJECT() (a void *) and storing
+it in a GdkPixbuf * no longer compiles, and neither does assigning the
+gpointer returned by g_object_new() to a GtkWidget *.
+
+Taken from the Debian glabels package (0007-gcc14_fix).
+
+--- a/src/pixbuf-cache.c
++++ b/src/pixbuf-cache.c
+@@ -125,7 +125,7 @@ gl_pixbuf_cache_add_pixbuf (GHashTable *
+ 	record = g_new0 (CacheRecord, 1);
+ 	record->key        = g_strdup (name);
+ 	record->references = 0; /* Nobody has referenced it yet. */
+-	record->pixbuf     = g_object_ref (G_OBJECT (pixbuf));
++	record->pixbuf     = g_object_ref (pixbuf);
+ 
+ 	g_hash_table_insert (pixbuf_cache, record->key, record);
+ 
+--- a/src/merge-properties-dialog.c
++++ b/src/merge-properties-dialog.c
+@@ -222,15 +222,15 @@ gl_merge_properties_dialog_finalize (GOb
+ /*****************************************************************************/
+ /* NEW merge properties dialog.                                              */
+ /*****************************************************************************/
+-GtkWidget*
++glMergePropertiesDialog*
+ gl_merge_properties_dialog_new (glLabel   *label,
+ 	                        GtkWindow *window)
+ {
+-	GtkWidget *dialog;
++	glMergePropertiesDialog *dialog;
+ 
+ 	gl_debug (DEBUG_MERGE, "START");
+ 
+-	dialog = GTK_WIDGET (g_object_new (GL_TYPE_MERGE_PROPERTIES_DIALOG, NULL));
++	dialog = g_object_new (GL_TYPE_MERGE_PROPERTIES_DIALOG, NULL);
+ 
+ 	gl_merge_properties_dialog_construct (GL_MERGE_PROPERTIES_DIALOG (dialog),
+ 					      label, window);
+--- a/src/merge-properties-dialog.h
++++ b/src/merge-properties-dialog.h
+@@ -59,7 +59,7 @@ struct  _glMergePropertiesDialogClass
+ 
+ GType      gl_merge_properties_dialog_get_type    (void) G_GNUC_CONST;
+ 
+-GtkWidget *gl_merge_properties_dialog_new         (glLabel   *label,
++glMergePropertiesDialog* gl_merge_properties_dialog_new         (glLabel   *label,
+ 	                                           GtkWindow *window);
+ 
+ G_END_DECLS

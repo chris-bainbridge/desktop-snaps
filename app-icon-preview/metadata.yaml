@@ -1,0 +1,7 @@
+# Build metadata for app-icon-preview (new core26 recipe, 2026-11).
+snap: app-icon-preview
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/World/design/app-icon-preview (3.5.1)
+imported: '2026-11-19'

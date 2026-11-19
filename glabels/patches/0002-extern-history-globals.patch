@@ -1,0 +1,32 @@
+From: Debian glabels packaging <glabels@packages.debian.org>
+Subject: Declare the font and template history globals as extern
+
+GCC 10 defaults to -fno-common; a tentative definition in a header is then
+emitted in every translation unit that includes it, and linking fails with
+multiple definition errors.
+
+Taken from the Debian glabels package (0006-gcc10_build_fix.patch),
+which points at https://gitlab.gnome.org/GNOME/glabels/-/issues/1.
+
+--- a/src/font-history.h
++++ b/src/font-history.h
+@@ -28,7 +28,7 @@
+ G_BEGIN_DECLS
+ 
+ 
+-glFontHistoryModel *gl_font_history;
++extern glFontHistoryModel *gl_font_history;
+ 
+ 
+ void            gl_font_history_init (void);
+--- a/src/template-history.h
++++ b/src/template-history.h
+@@ -28,7 +28,7 @@
+ G_BEGIN_DECLS
+ 
+ 
+-glTemplateHistoryModel *gl_template_history;
++extern glTemplateHistoryModel *gl_template_history;
+ 
+ 
+ void            gl_template_history_init (void);

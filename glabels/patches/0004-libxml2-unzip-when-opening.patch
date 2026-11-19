@@ -1,0 +1,31 @@
+From 8390769c7fc0035640753a0339f286d8d8471a6d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ball=C3=B3=20Gy=C3=B6rgy?= <ballogyor@gmail.com>
+Date: Tue, 25 Nov 2025 21:42:20 +0100
+Subject: [PATCH] Unzip XML when opening file
+Origin: https://github.com/j-evins/glabels-gtk/pull/85
+
+Without this, the recent versions of libxml does not try to unzip the file
+content, causes a read failure.
+---
+ src/xml-label.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/xml-label.c b/src/xml-label.c
+index 293c074..0445fbd 100644
+--- a/src/xml-label.c
++++ b/src/xml-label.c
+@@ -195,7 +195,11 @@ gl_xml_label_open (const gchar      *utf8_filename,
+ 	filename = g_filename_from_utf8 (utf8_filename, -1, NULL, NULL, NULL);
+ 	g_return_val_if_fail (filename, NULL);
+ 
++#if LIBXML_VERSION >= 21400
++        doc = xmlReadFile (filename, NULL, XML_PARSE_HUGE | XML_PARSE_UNZIP);
++#else
+         doc = xmlReadFile (filename, NULL, XML_PARSE_HUGE);
++#endif
+ 	if (!doc) {
+ 		g_message ("xmlParseFile error");
+ 		*status = XML_LABEL_ERROR_OPEN_PARSE;
+-- 
+2.51.0
+

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Storage backend for Hamster (org.gnome.Hamster). It is D-Bus activated by
+# the session bus through the activation file snapd generates for this
+# daemon app.
+set -e
+
+export PYTHONPATH="$SNAP/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
+exec "$SNAP/gnome-platform/usr/bin/python3" \
+    "$SNAP/usr/libexec/hamster/hamster-service" "$@"

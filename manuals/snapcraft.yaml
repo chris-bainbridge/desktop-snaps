@@ -1,0 +1,206 @@
+name: manuals
+title: Manuals
+adopt-info: manuals
+license: GPL-3.0-or-later
+contact: https://gitlab.gnome.org/GNOME/manuals/-/issues
+summary: Install, browse, and search developer documentation
+description: |
+  Manuals installs, browses and searches developer documentation. It is the
+  documentation component of GNOME Builder extracted into a standalone
+  application.
+
+  Documentation in the devhelp2 format is indexed into a SQLite database, so
+  books can be browsed section by section and searched by keyword. The bundle
+  dialog lists and installs SDK documentation through Flatpak.
+
+  Strict-confinement notes:
+   * The host system's documentation directories (/usr/share/gtk-doc,
+     /usr/share/devhelp) are not visible because /usr is the core26 base.
+     Hidden paths under the home directory (~/.local/share/gtk-doc,
+     ~/.local/share/devhelp) are excluded by the home interface as well, so
+     documentation installed by a deb or by the host's Flatpak installation
+     does not appear.
+   * The application scans its own per-user data directory instead. Copy
+     devhelp2 books into
+     ~/snap/manuals/current/.local/share/devhelp/books (or gtk-doc HTML into
+     .../.local/share/gtk-doc/html) and they are indexed on the next start.
+     That directory belongs to the snap revision, so books have to be copied
+     again after a refresh.
+   * The Flatpak bundle installer only sees the snap's private Flatpak user
+     installation in the same data directory, which starts without remotes.
+     The host's installations (/var/lib/flatpak and ~/.local/share/flatpak)
+     and the Flatpak system helper are unreachable, and no documentation is
+     bundled with the snap.
+   * Files outside the home directory are only reachable through the XDG
+     file chooser portal.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Manuals.service.in)
+  manuals:
+    interface: dbus
+    bus: session
+    name: org.gnome.Manuals
+
+apps:
+  manuals:
+    extensions: [gnome]
+    command: usr/bin/manuals
+    desktop: usr/share/applications/org.gnome.Manuals.desktop
+    common-id: org.gnome.Manuals.desktop
+    environment:
+      # libfoundry, libflatpak, libdex, libgom, libpanel and their
+      # dependencies are staged in $SNAP/usr/lib rather than the SDK's
+      # multiarch directory; see the libraries part below.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      # the snap's org.gnome.Manuals GSettings schema
+      - gsettings
+      # devhelp books in the snap's own data directory, and the private
+      # Flatpak user installation where documentation bundles are installed
+      - home
+      # documentation bundle downloads
+      - network
+
+# Manuals 50.1 is a C GTK4 + libadwaita application (meson build) that reads
+# devhelp2 documentation and indexes it with SQLite/Gom. It is the
+# documentation part of GNOME Builder, so its main dependency is libfoundry:
+# the 26.04 archive ships libfoundry 1.1.1 built with its documentation and
+# Flatpak features, which is the 1.1 that manuals requires.
+#
+# GTK 4, libadwaita, WebKitGTK 6.0, libsoup, libsecret, libgit2 and libyaml
+# come from the gnome extension (gnome-core26 SDK/content snaps). libfoundry,
+# libpanel, libdex, gom, libpeas-2, libflatpak and their dependencies are not
+# in the platform and are staged from the archive by the libraries part.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR is compiled in
+# from it and gettext would otherwise look in the core26 base instead of the
+# snap. organize moves the installed tree back under usr/.
+parts:
+  manuals:
+    source: https://gitlab.gnome.org/GNOME/manuals.git
+    source-type: git
+    source-tag: '50.1'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Manuals.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/manuals/current/usr
+      - --buildtype=release
+      # The glibc 2.42 headers in the core26 SDK redeclare scanf/fscanf/sscanf/
+      # vscanf and reallocarray, which trips the project's
+      # -Werror=redundant-decls with GCC 15. Demote that one warning back to a
+      # warning; the rest of the project's -Werror set stays in force. Meson
+      # appends c_args after the flags from add_project_arguments(), so this
+      # overrides the project's -Werror=.
+      - -Dc_args=-Wno-error=redundant-decls
+    organize:
+      snap/manuals/current/usr: usr
+    build-packages:
+      # gnome-core26-sdk does not ship these
+      - libfoundry-dev
+      - libdex-dev
+      # libfoundry-1.pc requires libpeas-2 and json-glib
+      - libpeas-2-dev
+      - libjson-glib-dev
+      - libpanel-dev
+      - libgom-1.0-dev
+      - libflatpak-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i 's|^Icon=org.gnome.Manuals$|Icon=${SNAP}/meta/gui/org.gnome.Manuals.svg|' \
+        "$CRAFT_PART_INSTALL/snap/manuals/current/usr/share/applications/org.gnome.Manuals.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.Manuals.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  libraries:
+    after: [manuals]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships none of these. libfoundry is needed directly by
+      # manuals; libpanel and gom provide its docking and SQLite APIs, libdex
+      # its futures, libpeas-2 its plugin engine, and libflatpak its
+      # documentation bundles.
+      - libfoundry-1-1
+      - foundry-common
+      - libpanel-1-1
+      - libpanel-common
+      - libdex-1-1
+      - libgom-1.0-0t64
+      - libpeas-2-0
+      - libflatpak0
+      # pulled in by the libraries above, listed so the move and prime lists
+      # below are complete
+      - libostree-1-1
+      - libmalcontent-0-0
+      - libaccountsservice0
+      - libavahi-glib1
+      - libcomposefs1
+      - libtemplate-glib-1.0-0
+      - libeditorconfig0
+      - libxml2-16
+      - liburing2
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. These libraries are in the SDK
+      # but not in the content snap, so move them out of the SDK's multiarch
+      # path; the app puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libfoundry-1.so.1 libpanel-1.so.1 libdex-1.so.1 \
+                 libgom-1.0.so.0 libpeas-2.so.0 libflatpak.so.0 \
+                 libostree-1.so.1 libmalcontent-0.so.0 \
+                 libaccountsservice.so.0 libavahi-glib.so.1 \
+                 libcomposefs.so.1 libtemplate_glib-1.0.so.0 \
+                 libeditorconfig.so.0 libxml2.so.16 liburing.so.2; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+          "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+      # libfoundry creates its org.gnome.foundry GSettings object at start-up
+      # and aborts if the schema is missing. meson's post-install is skipped
+      # under DESTDIR, so compile the manuals schema and the schemas from
+      # foundry-common into one gschemas.compiled. The manuals part ran first,
+      # so its schema is in $CRAFT_STAGE. Other staged packages may drop their
+      # own schema XML into the same directory; keep only these two sets.
+      schema_dir="$CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas"
+      staging_dir="$CRAFT_PART_INSTALL/usr/share/glib-2.0/manuals-schemas"
+      mkdir -p "$staging_dir"
+      cp "$CRAFT_STAGE"/usr/share/glib-2.0/schemas/*.xml "$staging_dir/"
+      cp "$schema_dir"/org.gnome.foundry*.gschema.xml "$staging_dir/"
+      rm -rf "$schema_dir"
+      mv "$staging_dir" "$schema_dir"
+      glib-compile-schemas "$schema_dir"
+    prime:
+      # Only the runtime libraries and data that the platform lacks.
+      - usr/lib/libfoundry-1.so.*
+      - usr/lib/libpanel-1.so.*
+      - usr/lib/libdex-1.so.*
+      - usr/lib/libgom-1.0.so.*
+      - usr/lib/libpeas-2.so.*
+      - usr/lib/libflatpak.so.*
+      - usr/lib/libostree-1.so.*
+      - usr/lib/libmalcontent-0.so.*
+      - usr/lib/libaccountsservice.so.*
+      - usr/lib/libavahi-glib.so.*
+      - usr/lib/libcomposefs.so.*
+      - usr/lib/libtemplate_glib-1.0.so.*
+      - usr/lib/libeditorconfig.so.*
+      - usr/lib/libxml2.so.*
+      - usr/lib/liburing.so.*
+      - usr/share/foundry/*
+      - usr/share/glib-2.0/schemas/*
+      - usr/share/icons/hicolor/scalable/actions/panel-*.svg

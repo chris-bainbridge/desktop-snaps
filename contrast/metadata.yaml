@@ -1,0 +1,7 @@
+# Build metadata for contrast (new core26 recipe, 2026-11).
+snap: contrast
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/World/design/contrast (0.0.11)
+imported: '2026-11-19'

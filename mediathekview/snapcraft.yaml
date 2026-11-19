@@ -1,0 +1,291 @@
+name: mediathekview
+title: MediathekView
+adopt-info: mediathekview
+summary: Access the media libraries of the German public broadcasters
+description: |
+  MediathekView searches the online media libraries (Mediatheken) of the
+  German public broadcasters such as ARD, ZDF and arte, and lets you browse,
+  search, play and download their programmes. Subscriptions can fetch new
+  episodes automatically, and the Audiothek tab plays and downloads podcasts
+  from ARD Sounds.
+
+  The snap builds the upstream 15.0.0 release from source and runs it on an
+  OpenJDK 25 runtime from the 26.04 archive (15.0.0 requires Java 25 class
+  files). MediathekView 15 has a Swing user interface; JavaFX is only
+  referenced by comments and excluded dependencies and is not needed.
+
+  Strict-confinement notes:
+   * Settings, the film list and the download history live in the snap's
+     private data directory under ~/snap/mediathekview.
+   * Downloads can be written to any non-hidden path in the home directory;
+     locations outside it are only reachable through the XDG file chooser
+     portal. The default download directory is the user's ~/Downloads.
+   * VLC is not bundled. A small `vlc` compatibility wrapper maps the two
+     VLC invocations used by the default Linux program sets onto the bundled
+     FFmpeg/ffplay, so playing and recording streams work; other VLC
+     features and options do not.
+   * Program-set add-ons that unpack helper binaries next to the application
+     jar cannot be installed, because the snap is read-only at run time.
+   * The application's own update check is disabled; updates come from the
+     Snap Store.
+
+grade: stable
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+
+contact: https://github.com/mediathekview/MediathekView/issues
+issues: https://github.com/mediathekview/MediathekView/issues
+source-code: https://github.com/mediathekview/MediathekView
+website: https://www.mediathekview.de/
+
+platforms:
+  amd64:
+  arm64:
+
+lint:
+  # The JVM loads nearly all of its native libraries with dlopen, which the
+  # ELF linter cannot see.
+  ignore:
+    - unused-library: [usr/lib/jvm/**]
+
+apps:
+  mediathekview:
+    extensions: [gnome]
+    command: bin/mediathekview
+    desktop: usr/share/applications/de.mediathekview.MediathekView.desktop
+    common-id: de.mediathekview.MediathekView.desktop
+    plugs:
+      - home           # films are saved to arbitrary non-hidden paths in $HOME
+      - network        # film list and media downloads
+      - audio-playback # sound for the bundled ffplay
+    environment:
+      JAVA_HOME: $SNAP/usr/lib/jvm/mediathekview-jdk
+      PATH: $SNAP/usr/lib/jvm/mediathekview-jdk/bin:$SNAP/mediathekview/bin:$PATH
+
+parts:
+  jdk:
+    plugin: nil
+    stage-packages:
+      # 15.0.0 is compiled for Java 25 (class-file version 69); the 26.04
+      # archive has openjdk-25, so no external JRE is downloaded.
+      - openjdk-25-jre
+      # Generates the truststore that the HTTPS downloads use.
+      - ca-certificates-java
+      # MediathekView shells out to ffmpeg/ffprobe for HLS downloads and to
+      # ffplay (through the vlc wrapper) for playback.
+      - ffmpeg
+      - fonts-ubuntu
+      # StandardLocations.getStandardDownloadPath() runs "xdg-user-dir".
+      - xdg-user-dirs
+    override-stage: |
+      set -eu
+      craftctl default
+
+      # Ubuntu's OpenJDK is split Debian-style: the real configuration lives
+      # in /etc/java-25-openjdk and /etc/ssl/certs/java, and the JVM tree
+      # contains absolute symlinks into those directories. Inside the snap
+      # /etc is the base's /etc, so the links dangle and the JVM aborts with
+      # "Error loading java.security file". Replace every absolute link with
+      # a real copy taken from the staged tree (or, for cacerts, from the
+      # build environment's regenerated truststore).
+      set -- "$SNAPCRAFT_STAGE"/usr/lib/jvm/java-25-openjdk-*
+      if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+          echo "Expected exactly one staged OpenJDK 25 runtime, found: $*" >&2
+          exit 1
+      fi
+      jdk=$1
+
+      PATH="$jdk/bin:$PATH" update-ca-certificates -f
+
+      find "$jdk" -type l | while IFS= read -r link; do
+          target=$(readlink "$link")
+          case "$target" in
+              /*) ;;
+              *) continue ;;
+          esac
+          if [ -e "$SNAPCRAFT_STAGE$target" ]; then
+              source=$SNAPCRAFT_STAGE$target
+          elif [ -e "$target" ]; then
+              source=$target
+          else
+              echo "Unresolved OpenJDK symlink: $link -> $target" >&2
+              exit 1
+          fi
+          rm -f "$link"
+          cp -L "$source" "$link"
+      done
+    override-prime: |
+      set -eu
+      craftctl default
+      set -- "$SNAPCRAFT_PRIME"/usr/lib/jvm/java-25-openjdk-*
+      if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+          echo "Expected exactly one primed OpenJDK 25 runtime, found: $*" >&2
+          exit 1
+      fi
+      ln -sfn "${1##*/}" "$SNAPCRAFT_PRIME/usr/lib/jvm/mediathekview-jdk"
+    prime:
+      - -usr/share/doc
+      - -usr/share/lintian
+      - -usr/share/man
+
+  mediathekview:
+    after: [jdk]
+    plugin: nil
+    # Upstream publishes no release assets on GitHub: the official Linux
+    # downloads are an AppImage and a tarball that both bundle a JRE, and the
+    # AppImage updater expects to replace the whole image. The Flathub
+    # manifest builds 15.0.0 (commit 55f8f7dfda8adaeb8f6d4112dac4b38e0d149639)
+    # from the git tag with Maven instead, so do the same and bundle the
+    # runtime ourselves.
+    source: https://github.com/mediathekview/MediathekView.git
+    source-type: git
+    source-tag: '15.0.0'
+    source-depth: 1
+    build-packages:
+      # git-commit-id-maven-plugin reads .git during the build.
+      - git
+      - maven
+      - openjdk-25-jdk-headless
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      set -eu
+
+      JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")"
+      export JAVA_HOME
+      export PATH="$JAVA_HOME/bin:$PATH"
+
+      # Maven resolves the dependency set from Maven Central and the jitpack
+      # repository declared in pom.xml; there is no offline mirror. Keep the
+      # local repository inside the build tree so the result is self-contained.
+      mvn -B \
+          -Dmaven.repo.local="$SNAPCRAFT_PART_BUILD/.m2/repository" \
+          -Dmaven.test.skip=true \
+          -Dkotlin.compiler.daemon=false \
+          clean package
+
+      test -f target/MediathekView.jar
+      test -d target/dependency
+
+      install -d "$SNAPCRAFT_PART_INSTALL/mediathekview" \
+                 "$SNAPCRAFT_PART_INSTALL/mediathekview/bin" \
+                 "$SNAPCRAFT_PART_INSTALL/bin" \
+                 "$SNAPCRAFT_PART_INSTALL/meta/gui" \
+                 "$SNAPCRAFT_PART_INSTALL/usr/share/applications" \
+                 "$SNAPCRAFT_PART_INSTALL/usr/share/metainfo"
+
+      install -m 644 target/MediathekView.jar "$SNAPCRAFT_PART_INSTALL/mediathekview/"
+      cp -a target/dependency "$SNAPCRAFT_PART_INSTALL/mediathekview/"
+      install -m 644 res/MediathekView_256x256.png \
+          "$SNAPCRAFT_PART_INSTALL/meta/gui/mediathekview.png"
+      install -m 644 res/de.mediathekview.mediathekview.appdata.xml \
+          "$SNAPCRAFT_PART_INSTALL/usr/share/metainfo/de.mediathekview.mediathekview.appdata.xml"
+
+      # The application resolves "ffmpeg"/"ffprobe"/"vlc" from PATH and from
+      # its own jar directory's bin/ folder; link the bundled tools there so
+      # discovery never depends on how the launcher was started.
+      ln -sfn ../../usr/bin/ffmpeg "$SNAPCRAFT_PART_INSTALL/mediathekview/bin/ffmpeg"
+      ln -sfn ../../usr/bin/ffprobe "$SNAPCRAFT_PART_INSTALL/mediathekview/bin/ffprobe"
+      ln -sfn ../../usr/bin/ffplay "$SNAPCRAFT_PART_INSTALL/mediathekview/bin/ffplay"
+
+      cat > "$SNAPCRAFT_PART_INSTALL/bin/mediathekview" <<'LAUNCHER'
+      #!/bin/sh
+      # MediathekView launcher. The JVM flags come from upstream's
+      # scripte/appimage.sh; JavaFX is not used.
+      set -eu
+
+      # MediathekView runs "xdg-user-dir DOWNLOAD" to pick the default
+      # download directory. Inside the snap $HOME is $SNAP_USER_DATA, so seed
+      # a user-dirs.dirs in the snap's private config pointing at the real
+      # home directory (visible through the home interface).
+      config_home="${XDG_CONFIG_HOME:-$SNAP_USER_DATA/.config}"
+      real_home="${SNAP_REAL_HOME:-$HOME}"
+      mkdir -p "$config_home"
+      if [ ! -f "$config_home/user-dirs.dirs" ]; then
+          printf 'XDG_DOWNLOAD_DIR="%s/Downloads"\n' "$real_home" > "$config_home/user-dirs.dirs"
+      fi
+
+      exec "$SNAP/usr/lib/jvm/mediathekview-jdk/bin/java" \
+          -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=compact \
+          -XX:MaxRAMPercentage=50.0 -XX:+UseStringDeduplication \
+          --enable-native-access=ALL-UNNAMED \
+          --add-modules jdk.incubator.vector \
+          --add-exports=java.desktop/sun.swing=ALL-UNNAMED \
+          --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED \
+          -cp "$SNAP/mediathekview/MediathekView.jar:$SNAP/mediathekview/dependency/*" \
+          -DexternalUpdateCheck \
+          -Duser.home="$SNAP_USER_DATA" \
+          -Dawt.useSystemAAFontSettings=on \
+          -Dswing.aatext=true \
+          mediathek.Main \
+          "$config_home/mediathek3" "$@"
+      LAUNCHER
+      chmod 0755 "$SNAPCRAFT_PART_INSTALL/bin/mediathekview"
+
+      # VLC is not available under strict confinement and is too large to
+      # bundle. Upstream's default Linux program sets only use VLC in two
+      # ways, so translate those to ffplay (play) and ffmpeg (record).
+      cat > "$SNAPCRAFT_PART_INSTALL/mediathekview/bin/vlc" <<'VLC'
+      #!/bin/sh
+      # Compatibility wrapper for the two VLC invocations in MediathekView's
+      # default "Linux Speichern"/"Linux Abspielen" program sets:
+      #
+      #   vlc <url> --play-and-exit
+      #   vlc <url> :sout=#standard{access=file,mux=ts,dst=<file>} -I dummy --play-and-exit
+      #
+      # The first plays the stream with ffplay; the second records it with
+      # ffmpeg. Other VLC options are ignored.
+      set -u
+
+      url=
+      sout=
+      for arg in "$@"; do
+          case "$arg" in
+              :sout=*)
+                  sout=$arg
+                  ;;
+              -*)
+                  ;;
+              *)
+                  [ -n "$url" ] || url=$arg
+                  ;;
+          esac
+      done
+
+      [ -n "$url" ] || exit 1
+
+      if [ -n "$sout" ]; then
+          dst=${sout##*dst=}
+          dst=${dst%%\}*}
+          dst=${dst#\"}
+          dst=${dst%\"}
+          [ -n "$dst" ] || exit 1
+          exec "$SNAP/usr/bin/ffmpeg" -hide_banner -loglevel warning -y \
+              -i "$url" -c copy -f mpegts "$dst"
+      fi
+
+      exec "$SNAP/usr/bin/ffplay" -hide_banner -loglevel warning -autoexit "$url"
+      VLC
+      chmod 0755 "$SNAPCRAFT_PART_INSTALL/mediathekview/bin/vlc"
+
+      cat > "$SNAPCRAFT_PART_INSTALL/usr/share/applications/de.mediathekview.MediathekView.desktop" <<'DESKTOP'
+      [Desktop Entry]
+      Type=Application
+      Name=MediathekView
+      GenericName=Mediathek
+      Comment=Access the media libraries of the German public broadcasters
+      Comment[de]=Durchsucht die Online-Mediatheken verschiedener Sender
+      Exec=mediathekview
+      Icon=${SNAP}/meta/gui/mediathekview.png
+      Terminal=false
+      Categories=AudioVideo;Audio;Video;Player;TV;
+      Keywords=mediathek;tv;video;download;ard;zdf;
+      StartupNotify=true
+      StartupWMClass=mediathek-Main
+      DESKTOP
+    prime:
+      - -usr/share/doc
+      - -usr/share/lintian
+      - -usr/share/man

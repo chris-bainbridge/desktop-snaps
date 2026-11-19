@@ -1,0 +1,184 @@
+name: cine
+title: Cine
+adopt-info: cine
+license: GPL-3.0-or-later
+website: https://github.com/diegopvlk/Cine
+source-code: https://github.com/diegopvlk/Cine
+issues: https://github.com/diegopvlk/Cine/issues
+contact: https://github.com/diegopvlk/Cine/issues
+summary: Play your videos
+description: |
+  Cine is a video player with a clean, distraction-free interface. It plays
+  everything MPV and its FFmpeg libraries can decode, with audio and subtitle
+  track selection, chapters, playlists, playback history and video
+  adjustments (brightness, contrast, zoom, aspect ratio, rotation, flipping),
+  plus frame-accurate screenshots.
+
+  Strict-confinement notes:
+   * Videos, subtitles, playlists and screenshots in the home directory are
+     accessible; other locations are only reachable through the XDG file
+     chooser portal.
+   * Audio and video playback go through PipeWire/PulseAudio; raw ALSA and
+     JACK output are not available.
+   * Hardware decoding uses VA-API/VDPAU from the Mesa content snap and falls
+     back to software decoding when the GL context cannot import the decoded
+     surface.
+   * yt-dlp is not bundled, so URLs from video sites (YouTube and similar)
+     cannot be resolved. Direct HTTP(S) streams that MPV demuxes itself play.
+   * Optical discs are not accessible (/dev/sr* is outside the sandbox), so
+     DVD and Blu-ray playback is unavailable even though the demuxers are
+     compiled in.
+   * Watch history, playlists, mpv.conf and input.conf live in the snap's
+     private config directory under ~/snap/cine/, not in ~/.config/cine.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/io.github.diegopvlk.Cine.service.in)
+  cine:
+    interface: dbus
+    bus: session
+    name: io.github.diegopvlk.Cine
+  # MPRIS media controls (src/mpris.py). snapd's desktop interface only
+  # allows org.mpris.MediaPlayer2.<snap name>, not the application id Cine
+  # uses, so declare the exact name the app registers.
+  cine-mpris:
+    interface: dbus
+    bus: session
+    name: org.mpris.MediaPlayer2.io.github.diegopvlk.Cine
+
+apps:
+  cine:
+    extensions: [gnome]
+    command: usr/bin/cine
+    desktop: usr/share/applications/io.github.diegopvlk.Cine.desktop
+    common-id: io.github.diegopvlk.Cine.desktop
+    environment:
+      # The GNOME platform provides Python 3.14, PyGObject and pycairo; the
+      # snap only adds the python-mpv bindings.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # The gnome extension's desktop-launch only puts the platform on the
+      # library path; add the staged libmpv/FFmpeg tree.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # audio and video playback through the host's PipeWire/PulseAudio
+      - audio-playback
+      # the snap's io.github.diegopvlk.Cine GSettings schema
+      - gsettings
+      # videos, subtitles, playlists and the file chooser
+      - home
+      # HTTP(S) streams and the Weblate artwork in the about dialog
+      - network
+
+# Cine 1.8.8 is a Python 3 + GTK4/libadwaita application (meson build,
+# Blueprint UI). Playback is libmpv's OpenGL render API, driven through the
+# python-mpv bindings into a Gtk.GLArea. GTK 4, libadwaita, the GObject
+# introspection stack and the Python 3.14 interpreter come from the
+# gnome-core26 content snap; the core26 base has no /usr/bin/python3, so the
+# installed script is pointed at $SNAP/gnome-platform/usr/bin/python3.
+#
+# libmpv2 (0.41.0, the same upstream release the Flathub manifest builds from
+# source) is staged from the 26.04 archive with the FFmpeg 8.0 libraries it
+# links. The codec coverage is the archive FFmpeg's: H.264/H.265/MPEG-2/VP8/
+# VP9/AV1 video, MP3/AAC/Opus/Vorbis/FLAC/AC-3/DTS audio and the usual
+# containers (MKV, MP4, WebM, AVI, MPEG-TS, Ogg). libavcodec pulls libva2 and
+# libvpl2 for VA-API/oneVPL hardware decoding, libvdpau1 for VDPAU; the Mesa
+# content snap supplies the drivers and libEGL/libGL for the render API.
+#
+# The prefix is the runtime mount path, not /usr: cine.in bakes PKGDATADIR
+# and LOCALEDIR into the launcher (the gresource bundle, the Python module
+# tree and the translations), and a /usr prefix would make it look in the
+# core26 base. organize moves the installed tree back under usr/.
+parts:
+  cine:
+    source: https://github.com/diegopvlk/Cine.git
+    source-type: git
+    source-tag: 'v1.8.8'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/cine/current/usr
+      - --buildtype=release
+    organize:
+      snap/cine/current/usr: usr
+    build-packages:
+      # .blp -> GtkBuilder XML (src/meson.build); not part of the SDK
+      - blueprint-compiler
+    override-pull: |
+      craftctl default
+      # The tag has a "v" prefix; snap versions are conventionally plain.
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^v//')
+    override-build: |
+      craftctl default
+      # Cine is Python and the core26 base has no /usr/bin/python3: run it
+      # with the interpreter the gnome extension mounts at $SNAP/gnome-
+      # platform (the same Python 3.14 as the SDK that built it).
+      sed -i '1s|^#!.*|#!/snap/cine/current/gnome-platform/usr/bin/python3|' \
+        "$CRAFT_PART_INSTALL/snap/cine/current/usr/bin/cine"
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. Cine creates its Gio.Settings objects at
+      # start-up; make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/cine/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/io.github.diegopvlk.Cine.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+      sed -i \
+        -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/io.github.diegopvlk.Cine.svg|' \
+        "$CRAFT_PART_INSTALL/snap/cine/current/usr/share/applications/io.github.diegopvlk.Cine.desktop"
+
+  python-mpv:
+    # The same python-mpv 1.0.8 sdist Flathub bundles. It is pure Python
+    # (LGPL-2.1-or-later, LICENSE.LGPL in the tarball), the platform does not
+    # ship it, and staging the archive's python3-mpv would drag a second
+    # Python interpreter into the snap next to the platform's.
+    source: https://files.pythonhosted.org/packages/77/bc/6aa34c8805ff62e2fefc7d171563c60598aac215d5241186031a2c839935/python_mpv-1.0.8.tar.gz
+    source-checksum: sha256/017fa359da059c831a94c419083491903e6d2f7c81b9841c33c196cabf4b3fe3
+    plugin: nil
+    override-build: |
+      install -Dm644 "$CRAFT_PART_SRC/mpv.py" \
+        "$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/mpv.py"
+      # python-mpv loads libmpv with ctypes.util.find_library(), which only
+      # consults the ldconfig cache and cannot see the snap's mount. Fall
+      # back to the staged SONAME, resolved through LD_LIBRARY_PATH.
+      sed -i \
+        -e "s|find_library('mpv')$|find_library('mpv') or 'libmpv.so.2'|" \
+        "$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/mpv.py"
+      grep -q "or 'libmpv.so.2'" \
+        "$CRAFT_PART_INSTALL/usr/lib/python3/dist-packages/mpv.py"
+
+  runtime:
+    # libmpv2 0.41.0 is the archive build of the release Flathub compiles;
+    # it brings FFmpeg 8.0, libass, libplacebo, the VA-API/VDPAU libraries
+    # and the DVD/Blu-ray/CD demuxers with it.
+    after: [cine]
+    plugin: nil
+    stage-packages:
+      - libmpv2
+
+  cleanup:
+    # The staged libmpv/FFmpeg tree can contain copies of libraries that the
+    # core26 base already ships. Loading two copies in one process is not
+    # safe, so drop every primed shared library whose path also exists in the
+    # base, exactly as the other core26 recipes do. The gnome extension's
+    # gnome/cleanup and gpu/cleanup parts then remove the copies provided by
+    # the platform and Mesa content snaps.
+    after: [cine, python-mpv, runtime]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

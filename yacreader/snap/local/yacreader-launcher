@@ -1,0 +1,75 @@
+#!/bin/sh
+# Launcher for the strictly confined YACReader snap.
+#
+# YACReader, YACReaderLibrary and YACReaderLibraryServer are built with a
+# /snap/yacreader/current/usr prefix, but Qt's own paths were compiled for
+# /usr, which is the core26 base inside the snap. Point the lookups that
+# happen outside the staged tree at the staged copies before exec'ing the
+# requested binary.
+set -eu
+
+binary=${1:-YACReader}
+if [ "$#" -gt 0 ]; then
+    shift
+fi
+case "$binary" in
+    YACReader | YACReaderLibrary | YACReaderLibraryServer) ;;
+    *)
+        echo "yacreader-launcher: unknown binary '$binary'" >&2
+        exit 2
+        ;;
+esac
+
+case "${SNAP_ARCH:-$(uname -m)}" in
+    amd64 | x86_64) triplet=x86_64-linux-gnu ;;
+    arm64 | aarch64) triplet=aarch64-linux-gnu ;;
+    *) triplet="$(uname -m)-linux-gnu" ;;
+esac
+plugins="$SNAP/usr/lib/$triplet/qt6/plugins"
+qml="$SNAP/usr/lib/$triplet/qt6/qml"
+
+# Qt's plugin location is architecture dependent. qt.conf next to the binary
+# already encodes the build triplet; these are a fallback for the platform,
+# image format, multimedia and QML plugins if that file is ever missing.
+export QT_PLUGIN_PATH="$plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$plugins/platforms"
+export QML_IMPORT_PATH="$qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
+export QML2_IMPORT_PATH="$qml${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+
+# snapd puts only $SNAP/lib (and the host's GL dispatch libraries) on
+# LD_LIBRARY_PATH. Add the staged library directories, keeping the entries
+# that the gpu-2604 wrapper prepared for Mesa.
+#
+# libproxy keeps its backends in a subdirectory and libQt6Network looks them
+# up through the absolute multiarch path, which is the core26 base inside the
+# sandbox and therefore empty.
+export LD_LIBRARY_PATH="$SNAP/usr/lib/$triplet/libproxy:$SNAP/usr/lib/$triplet:$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Core Desktop is Wayland-first. Prefer the staged Wayland plugin and fall back
+# to xcb on an X11 session or when no compositor is reachable.
+if [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM="wayland;xcb"
+fi
+
+# Qt looks up icons, desktop files, MIME data and its translations through the
+# XDG data directories; the base does not include $SNAP/usr/share. Keep the
+# entries the gpu wrapper has already added (Mesa's drirc and Vulkan data).
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# YACReaderLibrary starts the viewer with QProcess::startDetached("YACReader"),
+# which searches PATH; put the snap's own binaries first. snapctl, which the
+# base's xdg-open uses, stays available later in PATH.
+export PATH="$SNAP/usr/bin:${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+
+# Expose the real home to the file dialogs and default library location, but
+# keep configuration, data and caches in the snap's private, revision-stable
+# per-user area. snapd does not set the XDG base directories for a strict
+# snap, and the home interface hides top-level hidden directories such as
+# ~/.config, so Qt must not fall back to $HOME/.config after HOME is changed.
+export HOME="${SNAP_REAL_HOME:-$HOME}"
+export XDG_CONFIG_HOME="$SNAP_USER_COMMON/.config"
+export XDG_DATA_HOME="$SNAP_USER_COMMON/.local/share"
+export XDG_CACHE_HOME="$SNAP_USER_COMMON/.cache"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+
+exec "$SNAP/usr/bin/$binary" "$@"

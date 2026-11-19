@@ -1,0 +1,7 @@
+# Build metadata for hamster (new core26 recipe, 2026-11).
+snap: hamster
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://github.com/projecthamster/hamster (3.0.3)
+imported: '2026-11-19'

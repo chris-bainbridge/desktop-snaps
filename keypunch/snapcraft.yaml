@@ -1,0 +1,92 @@
+name: keypunch
+adopt-info: keypunch
+title: Keypunch
+summary: Practice your typing skills
+contact: https://github.com/bragefuglseth/keypunch/issues
+description: |
+  Keypunch lets you practice typing. It offers fast-paced sessions with
+  instant feedback afterwards and a plethora of available languages, with
+  lessons for simple and advanced sessions, numbers and punctuation, custom
+  text, and text generation for programming languages.
+
+  Strict-confinement notes:
+   * Files in the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * Discord Rich Presence stays off: the host's Discord IPC socket is not
+     reachable from the snap's private runtime directory.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  keypunch:
+    interface: dbus
+    bus: session
+    name: no.bragefuglseth.Keypunch
+
+apps:
+  keypunch:
+    extensions: [gnome]
+    command: usr/bin/keypunch
+    desktop: usr/share/applications/no.bragefuglseth.Keypunch.desktop
+    common-id: no.bragefuglseth.Keypunch.desktop
+    plugs:
+      # the snap's no.bragefuglseth.Keypunch GSettings schema
+      - gsettings
+      # user files and the app's own home-directory state
+      - home
+
+# Keypunch 7.0 is a Rust + GTK4/libadwaita application whose Meson build
+# drives cargo itself on the upstream Cargo.lock. Cargo downloads the pinned
+# crates from crates.io during the build; nothing is vendored in this
+# repository.
+#
+# GTK 4, libadwaita, gettext and pkg-config come from the gnome-core26
+# SDK/content snaps. cargo, rustc and blueprint-compiler are not part of the
+# platform; the 26.04 archive has cargo/rustc 1.93.1 (the crates need 1.70)
+# and blueprint-compiler for the .blp UI files.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR is compiled into
+# the binary, and a /usr prefix would resolve it to the core26 base instead of
+# the snap. organize moves the installed tree back under usr/.
+parts:
+  keypunch:
+    source: https://github.com/bragefuglseth/keypunch.git
+    source-type: git
+    source-tag: 'v7.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/no.bragefuglseth.Keypunch.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/keypunch/current/usr
+      # 'release' keeps the app ID at no.bragefuglseth.Keypunch; any other
+      # buildtype adds a .Devel suffix and a debug cargo build.
+      - --buildtype=release
+    organize:
+      snap/keypunch/current/usr: usr
+    build-packages:
+      - blueprint-compiler
+      - cargo
+      - rustc
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^v//')
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/no.bragefuglseth.Keypunch.svg|g' \
+        data/no.bragefuglseth.Keypunch.desktop.in.in
+    override-build: |
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. Keypunch creates its Gio.Settings objects at
+      # start-up; make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/keypunch/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/artwork/icon/no.bragefuglseth.Keypunch.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"

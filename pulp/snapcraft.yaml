@@ -1,0 +1,190 @@
+name: pulp
+adopt-info: pulp
+title: Pulp
+license: GPL-3.0-or-later
+summary: Skim excessive articles
+contact: https://gitlab.gnome.org/cheywood/Pulp/-/issues
+website: https://gitlab.gnome.org/cheywood/Pulp
+issues: https://gitlab.gnome.org/cheywood/Pulp/-/issues
+source-code: https://gitlab.gnome.org/cheywood/Pulp
+description: |
+  Pulp is an RSS feed reader built around skimming through a large number of
+  articles. It can read feeds directly or synchronise them from FreshRSS or
+  Nextcloud News, remembers read state, downloads article thumbnails, imports
+  and exports OPML, and can share or save articles through a set of web
+  services.
+
+  Strict-confinement notes:
+   * Files in the user's home directory are visible. Other locations are only
+     reachable through the file chooser (XDG document portal), and removable
+     media is not available.
+   * The host Secret Service cannot be reached because the
+     password-manager-service interface is not declared. Pulp starts and local
+     feeds work, but it cannot store the passwords for FreshRSS/Nextcloud News
+     or for the sharing services that need one; it shows its secret-service
+     banner instead.
+   * Feed caches, settings and thumbnails are kept in the snap's private
+     per-user area, not in the host's ~/.config or ~/.local/share.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (the app owns org.gnome.gitlab.cheywood.Pulp)
+  pulp:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitlab.cheywood.Pulp
+
+apps:
+  pulp:
+    extensions: [gnome]
+    command: usr/bin/pulp
+    desktop: usr/share/applications/org.gnome.gitlab.cheywood.Pulp.desktop
+    common-id: org.gnome.gitlab.cheywood.Pulp.desktop
+    environment:
+      # The pulp package and the bundled Python dependencies live in the
+      # snap; the interpreter, PyGObject, pycairo and the typelibs come from
+      # gnome-core26.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # libxml2 and Pillow's missing support libraries are kept outside the
+      # multiarch directory so the gnome extension's cleanup does not delete
+      # them (see the python-deps part).
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.gitlab.cheywood.Pulp GSettings schema
+      - gsettings
+      # OPML import/export and other files the user picks in the home
+      # directory
+      - home
+      # feed downloads, FreshRSS/Nextcloud News sync and thumbnails
+      - network
+
+# Pulp 2026.5 (2026-10-05) is a Python 3 + GTK 4/libadwaita application built
+# with Meson. GTK 4.24, libadwaita, WebKitGTK 6.0, libsecret, PyGObject,
+# pycairo and the Gtk/Adw/WebKit/Secret typelibs come from the gnome-core26
+# SDK/content snaps.
+#
+# The UI is written in Blueprint and data/meson.build passes --minify to
+# blueprint-compiler, an option added in 0.20. The 26.04 archive only has
+# 0.19, so the recipe relies on the upstream wrap (subprojects/
+# blueprint-compiler.wrap, pinned to v0.20.4). Meson downloads and builds it
+# at configure time; no older copy is added to build-packages.
+#
+# The prefix is the runtime mount path, not /usr: const.PKGDATADIR and
+# const.LOCALEDIR are compiled into the Python package from the Meson prefix,
+# and a /usr prefix would resolve the gresource bundle, media files and
+# translations to the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+parts:
+  pulp:
+    source: https://gitlab.gnome.org/cheywood/Pulp.git
+    source-type: git
+    source-tag: '2026.5'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/pulp/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to ...Pulp.Devel and produce a
+      # debug build; the release profile is the default but pin it explicitly.
+      - -Dprofile=default
+      # Pin the Python module location so the PYTHONPATH above always matches,
+      # whatever interpreter the SDK puts first in PATH.
+      - -Dpython.purelibdir=/snap/pulp/current/usr/lib/python3/dist-packages
+      - -Dpython.platlibdir=/snap/pulp/current/usr/lib/python3/dist-packages
+    organize:
+      snap/pulp/current/usr: usr
+    build-packages:
+      # msgfmt for i18n.merge_file (desktop file and AppStream metadata)
+      - gettext
+      # Meson's wrap-git fallback clones blueprint-compiler v0.20.4 during
+      # configure; core26 does not carry git in the build environment.
+      - git
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs, so the GSettings schema is never compiled. Pulp
+      # creates its Gio.Settings object at start-up and aborts without
+      # gschemas.compiled.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/pulp/current/usr/share/glib-2.0/schemas"
+
+      # Use the icon bundled in the snap so it shows up in the launcher even
+      # when the host theme does not carry the application icon.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.gitlab.cheywood.Pulp.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+      desktop="$CRAFT_PART_INSTALL/snap/pulp/current/usr/share/applications/org.gnome.gitlab.cheywood.Pulp.desktop"
+      sed -i \
+        -e 's|^Icon=org.gnome.gitlab.cheywood.Pulp$|Icon=${SNAP}/meta/gui/org.gnome.gitlab.cheywood.Pulp.svg|' \
+        -e 's|^DBusActivatable=true$|DBusActivatable=false|' \
+        "$desktop"
+
+      # The upstream service file starts the bare script below /snap/pulp,
+      # which is not the snap's command wrapper and therefore has none of the
+      # gnome extension's environment. The desktop file launches the snap
+      # itself and the app owns its bus name through the slot above.
+      rm -f "$CRAFT_PART_INSTALL/snap/pulp/current/usr/share/dbus-1/services/org.gnome.gitlab.cheywood.Pulp.service"
+
+      # core26 has no /usr/bin/python3. The gnome extension puts the platform
+      # interpreter on PATH, so run the launcher through env (the Meson-
+      # generated shebang points at the build-time SDK interpreter).
+      sed -i '1s|^#!.*|#!/usr/bin/env python3|' \
+        "$CRAFT_PART_INSTALL/snap/pulp/current/usr/bin/pulp"
+
+  # Python modules that gnome-core26 does not ship: requests (feed fetching),
+  # beautifulsoup4 (HTML/text extraction), lxml (feed parsing), CairoSVG
+  # (SVG favicons) and Pillow (thumbnails, pulled in by CairoSVG as well).
+  # python3-gi, pycairo, the Gtk/Adw/WebKit/Secret typelibs and the standard
+  # library come from the platform and are not staged.
+  python-deps:
+    plugin: nil
+    stage-packages:
+      - python3-requests
+      - python3-bs4
+      - python3-lxml
+      - python3-cairosvg
+      - python3-pil
+      # Shared libraries linked by Pillow's and lxml's compiled modules.
+      # They are dependencies of the packages above as well, but naming them
+      # keeps the relocation below from silently doing nothing if a future
+      # package drops one of those dependencies.
+      - libimagequant0
+      - libraqm0
+      - libxcb1
+      - libxau6
+      - libxdmcp6
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # Pillow's compiled modules link libimagequant, libxcb (and through it
+      # libXau/libXdmcp) and libraqm, which the platform does not ship, and
+      # lxml links libxml2, which gnome-core26 also lacks. The gnome
+      # extension's cleanup deletes primed libraries whose path also exists
+      # in the SDK, so keep all of them in $SNAP/usr/lib; the app environment
+      # adds that directory to LD_LIBRARY_PATH.
+      libdir="$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for library in \
+        libimagequant.so.* \
+        libraqm.so.* \
+        libxcb.so.* \
+        libXau.so.* \
+        libXdmcp.so.* \
+        libxml2.so.*; do
+        mv "$libdir"/$library "$CRAFT_PART_INSTALL/usr/lib/" || true
+      done
+    prime:
+      - usr/lib/python3/dist-packages
+      - usr/lib/lib*.so*

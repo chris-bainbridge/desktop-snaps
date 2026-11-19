@@ -1,0 +1,368 @@
+name: yacreader
+adopt-info: yacreader
+title: YACReader
+summary: Comic reader and comic library manager
+description: |
+  YACReader reads comics stored as cbz, cbr, cb7, cbt, zip, rar, 7z, tar or
+  PDF files. It has single and double page modes, page fitting, rotation,
+  bookmarks, reading progress, fullscreen and image adjustments. Its companion
+  application, YACReaderLibrary, catalogues a collection into libraries,
+  tracks read and unread comics, manages reading lists and folders, reads
+  ComicInfo.xml metadata, can fetch information from Comic Vine and can serve
+  a library to mobile clients and a web browser over HTTP.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Comics in the real home directory are readable and can be opened from the
+    file dialogs; top-level hidden entries such as ~/.config and ~/.ssh are
+    not visible. A library created in a visible home folder (for example
+    /home/<user>/Comics) works normally. There is no removable-media
+    interface, so comics on USB drives and other removable media are not
+    mounted into the snap; copy them into the home directory first.
+  - Configuration, logs and caches live in the snap's private
+    ~/snap/yacreader/common directory (in .config, .local and .cache), not in
+    ~/.config and ~/.local, and are not shared with a distribution-packaged
+    YACReader. The home directory exported to the applications is the real
+    one, so file dialogs start there; a library is stored in the folder that
+    was selected when it was created.
+  - The host's programs cannot be executed. YACReaderLibrary starts the
+    bundled YACReader viewer from this snap, not a host installation.
+  - YACReaderLibrary's local server and web interface use network-bind, so
+    they can listen on the LAN. The router still needs port forwarding, and a
+    host firewall may block incoming connections. Outgoing connections, Comic
+    Vine lookups and translation requests use the network interface.
+  - There is no speech-dispatcher socket inside the snap. The bundled Flite
+    engine provides offline text-to-speech for the translator; host voices are
+    not visible. Audio playback is through the PulseAudio/PipeWire socket.
+  - Qt 6 is staged from the Ubuntu 26.04 archive because snapcraft's KDE/Qt
+    extensions only support core22 and core24. Host Qt/KDE themes are not
+    visible; the built-in Fusion and Basic styles are used. Mesa comes from
+    the mesa-2604 content snap through the gpu extension.
+  - PDF rendering uses Poppler from the archive. CB7/7z and RAR archives use
+    libarchive, which handles RAR5 with some limitations; the non-free 7-Zip
+    backend is not built.
+  - Desktop entries and comic-book MIME associations are exported by snapd.
+    Whether a file manager offers "Open with YACReader" depends on the host
+    desktop's handling of snap-provided handlers.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. YACReader is built from the pinned upstream
+# release tarball; Qt, Poppler, libarchive and the other libraries are staged
+# from the 26.04 archive. No prebuilt YACReader binaries are embedded.
+#
+# Qt approach: stage Qt 6 from the 26.04 archive.
+#   * snapcraft 9.2.1 ships kde-neon-6 and kde-neon-qt6 for core22 and core24
+#     only (the extension code rejects every other base). KDE publishes
+#     kde-qt6-core26 and kf6-core26 content snaps with matching SDK snaps, but
+#     no snapcraft extension exists for them: the recipe would have to
+#     hand-wire the content plug, build against the KDE SDK and set the
+#     multiarch Qt library, plugin and QML paths itself.
+#   * YACReader is not a KDE application and uses no KDE Frameworks. It needs
+#     Qt Core, Gui, Widgets, Network, Sql, Svg, Concurrent, Core5Compat,
+#     Multimedia, TextToSpeech, Qml, Quick and QuickControls2. Pulling the KDE
+#     content snap would add a large stack and couple the recipe to KDE's SDK
+#     for no KDE functionality.
+#   * The 26.04 archive carries Qt 6.10.2, built for the same Ubuntu release
+#     as the core26 base. YACReader 10.5.1 requires Qt 6.9 or newer, so 6.10.2
+#     is supported, and the staged Qt shares the base's libc, libstdc++, GLib,
+#     OpenSSL, freetype, libpng and libxkbcommon.
+#   * YACReaderLibrary embeds its QML (the comic grid, flow and info views) as
+#     Qt resources, but the QtQuick, QtQuick.Controls, QtQuick.Layouts and
+#     QtQuick.Effects modules are provided by qml6-module-* packages and must
+#     be staged at runtime. qt.conf and the launcher point Qt's QML import
+#     path at the staged tree.
+# The [gpu] extension is the core26 integration point for Mesa. It connects
+# mesa-2604, which provides libEGL/libGL/libGLX and the DRI drivers that Qt's
+# xcb and Wayland platform plugins link against, and its cleanup part removes
+# the Mesa copies that the Qt stage-packages would otherwise leave in the snap.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+website: https://www.yacreader.com/
+source-code: https://github.com/YACReader/yacreader
+issues: https://github.com/YACReader/yacreader/issues
+
+icon: snap/local/yacreader.svg
+
+platforms:
+  amd64:
+  arm64:
+
+# The staged fontconfig, font and X11 data have to appear at the absolute
+# paths their libraries were built with; /usr and /etc inside the snap are the
+# core26 base. The binds replace the base's directories with the staged
+# copies; snapd creates /usr/share/poppler, which the base does not have.
+layout:
+  /etc/fonts:
+    bind: $SNAP/etc/fonts
+  /usr/share/fontconfig:
+    bind: $SNAP/usr/share/fontconfig
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
+  # Poppler was built with a data directory of /usr/share/poppler and has no
+  # environment override; the base has no Poppler data.
+  /usr/share/poppler:
+    bind: $SNAP/usr/share/poppler
+  # libxkbcommon-x11 reads the keyboard database from /usr/share/X11/xkb and
+  # libX11's compose input context reads /usr/share/X11/locale. Point those
+  # paths at the staged copies instead of binding /usr/share/X11 as a whole,
+  # because snapd rejects layouts nested underneath a bound directory.
+  # xkb-data 2.46 installs the database in /usr/share/xkeyboard-config-2.
+  /usr/share/X11/xkb:
+    symlink: $SNAP/usr/share/xkeyboard-config-2
+  # The locale data is staged at usr/share/x11-locale by the x11-data part:
+  # the gpu extension's cleanup deletes usr/share/X11/locale/* because
+  # mesa-2604 ships its own copy.
+  /usr/share/X11/locale:
+    symlink: $SNAP/usr/share/x11-locale
+
+apps:
+  yacreader:
+    extensions: [gpu]
+    command: bin/yacreader-launcher YACReader
+    desktop: usr/share/applications/YACReader.desktop
+    plugs:
+      - audio-playback # Flite text-to-speech in the translator
+      - desktop        # notifications and snapctl user-open for links
+      - home           # comics, libraries and exports in the user's home
+      - network        # Comic Vine, translations and remote libraries
+      - opengl         # GPU access for Qt and the mesa-2604 content snap
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+
+  yacreader-library:
+    extensions: [gpu]
+    command: bin/yacreader-launcher YACReaderLibrary
+    desktop: usr/share/applications/YACReaderLibrary.desktop
+    plugs:
+      - audio-playback # the viewer it starts inherits this app's plugs
+      - desktop        # notifications and snapctl user-open for links
+      - home           # comics and libraries in the user's home
+      - network        # Comic Vine and remote library synchronisation
+      - network-bind   # local server and web interface
+      - opengl         # GPU access for Qt Quick and the mesa content snap
+      - wayland        # native Wayland session on Core Desktop
+      - x11            # X11 sessions, and XWayland as a fallback
+
+  yacreader-server:
+    # Headless HTTP server for a library. It has no desktop entry and is run
+    # with "snap run yacreader.yacreader-server [arguments]".
+    command: bin/yacreader-launcher YACReaderLibraryServer
+    plugs:
+      - home         # the library being served
+      - network      # outgoing requests and reverse lookups
+      - network-bind # the HTTP listener
+
+parts:
+  local:
+    # The launcher sets the Qt plugin, QML and library paths and the private
+    # XDG directories. The desktop entries installed by upstream are used
+    # as-is; snapcraft rewrites their Exec and Icon lines.
+    plugin: dump
+    source: snap/local
+    organize:
+      yacreader-launcher: bin/yacreader-launcher
+    prime:
+      # The SVG is installed as meta/gui/icon.svg by snapcraft's icon:
+      # handling; do not leave a second copy at the snap root.
+      - -yacreader.svg
+
+  yacreader:
+    # 10.5.1 is the latest stable upstream release (2026-11-13); the tag points
+    # at commit 05dfbd03e18fc5f98a90ae8a92172e92b222b879. The official source
+    # tarball is the tagged tree with the prebuilt Windows/macOS dependency
+    # directories removed; the checksum pins exactly that asset.
+    source: https://github.com/YACReader/yacreader/releases/download/10.5.1/yacreader-10.5.1-src.tar.xz
+    source-checksum: sha256/21294e0020f3e8715f2ca9d27b1514688e6cdbb0e2b0a000a0a678bdb672dcc5
+    plugin: cmake
+    override-pull: |
+      craftctl default
+      craftctl set version=$(cat VERSION)
+    cmake-parameters:
+      # DATADIR, BINDIR and LIBDIR are compiled into YACReaderLibrary and
+      # YACReaderLibraryServer and have no runtime override, so use the
+      # runtime mount path and let organize move the tree back under usr/ in
+      # the snap. DATADIR then resolves to the server's web files and the
+      # translations inside the snap.
+      - -DCMAKE_INSTALL_PREFIX=/snap/yacreader/current/usr
+      - -DCMAKE_BUILD_TYPE=Release
+      # The test suite needs Qt Test and the upstream test data; it is not
+      # shipped.
+      - -DBUILD_TESTS=OFF
+      # The GUI applications are the target. The standalone server is built
+      # and installed by the same build (BUILD_SERVER_STANDALONE only limits
+      # that build to the server), so keep the option off.
+      - -DBUILD_SERVER_STANDALONE=OFF
+      # libarchive is the upstream default on Linux and is GPL compatible;
+      # it handles zip, tar, 7z and RAR (RAR5 with some limitations) without
+      # the non-free 7-Zip backend or a configure-time download.
+      - -DDECOMPRESSION_BACKEND=libarchive
+      # Poppler is the upstream default on Linux and is available in the
+      # archive for Qt 6. The faster pdfium backend is not packaged.
+      - -DPDF_BACKEND=poppler
+    organize:
+      snap/yacreader/current/usr: usr
+    build-packages:
+      # The core26 build environment has a C++20 compiler and make, but no
+      # CMake, pkg-config, Qt, Poppler or libarchive headers.
+      - build-essential
+      - cmake
+      - pkg-config
+      - qt6-base-dev         # Core, Gui, Widgets, Network, Sql, Test,
+                             # OpenGLWidgets and the OpenGL headers
+      - qt6-base-private-dev # Qt6::GuiPrivate, used by the image code
+      - qt6-declarative-dev  # Qml, Quick and QuickControls2
+      - qt6-multimedia-dev   # Qt6::Multimedia, used by text-to-speech
+      - qt6-speech-dev       # Qt6::TextToSpeech
+      - qt6-shadertools-dev  # Qt6::ShaderTools, required by find_package
+      - qt6-5compat-dev      # Qt6::Core5Compat, used for QTextCodec
+      - qt6-svg-dev          # Qt6::Svg, for the SVG icon set
+      - qt6-tools-dev        # Qt6::LinguistTools and UiTools configs
+      - qt6-l10n-tools       # lrelease, used by qt_add_translations
+      - libarchive-dev       # LibArchive::LibArchive
+      - libpoppler-qt6-dev   # Poppler::Qt6
+    override-build: |
+      craftctl default
+
+      # qt_add_translations generates the .qm files in the build tree but the
+      # Linux install rules do not install them; upstream's macOS packaging
+      # copies them into a languages directory, and both applications load
+      # <DATADIR>/yacreader/languages/<prefix>_<locale>.qm at runtime.
+      languages="$CRAFT_PART_INSTALL/snap/yacreader/current/usr/share/yacreader/languages"
+      install -d "$languages"
+      find "$CRAFT_PART_BUILD" -name '*.qm' ! -name '*_source.qm' \
+        -exec cp {} "$languages/" \;
+
+      # Qt's compiled-in Prefix is /usr, which is the core26 base inside the
+      # snap. A qt.conf next to the binaries relocates Qt's data, plugin, QML
+      # and translation paths to the staged tree. Prefix is relative to
+      # usr/bin, so Qt follows the snap mount rather than the base.
+      cat > "$CRAFT_PART_INSTALL/snap/yacreader/current/usr/bin/qt.conf" <<EOF
+      [Paths]
+      Prefix = ..
+      Plugins = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/plugins
+      Qml2Imports = lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/qt6/qml
+      Translations = share/qt6/translations
+      EOF
+
+  runtime:
+    # Stage the runtime libraries and data the core26 base lacks. craft-parts
+    # filters out every package that is already in the base's chisel manifest,
+    # so the base's libc, libstdc++, GLib, OpenSSL, freetype, libpng and
+    # libxkbcommon are not duplicated here.
+    after: [yacreader]
+    plugin: nil
+    build-packages:
+      # update-mime-database, used below to build the MIME cache.
+      - shared-mime-info
+    stage-packages:
+      # Qt 6.10.2 from the 26.04 archive.
+      - libqt6core6t64
+      - libqt6gui6        # xcb/minimal/offscreen platform and image plugins
+      - libqt6widgets6
+      - libqt6network6
+      - libqt6sql6
+      - libqt6sql6-sqlite # QSQLITE driver for the library database
+      - libqt6concurrent6
+      - libqt6svg6
+      - libqt6core5compat6
+      - libqt6multimedia6 # audio output for text-to-speech
+      - libqt6texttospeech6
+      - qt6-speech-flite-plugin # offline TTS; no speechd daemon in the snap
+      - libqt6qml6
+      - libqt6quick6
+      - libqt6quickcontrols2-6
+      - libqt6quicktemplates2-6
+      # QML modules for the imports in YACReaderLibrary's embedded QML:
+      # QtQml.Models, QtQuick, QtQuick.Controls(.Basic), QtQuick.Effects and
+      # QtQuick.Layouts.
+      - qml6-module-qtqml
+      - qml6-module-qtqml-models
+      - qml6-module-qtqml-workerscript
+      - qml6-module-qtquick
+      - qml6-module-qtquick-controls
+      - qml6-module-qtquick-effects
+      - qml6-module-qtquick-layouts
+      - qml6-module-qtquick-templates
+      - qml6-module-qtquick-shapes
+      - qml6-module-qtquick-window
+      - qml6-module-qt-labs-qmlmodels
+      # Qt 6 has no Wayland platform plugin in qtbase; these two provide the
+      # plugin and the xdg-shell integration without the qt6-wayland extras.
+      - libqt6waylandclient6
+      - libqt6wlshellintegration6
+      - qt6-svg-plugins       # libqsvgicon, used by the SVG icon set
+      - qt6-translations-l10n # Qt's own dialog translations
+      # libproxy is a dependency of Qt Network; listed so the staged tree
+      # always has it even if the archive's dependency metadata changes.
+      - libproxy1v5
+      # PDF rendering and comic archive decompression.
+      - libpoppler-qt6-3t64
+      - poppler-data      # CMaps and Unicode maps for CID/CJK PDFs
+      - libarchive13t64
+      # The base has only the Plymouth font and no fontconfig configuration.
+      # The layout above exposes the staged fonts and configuration, and the
+      # MIME cache generated below is found through XDG_DATA_DIRS.
+      - fontconfig
+      - fonts-dejavu-core
+      - shared-mime-info
+    override-build: |
+      craftctl default
+
+      # shared-mime-info ships only the XML source in the archive package; the
+      # maintainer script that normally builds mime.cache does not run for a
+      # staged package. Generate it so QMimeDatabase classifies the comic
+      # archives and PDFs that YACReader opens.
+      update-mime-database "$CRAFT_PART_INSTALL/usr/share/mime"
+    prime:
+      # Runtime packages do not need development files.
+      - -usr/include
+      - -usr/lib/*.la
+      - -usr/lib/*/*.la
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/apport
+      - -usr/share/doc
+      - -usr/share/man
+
+  x11-data:
+    # xkb-data and libx11-data are listed in core26's chisel manifest even
+    # though only their copyright and XErrorDB slices are present. craft-parts
+    # filters stage-packages by package name, so requesting them there would
+    # silently produce an empty /usr/share/X11 and break the layout symlinks.
+    # Fetch the data packages directly; they contain no binaries.
+    after: [yacreader]
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download xkb-data libx11-data
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    organize:
+      # Keep the locale data out of the directory the GPU cleanup empties.
+      usr/share/X11/locale: usr/share/x11-locale
+    prime:
+      - -usr/share/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+
+  cleanup:
+    # The staged Qt/Poppler/libarchive dependency trees contain copies of
+    # libraries that the core26 base already ships (GLib, OpenSSL, libpng,
+    # freetype, libstdc++, ...). Loading two copies in one process is not
+    # safe, so drop every primed shared library whose path also exists in the
+    # base, exactly as the other core26 recipes do.
+    after: [yacreader, runtime, x11-data]
+    plugin: nil
+    build-snaps: [core26]
+    override-prime: |
+      set -eux
+      root="$CRAFT_PRIME"
+      cd /snap/core26/current
+      find . -type f,l -name '*.so.*' -print |
+        sed "s|^\./|$root/|" |
+        xargs -r rm -f

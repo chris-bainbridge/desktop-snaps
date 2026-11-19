@@ -1,0 +1,100 @@
+name: contrast
+adopt-info: contrast
+title: Contrast
+license: GPL-3.0-or-later
+summary: Check the contrast between two colors
+website: https://apps.gnome.org/Contrast/
+contact: https://gitlab.gnome.org/World/design/contrast/-/issues
+issues: https://gitlab.gnome.org/World/design/contrast/-/issues
+source-code: https://gitlab.gnome.org/World/design/contrast
+description: |
+  Contrast checks whether the contrast between two colors meets the WCAG
+  (Web Content Accessibility Guidelines) requirements. Two colors can be
+  typed into the entries or picked from anywhere on the screen, and the
+  resulting contrast ratio is compared against the AA and AAA thresholds for
+  normal and large text.
+
+  Strict-confinement notes:
+   * The eyedropper uses the desktop's color picker portal
+     (org.freedesktop.portal.Screenshot.PickColor); on desktops without a
+     portal implementation that button does nothing.
+   * Files in the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal). The app itself
+     has no file open or save dialog.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (adw::Application with
+  # application-id org.gnome.design.Contrast)
+  contrast:
+    interface: dbus
+    bus: session
+    name: org.gnome.design.Contrast
+
+apps:
+  contrast:
+    extensions: [gnome]
+    command: usr/bin/contrast
+    desktop: usr/share/applications/org.gnome.design.Contrast.desktop
+    common-id: org.gnome.design.Contrast.desktop
+    plugs:
+      # theme, fonts and color scheme from the host
+      - gsettings
+      # the user's home directory
+      - home
+
+# Contrast 0.0.11 (2024-09-23, the latest upstream release tag) is a Rust +
+# GTK4/libadwaita application. Its Meson build drives cargo itself on the
+# upstream Cargo.lock, like the gnome-2048 and keypunch recipes.
+#
+# GTK 4, libadwaita, gettext, meson and ninja come from the gnome-core26
+# SDK/content snaps. cargo and rustc are not part of the platform; the 26.04
+# archive has cargo/rustc 1.93.1 (the gtk4 0.9 crates need Rust 1.83), and
+# libxml2-utils supplies xmllint for the preprocess="xml-stripblanks" UI
+# files in data/resources.gresource.xml. Cargo downloads the crates pinned in
+# Cargo.lock from crates.io during the build; nothing is vendored here.
+#
+# The prefix is the runtime mount path, not /usr: PKGDATADIR and LOCALEDIR are
+# compiled into the binary, and a /usr prefix would resolve the gresource
+# bundle (UI, CSS, icons) and translations to the core26 base instead of the
+# snap. organize moves the installed tree back under usr/.
+parts:
+  contrast:
+    source: https://gitlab.gnome.org/World/design/contrast.git
+    source-type: git
+    source-tag: '0.0.11'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.design.Contrast.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/contrast/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to org.gnome.design.Contrast.Devel
+      # and build a debug binary; the release profile is the default.
+      - -Dprofile=default
+    organize:
+      snap/contrast/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      - libxml2-utils # xmllint for gresource xml-stripblanks preprocessing
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/org.gnome.design.Contrast.svg|g' \
+        data/org.gnome.design.Contrast.desktop.in.in
+    override-build: |
+      craftctl default
+      # The app has no GSettings schema (meson.build disables
+      # glib_compile_schemas), so there is nothing to compile here.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.design.Contrast.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"

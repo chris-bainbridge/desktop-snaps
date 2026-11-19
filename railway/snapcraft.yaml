@@ -1,0 +1,120 @@
+name: railway
+adopt-info: railway
+title: Railway
+summary: Find all your travel information
+license: GPL-3.0-or-later
+contact: https://gitlab.com/schmiddi-on-mobile/railway/-/issues
+website: https://mobile.schmidhuberj.de/railway
+source-code: https://gitlab.com/schmiddi-on-mobile/railway
+issues: https://gitlab.com/schmiddi-on-mobile/railway/-/issues
+description: |
+  Railway lets you look up travel information across networks and borders
+  without having to navigate through different websites. It shows journey
+  details including platforms and delays, bookmarks current and future
+  journeys as well as frequent searches, and offers advanced search options
+  such as filtering by mode of transport.
+
+  The app queries the public journey-planning APIs of many European transport
+  providers, so it needs the network plug. No account is required.
+
+  Strict-confinement notes:
+   * Bookmarked journeys and recent searches are written to the snap's private
+     XDG data directory ($SNAP_USER_DATA/.local/share/diebahn) and are not
+     shared with a host installation of Railway.
+   * Settings are GSettings keys; the gnome extension links dconf to the host
+     user's database and the gsettings interface allows access, so they are
+     shared with the host.
+   * The home plug is declared by convention, but Railway itself only writes
+     to its private data directory; the file chooser portal is not used.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/de.schmidhuberj.DieBahn.service.in)
+  railway:
+    interface: dbus
+    bus: session
+    name: de.schmidhuberj.DieBahn
+
+apps:
+  railway:
+    extensions: [gnome]
+    # upstream installs the binary as "diebahn" (meson project name)
+    command: usr/bin/diebahn
+    desktop: usr/share/applications/de.schmidhuberj.DieBahn.desktop
+    common-id: de.schmidhuberj.DieBahn
+    plugs:
+      # the snap's de.schmidhuberj.DieBahn GSettings schema
+      - gsettings
+      # bookmarks are in the private data directory; declared by convention
+      - home
+      # journey queries against the providers' public APIs
+      - network
+
+# Railway 2.10.1 is a Rust + GTK4/libadwaita application (edition 2024) whose
+# Meson build drives cargo itself on the upstream Cargo.lock, like the
+# gnome-2048/resources recipes. Cargo downloads the pinned crates from
+# crates.io during the build; nothing is vendored in this repository.
+#
+# cargo, rustc, blueprint-compiler and the OpenSSL headers are not part of
+# gnome-core26-sdk. The 26.04 archive has rustc/cargo 1.93.1, which satisfies
+# edition 2024, plus blueprint-compiler for the .blp UI files. GTK 4.24,
+# libadwaita 1.10, meson, ninja, gettext and pkg-config come from the
+# gnome-core26 SDK/content snaps.
+#
+# railway-core builds reqwest with its default native-tls backend, so
+# openssl-sys needs libssl-dev (pkg-config probe) at build time. The core26
+# base supplies libssl3 at run time.
+#
+# The prefix is the runtime mount path, not /usr: LOCALEDIR is compiled into
+# the binary, and a /usr prefix would resolve it to the core26 base instead of
+# the snap. organize moves the installed tree back under usr/.
+parts:
+  railway:
+    source: https://gitlab.com/schmiddi-on-mobile/railway.git
+    source-type: git
+    source-tag: '2.10.1'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/railway/current/usr
+      - --buildtype=release
+      # "development" would switch the app ID to de.schmidhuberj.DieBahn.Devel
+      # and build a debug binary; the release profile is the default.
+      - -Dprofile=default
+    organize:
+      snap/railway/current/usr: usr
+    build-packages:
+      - cargo
+      - rustc
+      # find_program('blueprint-compiler') in data/resources/meson.build
+      - blueprint-compiler
+      # openssl-sys (native-tls), pkg-config probe
+      - libssl-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap so it shows up in the launcher.
+      sed -i -e 's|^Icon=@app-id@$|Icon=${SNAP}/meta/gui/de.schmidhuberj.DieBahn.svg|' \
+        data/de.schmidhuberj.DieBahn.desktop.in.in
+    override-build: |
+      craftctl default
+      # meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. Compile the schema here so GSettings can
+      # resolve de.schmidhuberj.DieBahn on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/railway/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/de.schmidhuberj.DieBahn.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/de.schmidhuberj.DieBahn.svg"
+      # D-Bus activation is provided by the dbus slot above (snapd writes a
+      # service file that runs "snap run"). Upstream's service file has a
+      # build-time absolute Exec that the host bus would not use.
+      rm -f "$CRAFT_PART_INSTALL/snap/railway/current/usr/share/dbus-1/services/de.schmidhuberj.DieBahn.service"

@@ -1,0 +1,121 @@
+name: frogr
+adopt-info: frogr
+title: frogr
+license: GPL-3.0-only
+summary: Flickr uploader for GNOME
+description: |
+  frogr is a small application for GNOME that allows you to manage your
+  Flickr account with a simple and direct interface. It supports uploading
+  pictures and videos, editing their descriptions and tags, and organising
+  them into sets and group pools.
+
+  Strict-confinement notes:
+   * Flickr sign-in uses OAuth. frogr opens the authorisation page in the
+     host browser through the XDG OpenURI portal; the verification code is
+     then typed into frogr. The resulting token is stored in the snap's
+     private configuration directory, not in the desktop keyring: frogr
+     does not use GNOME Online Accounts or libsecret, so no keyring plug is
+     needed.
+   * Pictures and videos under the home directory are accessible; other
+     locations are only reachable through the file chooser portal.
+   * Video thumbnails are produced with GStreamer. The GNOME content snap
+     ships the free codecs (VP8/VP9, Theora, Ogg) but no software H.264
+     decoder, so H.264 videos are only accepted when GStreamer can decode
+     them through the VA-API plugin.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+contact: https://gitlab.gnome.org/GNOME/frogr/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  frogr:
+    extensions: [gnome]
+    command: usr/bin/frogr
+    desktop: usr/share/applications/org.gnome.frogr.desktop
+    common-id: org.gnome.frogr.desktop
+    environment:
+      # frogr opens the Flickr authorisation URL with g_app_info and falls
+      # back to "gio open". The private XDG_DATA_DIRS has no browser, so
+      # route GIO through the host's OpenURI portal instead.
+      GIO_USE_PORTALS: "1"
+      # The staged libexif and libxml2 copies are kept outside the SDK's
+      # multiarch directory (see the libraries part), so add usr/lib.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      - gsettings
+      # add pictures and videos from the user's home directory
+      - home
+      # Flickr uploads and OAuth
+      - network
+
+# frogr 1.8.1 (2024-01-03) is the latest upstream release. It is a C/GTK3
+# application built with Meson; 1.8 switched to libsoup-3.0 (libsoup-2.4 is
+# still selectable upstream, but not used here).
+#
+# The prefix is the runtime mount path, not /usr: DATADIR and LOCALEDIR are
+# compiled in and used for the GtkBuilder UI files, images and translations,
+# so a /usr prefix would resolve them inside the core26 base. organize moves
+# the installed tree back under usr/.
+parts:
+  frogr:
+    source: https://gitlab.gnome.org/GNOME/frogr.git
+    source-type: git
+    source-tag: 'RELEASE_1.8.1'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/frogr/current/usr
+      - --buildtype=release
+    organize:
+      snap/frogr/current/usr: usr
+    build-packages:
+      # gnome-core26-sdk provides GTK3, GLib/GIO, libsoup-3.0, json-glib,
+      # libxml2, GStreamer and the gettext tools. It does not provide
+      # libexif or libgcrypt's development files.
+      - libexif-dev
+      - libgcrypt20-dev
+      # yelp pages are generated with itstool
+      - itstool
+    override-pull: |
+      craftctl default
+      # Tags are named RELEASE_x.y.z; strip the prefix for the snap version.
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^RELEASE_//')
+    override-build: |
+      craftctl default
+
+      desktop="$CRAFT_PART_INSTALL/snap/frogr/current/usr/share/applications/org.gnome.frogr.desktop"
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i 's|^Icon=org.gnome.frogr$|Icon=${SNAP}/meta/gui/org.gnome.frogr.svg|' "$desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.frogr.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+      # There are no GSettings schemas and no gschemas.compiled is required.
+
+  libraries:
+    after: [frogr]
+    plugin: nil
+    stage-packages:
+      # Neither library is in gnome-core26: frogr links both directly.
+      - libexif12
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk (where libexif and libxml2 are
+      # build dependencies). Move the copies out of the SDK's multiarch path;
+      # the app adds $SNAP/usr/lib to LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libexif.so.12 libxml2.so.16; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+           "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    prime:
+      - usr/lib/libexif.so.*
+      - usr/lib/libxml2.so.*

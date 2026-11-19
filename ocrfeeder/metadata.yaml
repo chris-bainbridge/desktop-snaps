@@ -1,0 +1,7 @@
+# Build metadata for ocrfeeder (new core26 recipe, 2026-11).
+snap: ocrfeeder
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/ocrfeeder (0.8.5)
+imported: '2026-11-19'

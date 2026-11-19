@@ -1,0 +1,191 @@
+name: crossword-editor
+adopt-info: crossword-editor
+title: Crossword Editor
+license: GPL-3.0-or-later
+website: https://gitlab.gnome.org/jrb/crosswords
+contact: https://gitlab.gnome.org/jrb/crosswords/-/issues
+issues: https://gitlab.gnome.org/jrb/crosswords/-/issues
+source-code: https://gitlab.gnome.org/jrb/crosswords
+summary: Create crossword puzzles
+description: |
+  Crossword Editor is a tool for authoring and editing pencil-and-paper style
+  puzzles. It creates crossword, cryptic, barred and acrostic grids, checks
+  them against word lists, suggests words for the fill, and loads and saves
+  .ipuz files.
+
+  Upstream builds the editor and the Crosswords player from one source tree.
+  This snap exposes only the editor; the player is packaged separately as the
+  gnome-crosswords snap.
+
+  Strict-confinement notes:
+   * Files under the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * The .puz, .jpz and .xd import converters need Python modules that are not
+     shipped in the snap; .ipuz files open and save normally.
+   * Printing goes through the desktop portal, so printers configured on the
+     host are not visible directly.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Crosswords.Editor.service.in)
+  crossword-editor:
+    interface: dbus
+    bus: session
+    name: org.gnome.Crosswords.Editor
+
+apps:
+  crossword-editor:
+    extensions: [gnome]
+    command: usr/bin/crossword-editor
+    desktop: usr/share/applications/org.gnome.Crosswords.Editor.desktop
+    common-id: org.gnome.Crosswords.Editor
+    environment:
+      # libipuz is built in this snap, not provided by gnome-core26. The
+      # gnome extension only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.Crosswords and org.gnome.Crosswords.Editor
+      # GSettings schemas
+      - gsettings
+      # open and save puzzle files
+      - home
+
+# Crosswords 0.3.19.1 is a C + GTK4/libadwaita application built with Meson.
+# The editor is the same source tree as the game: meson installs both
+# executables and both desktop entries. This recipe builds the tree once and
+# then primes out the game binary, desktop file, AppStream data, D-Bus service
+# and icons, leaving a single application entry for the editor.
+#
+# GTK 4.24, libadwaita 1.10, json-glib, iso-codes, blueprint-compiler 0.22.2
+# and the build tools come from the gnome-core26 SDK/content snaps. One build
+# dependency is not in the platform or in the 26.04 archive:
+#
+#  * libipuz 0.5.6, the .ipuz parser. It is a C library with a Rust core and
+#    is not packaged in Ubuntu 26.04, so it is built here from its release tag.
+#    Its Cargo dependencies come from crates.io during the build (upstream
+#    Cargo.lock pins them); cargo/rustc 1.93 from the archive satisfy the
+#    rust-version = 1.92 requirement.
+#
+# The 26.04 archive has blueprint-compiler 0.19, but the SDK ships 0.22.2,
+# which satisfies crosswords' >= 0.20.3 requirement, so no separate
+# blueprint-compiler build is needed.
+#
+# The source is the 0.3.19.1 release tarball rather than a git checkout:
+# four word-list data files are stored in Git LFS, and snapcraft's git source
+# does not fetch LFS objects. The GitLab release archive carries the expanded
+# blobs, which the word-list GResources need.
+#
+# The prefix is the runtime mount path, not /usr: PKGDATADIR, LOCALEDIR,
+# LIBEXECDIR and the D-Bus service Exec lines are compiled in, and a /usr
+# prefix would resolve them to the core26 base instead of the snap.
+# organize moves the installed tree back under usr/.
+parts:
+  libipuz:
+    source: https://gitlab.gnome.org/jrb/libipuz.git
+    source-type: git
+    source-tag: '0.5.6'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      # keep the library in usr/lib, the same directory the app lists on
+      # LD_LIBRARY_PATH
+      - --libdir=lib
+      - --buildtype=release
+      # only the C library is consumed by crosswords
+      - -Dintrospection=disabled
+      - -Ddocumentation=disabled
+    build-packages:
+      - cargo
+      - rustc
+    override-build: |
+      craftctl default
+      # The .pc file is generated with absolute /usr paths, which resolve to
+      # the build root rather than the staged copy. Point it at CRAFT_STAGE
+      # while the crosswords part builds; the file is not shipped.
+      sed -i -e "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+             -e "s|^libdir=.*|libdir=$CRAFT_STAGE/usr/lib|" \
+             -e "s|^includedir=.*|includedir=$CRAFT_STAGE/usr/include|" \
+        "$CRAFT_PART_INSTALL/usr/lib/pkgconfig/libipuz-0.5.pc"
+    prime:
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/libexec/installed-tests
+      - -usr/share/gir-1.0
+      - -usr/share/gtk-doc
+      - -usr/share/installed-tests
+      - -usr/share/doc
+      - -usr/share/man
+
+  crossword-editor:
+    after: [libipuz]
+    source: https://gitlab.gnome.org/jrb/crosswords/-/archive/0.3.19.1/crosswords-0.3.19.1.tar.gz
+    source-type: tar
+    source-checksum: sha256/a16aa295a54d4771bd0e8b8c94246220a3a56440815211a8e1e145bbc7e119b5
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Crosswords.Editor.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/crossword-editor/current/usr
+      - --buildtype=release
+      # the default is a development build: it switches the app IDs to
+      # org.gnome.Crosswords.Editor.Devel and installs the Devel desktop file
+      - -Ddevelopment=false
+      # the Caveat font used by some puzzle sets
+      - -Dinstall_fonts=true
+    organize:
+      snap/crossword-editor/current/usr: usr
+    build-packages:
+      # iso-codes.pc, used only for its prefix; the data comes from the
+      # gnome-core26 content snap at runtime
+      - iso-codes
+    build-environment:
+      # Build against the libipuz staged by the part above. Its .pc file
+      # advertises only -I${includedir}/libipuz, while the sources include
+      # <libipuz/libipuz.h>, so the staged include root is added explicitly.
+      - PKG_CONFIG_PATH: $CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
+      - C_INCLUDE_PATH: $CRAFT_STAGE/usr/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}
+      - LD_LIBRARY_PATH: $CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    override-pull: |
+      craftctl default
+      # The SDK's iso-codes.pc points its prefix into the SDK, which does not
+      # exist at runtime. The gnome extension binds /usr/share/xml/iso-codes
+      # to the content snap, so compile that path in instead (the same fix as
+      # the evolution recipe).
+      sed -i "s|iso_codes_prefix = iso_codes.get_variable(pkgconfig: 'prefix')|iso_codes_prefix = '/usr'|" \
+        meson.build
+    override-build: |
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs. Compile the schemas so Gio.Settings resolves
+      # org.gnome.Crosswords and org.gnome.Crosswords.Editor on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/crossword-editor/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      sed -i "s|^Icon=org.gnome.Crosswords.Editor$|Icon=\${SNAP}/meta/gui/org.gnome.Crosswords.Editor.svg|" \
+        "$CRAFT_PART_INSTALL/snap/crossword-editor/current/usr/share/applications/org.gnome.Crosswords.Editor.desktop"
+      install -Dm644 \
+        "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Crosswords.Editor.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Crosswords.Editor.svg"
+    prime:
+      # the game is packaged separately as gnome-crosswords
+      - -usr/bin/crosswords
+      - -usr/share/applications/org.gnome.Crosswords.desktop
+      - -usr/share/metainfo/org.gnome.Crosswords.metainfo.xml
+      - -usr/share/dbus-1/services/org.gnome.Crosswords.service
+      - -usr/share/icons/hicolor/scalable/apps/org.gnome.Crosswords.svg
+      - -usr/share/icons/hicolor/symbolic/apps/org.gnome.Crosswords-symbolic.svg
+      # dead in a strict snap: the host file manager cannot register the
+      # thumbnailer, and the snap does not ship a file manager
+      - -usr/bin/crosswords-thumbnailer
+      - -usr/share/thumbnailers/crosswords.thumbnailer
+      - -usr/share/doc
+      - -usr/share/man

@@ -1,0 +1,227 @@
+name: gnome-crosswords
+adopt-info: gnome-crosswords
+title: Crosswords
+license: GPL-3.0-or-later
+website: https://apps.gnome.org/Crosswords/
+contact: https://gitlab.gnome.org/jrb/crosswords/-/issues
+issues: https://gitlab.gnome.org/jrb/crosswords/-/issues
+source-code: https://gitlab.gnome.org/jrb/crosswords
+summary: Solve crossword puzzles
+description: |
+  Crosswords is a crossword player for GNOME. It supports cryptic,
+  acrostic, barred, arrowword, filippine, vocabulary and rebus-style
+  puzzles.
+
+  The game loads .ipuz puzzles natively, including the built-in puzzle
+  sets. The optional Python converters for .puz, .jpz and .xd files are
+  not bundled, so those formats must be converted to .ipuz first.
+
+  Strict-confinement notes:
+   * Files in the home directory are accessible; other locations are only
+     reachable through the file chooser (XDG document portal).
+   * Puzzle-set downloads use the network interface.
+   * Nautilus will not render .ipuz thumbnails: a strict snap cannot
+     register a thumbnailer with the host file manager, so the thumbnailer
+     is not shipped.
+   * Printing is done through the desktop portal; printers configured on
+     the host are not directly visible to the snap.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Crosswords.service.in)
+  crosswords:
+    interface: dbus
+    bus: session
+    name: org.gnome.Crosswords
+
+apps:
+  gnome-crosswords:
+    extensions: [gnome]
+    command: usr/bin/crosswords
+    desktop: usr/share/applications/org.gnome.Crosswords.desktop
+    common-id: org.gnome.Crosswords.desktop
+    environment:
+      # libipuz is built in this snap, not provided by gnome-core26. The
+      # gnome extension only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.Crosswords GSettings schema
+      - gsettings
+      # open and save puzzle files
+      - home
+      # download puzzle sets and puzzles
+      - network
+
+# Crosswords 0.3.19.1 is a C + GTK4/libadwaita application built with
+# Meson. Upstream also builds the Crossword Editor from the same tree; this
+# snap exposes only the player, and primes the editor and its large word
+# lists out (the editor has its own snap).
+# GTK 4.24, libadwaita 1.10, json-glib, iso-codes and the build tools come
+# from the gnome-core26 SDK/content snaps. Two dependencies are not in the
+# platform or in the 26.04 archive:
+#
+#  * libipuz 0.5.6, the .ipuz parser. It is a C library with a Rust core and
+#    is not packaged in Ubuntu 26.04 at all, so it is built here. Its Cargo
+#    dependencies come from crates.io during the build (upstream Cargo.lock
+#    pins them); cargo/rustc 1.93 are from the archive and satisfy the
+#    rust-version = 1.92 requirement.
+#  * blueprint-compiler 0.20.3. The 26.04 archive has 0.19, but crosswords
+#    requires >= 0.20.3 for its .blp UI files, so the matching upstream
+#    release is built as a build-only part.
+#
+# The source is the 0.3.19.1 release tarball rather than a git checkout:
+# four word-list data files are stored in Git LFS, and snapcraft's git
+# source does not fetch LFS objects. The GitLab release archive carries the
+# expanded blobs, which the word-list GResources need.
+#
+# The prefix is the runtime mount path, not /usr: PKGDATADIR, LOCALEDIR,
+# LIBEXECDIR and the D-Bus service Exec lines are compiled in, and a /usr
+# prefix would resolve them to the core26 base instead of the snap.
+# organize moves the installed tree back under usr/.
+parts:
+  libipuz:
+    source: https://gitlab.gnome.org/jrb/libipuz.git
+    source-type: git
+    source-tag: '0.5.6'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      # keep the library in usr/lib, the same directory the app lists on
+      # LD_LIBRARY_PATH
+      - --libdir=lib
+      - --buildtype=release
+      # only the C library is consumed by crosswords
+      - -Dintrospection=disabled
+      - -Ddocumentation=disabled
+    build-packages:
+      - cargo
+      - rustc
+    override-build: |
+      craftctl default
+      # The generated .pc file uses absolute /usr paths, which resolve to the
+      # build root rather than the staged copy. Point it at CRAFT_STAGE while
+      # the crosswords part builds; the file is not shipped.
+      sed -i -e "s|^prefix=.*|prefix=$CRAFT_STAGE/usr|" \
+             -e "s|^libdir=.*|libdir=$CRAFT_STAGE/usr/lib|" \
+             -e "s|^includedir=.*|includedir=$CRAFT_STAGE/usr/include|" \
+        "$CRAFT_PART_INSTALL/usr/lib/pkgconfig/libipuz-0.5.pc"
+    prime:
+      # development files are only needed while crosswords is built
+      - -usr/include
+      - -usr/lib/pkgconfig
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/gtk-doc
+      - -usr/share/doc
+      - -usr/share/man
+
+  blueprint-compiler:
+    source: https://gitlab.gnome.org/GNOME/blueprint-compiler.git
+    source-type: git
+    source-tag: 'v0.20.3'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    build-packages:
+      # the compiler is a PyGObject program
+      - python3-gi
+    override-build: |
+      craftctl default
+      # The installed wrapper imports blueprintcompiler from the absolute
+      # Python module path Meson recorded (/usr/lib/python3/dist-packages),
+      # which would find nothing when run from CRAFT_STAGE. Rewrite it to the
+      # staged copy.
+      module_path=$(sed -n 's|^module_path = r"\(.*\)"$|\1|p' \
+        "$CRAFT_PART_INSTALL/usr/bin/blueprint-compiler")
+      if [ -n "$module_path" ]; then
+        sed -i "s|^module_path = r\".*\"$|module_path = r\"$CRAFT_STAGE$module_path\"|" \
+          "$CRAFT_PART_INSTALL/usr/bin/blueprint-compiler"
+      fi
+    prime:
+      # build-only: crosswords invokes it through CRAFT_STAGE during the
+      # build, but it is not needed at runtime
+      - -*
+
+  gnome-crosswords:
+    after: [libipuz, blueprint-compiler]
+    source: https://gitlab.gnome.org/jrb/crosswords/-/archive/0.3.19.1/crosswords-0.3.19.1.tar.gz
+    source-type: tar
+    source-checksum: sha256/a16aa295a54d4771bd0e8b8c94246220a3a56440815211a8e1e145bbc7e119b5
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Crosswords.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/gnome-crosswords/current/usr
+      - --buildtype=release
+      # the default is a development build: it switches the app IDs to
+      # org.gnome.Crosswords.Devel and installs the Devel desktop files
+      - -Ddevelopment=false
+      # the Caveat font used by some puzzle sets
+      - -Dinstall_fonts=true
+    organize:
+      snap/gnome-crosswords/current/usr: usr
+    build-packages:
+      # iso-codes.pc, used only for its prefix; the data comes from the
+      # gnome-core26 content snap at runtime
+      - iso-codes
+    override-pull: |
+      craftctl default
+      # The SDK's iso-codes.pc points its prefix into the SDK, which does not
+      # exist at runtime. The gnome extension's layout binds
+      # /usr/share/xml/iso-codes to the content snap, so compile that path
+      # in instead (the same fix as the evolution recipe).
+      sed -i "s|iso_codes_prefix = iso_codes.get_variable(pkgconfig: 'prefix')|iso_codes_prefix = '/usr'|" \
+        meson.build
+    override-build: |
+      # blueprint-compiler is staged by its part rather than installed into
+      # the build environment.
+      export PATH="$CRAFT_STAGE/usr/bin:$PATH"
+      # libipuz's .pc file adds -I${includedir}/libipuz, while the sources
+      # include <libipuz/libipuz.h>, so the staged include root is needed as
+      # well.
+      export PKG_CONFIG_PATH="$CRAFT_STAGE/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+      export C_INCLUDE_PATH="$CRAFT_STAGE/usr/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
+      export LD_LIBRARY_PATH="$CRAFT_STAGE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, which is how
+      # snapcraft installs. Compile the schemas so Gio.Settings resolves
+      # org.gnome.Crosswords and org.gnome.Crosswords.Editor on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gnome-crosswords/current/usr/share/glib-2.0/schemas"
+      # Use the icon bundled in the snap so the launcher does not have to
+      # find it in the host theme.
+      app=org.gnome.Crosswords
+      sed -i "s|^Icon=$app$|Icon=\${SNAP}/meta/gui/$app.svg|" \
+        "$CRAFT_PART_INSTALL/snap/gnome-crosswords/current/usr/share/applications/$app.desktop"
+      install -Dm644 "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/$app.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/$app.svg"
+    prime:
+      # upstream builds the editor and the game from the same tree; the
+      # editor is packaged as its own snap. Keep only the player here, and
+      # only the word list it uses.
+      - -usr/bin/crossword-editor
+      - -usr/share/applications/org.gnome.Crosswords.Editor.desktop
+      - -usr/share/metainfo/org.gnome.Crosswords.Editor.metainfo.xml
+      - -usr/share/dbus-1/services/org.gnome.Crosswords.Editor.service
+      - -usr/share/icons/hicolor/scalable/apps/org.gnome.Crosswords.Editor.svg
+      - -usr/share/icons/hicolor/symbolic/apps/org.gnome.Crosswords.Editor-symbolic.svg
+      - -usr/share/crosswords/word-lists/broda.gresource
+      - -usr/share/crosswords/word-lists/wordnik.gresource
+      # dead in a strict snap: the host file manager cannot register the
+      # thumbnailer, and the snap does not ship a file manager
+      - -usr/bin/crosswords-thumbnailer
+      - -usr/share/thumbnailers/crosswords.thumbnailer
+      # internal helper used to build the word-list resources
+      - -usr/libexec/gen-word-list-resource
+      - -usr/share/doc
+      - -usr/share/man

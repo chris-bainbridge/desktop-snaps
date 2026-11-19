@@ -1,0 +1,7 @@
+# Build metadata for buffer (new core26 recipe, 2026-11).
+snap: buffer
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/cheywood/Buffer (2026.1)
+imported: '2026-11-19'

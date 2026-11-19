@@ -1,0 +1,197 @@
+name: parabolic
+title: Parabolic
+adopt-info: parabolic
+license: MIT
+website: https://nickvision.org/parabolic.html
+source-code: https://github.com/NickvisionApps/Parabolic
+issues: https://github.com/NickvisionApps/Parabolic/issues
+contact: https://github.com/NickvisionApps/Parabolic/issues
+
+summary: Download web video and audio
+description: |
+  Parabolic is a yt-dlp frontend for downloading video and audio from
+  hundreds of web sites. It downloads MP4, WebM, MP3, Opus, FLAC and WAV,
+  with optional subtitles, chapters and metadata, and runs several
+  downloads concurrently.
+
+  Strict-confinement notes:
+
+   * The snap already bundles yt-dlp 2026.03.17, deno 2.8.0, FFmpeg and
+     aria2c, so downloads work at first start without fetching more tools.
+     Parabolic can still update yt-dlp and deno from GitHub into its private
+     data directory; those copies take precedence over the bundled ones and
+     are not shared with a distribution install.
+   * New downloads go to ~/Downloads by default. The home interface exposes
+     non-hidden paths in the user's home; other locations are only reachable
+     through the XDG file chooser portal. Removable media is not connected.
+   * Credentials cannot be stored in the host keyring: the
+     password-manager-service interface is not used, so the app's credential
+     database is kept unencrypted in its private directory under
+     ~/snap/parabolic/.
+   * Importing cookies straight from a browser profile is not possible. The
+     home interface does not expose hidden directories such as ~/.mozilla or
+     ~/.config/google-chrome, so export a cookies.txt into a non-hidden path
+     and select it in Preferences.
+   * The browser extension hands URLs to the app as parabolic:// links. Snap
+     desktop entries cannot register new URL schemes with the host, so those
+     links do not reach the snap; paste the URL into the app instead.
+   * The snap's own configuration, database and downloaded dependency
+     updates live below ~/snap/parabolic/, not in ~/.config or ~/.local.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (org.nickvision.tubeconverter)
+  parabolic:
+    interface: dbus
+    bus: session
+    name: org.nickvision.tubeconverter
+
+apps:
+  parabolic:
+    extensions: [gnome]
+    command: usr/lib/org.nickvision.tubeconverter/Nickvision.Parabolic.GNOME
+    desktop: usr/share/applications/org.nickvision.tubeconverter.desktop
+    common-id: org.nickvision.tubeconverter
+    plugs:
+      - gsettings # GTK theme, fonts and desktop settings
+      - home      # music, videos and the file chooser
+      - network   # metadata lookups and downloads
+
+# Parabolic 2026.5.0 is a .NET 10 application: the GNOME frontend is C# with
+# Gir.Core (GTK 4 + libadwaita) and Blueprint templates, not the older
+# C++/GTKmm/libnick code base. The build is a plain `dotnet publish`; the
+# csproj compiles the .blp files and the GResource and generates the gettext
+# catalogs through MSBuild targets.
+#
+# The csproj sets PublishAot=true. This recipe turns native AOT off and
+# publishes self-contained ReadyToRun binaries instead: the distro SDK does
+# not ship the ILCompiler toolchain, and Gir.Core/Nickvision.Desktop rely on
+# run-time marshalling that is safer with the normal CoreCLR host. The whole
+# .NET runtime is copied into usr/lib/org.nickvision.tubeconverter, so no
+# separate dotnet-runtime content snap is required.
+parts:
+  parabolic:
+    source: https://github.com/NickvisionApps/Parabolic.git
+    source-type: git
+    source-tag: '2026.5.0'
+    source-depth: 1
+    plugin: nil
+    build-packages:
+      - blueprint-compiler # .blp -> GtkBuilder XML
+      - dotnet-sdk-10.0   # the 26.04 archive has .NET 10
+      - gettext           # xgettext, msgmerge and msgfmt in the MSBuild targets
+      - libglib2.0-dev-bin # glib-compile-resources for the .gresource
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      set -eux
+      export DOTNET_CLI_TELEMETRY_OPTOUT=1
+      export DOTNET_NOLOGO=1
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64) runtime=linux-x64 ;;
+        arm64) runtime=linux-arm64 ;;
+        *) echo "unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2; exit 1 ;;
+      esac
+      # No -o: the csproj's AfterTargets=Publish hooks write ui/, *.gresource,
+      # <lang>/parabolic.mo and plugins/ relative to PublishDir, which only
+      # works with its default relative value. Copy the publish tree instead,
+      # as upstream's resources/linux/publish-and-install.sh does.
+      dotnet publish -c Release \
+        --runtime "$runtime" \
+        --self-contained true \
+        -p:PublishAot=false \
+        -p:PublishReadyToRun=true \
+        "$CRAFT_PART_SRC/Nickvision.Parabolic.GNOME/Nickvision.Parabolic.GNOME.csproj"
+      publish_dir="$(find "$CRAFT_PART_SRC/Nickvision.Parabolic.GNOME/bin/Release" -type d -name publish | head -n 1)"
+      test -d "$publish_dir"
+      app_dir="$CRAFT_PART_INSTALL/usr/lib/org.nickvision.tubeconverter"
+      install -d "$app_dir"
+      cp -a "$publish_dir/." "$app_dir/"
+
+      # Desktop entry. Exec is left as the snap app name; snapd rewrites it
+      # (and drops DBusActivatable, which snaps do not support) on install.
+      # The shell redirection below does not create parents, unlike install -D.
+      install -d "$CRAFT_PART_INSTALL/usr/share/applications"
+      sed -e 's|@APP_ID@|org.nickvision.tubeconverter|g' \
+          -e 's|@LIB_DIR@|/snap/parabolic/current/usr/lib/org.nickvision.tubeconverter|g' \
+          -e 's|@OUTPUT_NAME@|Nickvision.Parabolic.GNOME|g' \
+          -e 's|^Exec=.*|Exec=parabolic %u|' \
+          -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/org.nickvision.tubeconverter.svg|' \
+          "$CRAFT_PART_SRC/resources/linux/org.nickvision.tubeconverter.desktop.in" \
+          > "$CRAFT_PART_INSTALL/usr/share/applications/org.nickvision.tubeconverter.desktop"
+      install -Dm644 \
+        "$CRAFT_PART_SRC/resources/linux/org.nickvision.tubeconverter.metainfo.xml" \
+        "$CRAFT_PART_INSTALL/usr/share/metainfo/org.nickvision.tubeconverter.metainfo.xml"
+
+      # Bundle the icon so the launcher does not have to find it in the host
+      # theme, and install it in the hicolor tree for the app switcher.
+      install -Dm644 "$CRAFT_PART_SRC/resources/org.nickvision.tubeconverter.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/org.nickvision.tubeconverter.svg"
+      install -Dm644 "$CRAFT_PART_SRC/resources/org.nickvision.tubeconverter.svg" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.nickvision.tubeconverter.svg"
+      install -Dm644 "$CRAFT_PART_SRC/resources/org.nickvision.tubeconverter-symbolic.svg" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/symbolic/apps/org.nickvision.tubeconverter-symbolic.svg"
+
+  # The app looks for yt-dlp and deno on PATH and expects the versions it was
+  # built against (2026.03.17 and 2.8.0). They are not in the 26.04 archive
+  # (deno) or are best taken from upstream's own static builds (yt-dlp), and
+  # the app only offers to update them, never to install them from scratch.
+  # Both are pinned by version and per-architecture sha256.
+  tools:
+    plugin: nil
+    build-packages:
+      - ca-certificates
+      - curl
+      - unzip
+    override-pull: |
+      set -eux
+      craftctl default
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)
+          ytdlp_asset=yt-dlp_linux
+          ytdlp_sha256=c2b0189f581fe4a2ddd41954f1bcb7d327db04b07ed0dea97e4f1b3e09b5dd8e
+          deno_asset=deno-x86_64-unknown-linux-gnu.zip
+          deno_sha256=be2c8b53c8ca1d66be76feb9b1a524419da708b00d4ca074cf5c633c81c1627b
+          ;;
+        arm64)
+          ytdlp_asset=yt-dlp_linux_aarch64
+          ytdlp_sha256=6bfa19736181da9e2e066f9c767da2f24fdcc5e148fa5034d1feb09132f89ad5
+          deno_asset=deno-aarch64-unknown-linux-gnu.zip
+          deno_sha256=933a6a7d2985957271cd2085a5a5a1832398aa221a354daab5635196cf2cbbae
+          ;;
+        *)
+          echo "unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2
+          exit 1
+          ;;
+      esac
+      curl -fL --retry 3 --retry-delay 2 -o "$CRAFT_PART_SRC/yt-dlp" \
+        "https://github.com/yt-dlp/yt-dlp/releases/download/2026.03.17/$ytdlp_asset"
+      echo "$ytdlp_sha256  $CRAFT_PART_SRC/yt-dlp" | sha256sum -c -
+      curl -fL --retry 3 --retry-delay 2 -o "$CRAFT_PART_SRC/deno.zip" \
+        "https://github.com/denoland/deno/releases/download/v2.8.0/$deno_asset"
+      echo "$deno_sha256  $CRAFT_PART_SRC/deno.zip" | sha256sum -c -
+    override-build: |
+      set -eux
+      install -Dm755 "$CRAFT_PART_SRC/yt-dlp" "$CRAFT_PART_INSTALL/usr/bin/yt-dlp"
+      unzip -q "$CRAFT_PART_SRC/deno.zip" -d "$CRAFT_PART_SRC/deno"
+      install -Dm755 "$CRAFT_PART_SRC/deno/deno" "$CRAFT_PART_INSTALL/usr/bin/deno"
+
+  # yt-dlp drives external programs for merging, conversion, thumbnails and
+  # metadata, and optionally for parallel downloads. Both are found on PATH
+  # through Nickvision.Desktop's FindDependency("ffmpeg"/"aria2c").
+  libraries:
+    plugin: nil
+    stage-packages:
+      - aria2  # the "Use aria2c" preference
+      - ffmpeg # merge, remux, extract audio, embed subtitles/metadata
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
