@@ -326,10 +326,18 @@ mod tests {
     }
 
     #[test]
-    fn shortens_http_status_errors() {
+    fn shortens_any_http_status_error() {
         assert_eq!(
             concise_error("HTTP 429 Too Many Requests: Retry later"),
             "429 Too Many Requests"
+        );
+        assert_eq!(
+            concise_error("HTTP 404 Not Found: no such repository"),
+            "404 Not Found"
+        );
+        assert_eq!(
+            concise_error("HTTP 500 Internal Server Error: upstream failure"),
+            "500 Internal Server Error"
         );
     }
 
