@@ -20,6 +20,8 @@ struct Row {
     tag: String,
     latest: String,
     version: String,
+    current_version: String,
+    latest_version: String,
     mode: &'static str,
     action: &'static str,
 }
@@ -155,10 +157,24 @@ async fn resolve_package(
         result.error = Some(format!("{error:#}"));
     }
 
+    let pattern = Regex::new(result.package.metadata.upstream.tag_pattern())
+        .expect("tag-pattern validated during discovery");
     for track in &result.package.tracks {
         let latest_tag = match &latest {
             Some(Ok(latest)) => latest.tag.clone(),
             _ => "-".to_string(),
+        };
+        let latest_version = match &latest {
+            Some(Ok(latest)) => latest.version.clone(),
+            _ => "-".to_string(),
+        };
+        let current_version = match &track.source_tag {
+            Some(tag) => pattern
+                .captures(tag)
+                .and_then(|captures| captures.get(1))
+                .map(|capture| capture.as_str().to_string())
+                .unwrap_or_else(|| tag.clone()),
+            None => track.display_version().to_string(),
         };
         let action = if result.package.metadata.upstream.provider.is_manual() {
             "manual"
@@ -166,21 +182,11 @@ async fn resolve_package(
             "report-only"
         } else {
             match &latest {
-                Some(Ok(latest)) => {
-                    let current_tag = track.source_tag.as_deref().unwrap_or("");
-                    let pattern = Regex::new(result.package.metadata.upstream.tag_pattern())
-                        .expect("tag-pattern validated during discovery");
-                    let current_version = pattern
-                        .captures(current_tag)
-                        .and_then(|captures| captures.get(1))
-                        .map(|capture| capture.as_str())
-                        .unwrap_or(current_tag);
-                    match version::compare(&latest.version, current_version) {
-                        Ordering::Greater => "bump",
-                        Ordering::Equal => "up-to-date",
-                        Ordering::Less => "ahead",
-                    }
-                }
+                Some(Ok(latest)) => match version::compare(&latest.version, &current_version) {
+                    Ordering::Greater => "bump",
+                    Ordering::Equal => "up-to-date",
+                    Ordering::Less => "ahead",
+                },
                 Some(Err(_)) | None => "error",
             }
         };
@@ -192,6 +198,8 @@ async fn resolve_package(
             tag: track.source_tag.clone().unwrap_or_else(|| "-".to_string()),
             latest: latest_tag,
             version: track.display_version().to_string(),
+            current_version,
+            latest_version,
             mode: track.mode.as_str(),
             action,
         });
@@ -213,22 +221,50 @@ fn print_progress(completed: usize, total: usize, name_width: usize, result: &Pa
 
 fn progress_status(result: &PackageResult) -> String {
     if let Some(error) = &result.error {
-        return format!("[error - {}]", concise_error(error));
+        return format!("! {}", concise_error(error));
     }
-    if result.package.metadata.upstream.provider.is_manual() {
-        return "[manual]".to_string();
+    if result.rows.is_empty() {
+        return "! no recipe".to_string();
     }
-    let Some(row) = result.rows.first() else {
-        return "[-]".to_string();
-    };
+
+    result
+        .rows
+        .iter()
+        .map(progress_segment)
+        .collect::<Vec<_>>()
+        .join("   ")
+}
+
+fn progress_segment(row: &Row) -> String {
+    let indicator = track_indicator(&row.track);
     match row.action {
-        "bump" => format!("[{} -> {}] *UPDATED*", row.version, row.latest),
-        "ahead" => format!("[{} -> {}] *AHEAD*", row.version, row.latest),
-        "up-to-date" => format!("[{}]", row.version),
-        "report-only" if row.version == "-" => "[report-only]".to_string(),
-        "report-only" => format!("[{}] report-only", row.version),
-        "error" => "[error]".to_string(),
-        _ => format!("[{}]", row.version),
+        "bump" => format!(
+            "({indicator}) {} -> {}",
+            row.current_version, row.latest_version
+        ),
+        "ahead" => format!(
+            "({indicator}) {} <- {} * ahead",
+            row.current_version, row.latest_version
+        ),
+        "up-to-date" => format!("({indicator}) {}", row.current_version),
+        "report-only" if row.current_version == "-" => {
+            format!("({indicator}) * report-only")
+        }
+        "report-only" => format!("({indicator}) {} * report-only", row.current_version),
+        "manual" if row.current_version == "-" => format!("({indicator}) * manual"),
+        "manual" => format!("({indicator}) {} * manual", row.current_version),
+        "error" => format!("({indicator}) ! error"),
+        _ => format!("({indicator}) {}", row.current_version),
+    }
+}
+
+fn track_indicator(track: &str) -> char {
+    match track {
+        "stable" => 'S',
+        "candidate" => 'C',
+        "beta" => 'B',
+        "edge" => 'E',
+        _ => '?',
     }
 }
 
@@ -248,7 +284,46 @@ fn concise_error(error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::concise_error;
+    use super::{Row, concise_error, progress_segment, track_indicator};
+
+    fn row(track: &str, action: &'static str, version: &str, latest: &str) -> Row {
+        Row {
+            package: "test".to_string(),
+            track: track.to_string(),
+            upstream: "test".to_string(),
+            tag: "-".to_string(),
+            latest: "-".to_string(),
+            version: version.to_string(),
+            current_version: version.to_string(),
+            latest_version: latest.to_string(),
+            mode: "tag",
+            action,
+        }
+    }
+
+    #[test]
+    fn formats_progress_segments() {
+        assert_eq!(
+            progress_segment(&row("stable", "bump", "9.10", "9.11")),
+            "(S) 9.10 -> 9.11"
+        );
+        assert_eq!(
+            progress_segment(&row("stable", "report-only", "2.4.0", "-")),
+            "(S) 2.4.0 * report-only"
+        );
+        assert_eq!(
+            progress_segment(&row("edge", "up-to-date", "9.12b", "-")),
+            "(E) 9.12b"
+        );
+    }
+
+    #[test]
+    fn uses_single_letter_track_indicators() {
+        assert_eq!(track_indicator("stable"), 'S');
+        assert_eq!(track_indicator("candidate"), 'C');
+        assert_eq!(track_indicator("beta"), 'B');
+        assert_eq!(track_indicator("edge"), 'E');
+    }
 
     #[test]
     fn shortens_http_status_errors() {
