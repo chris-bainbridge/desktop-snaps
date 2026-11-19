@@ -84,21 +84,39 @@ parts:
     after: [desktop-glib]
     plugin: nil
     source: .
+    # Upstream has been frozen at 1.9.8 since 2021. Pin the release and fetch
+    # it at build time, so a clean checkout builds without a manual download.
+    override-pull: |
+        set -eu
+
+        version=1.9.8
+        archive="projectlibre-$version.tar.gz"
+        checksum=7ae4fd810e9e2c7f10f943a0906586851adda8e8b095918d87919148cdcfc8fa
+        url="https://downloads.sourceforge.net/project/projectlibre/ProjectLibre/$version/$archive"
+
+        cd "$CRAFT_PART_SRC"
+        mkdir -p download
+        # A stale tarball from an earlier manual build must not outrank the
+        # pinned one in override-build's version sort.
+        rm -f download/projectlibre-*.tar.gz
+        curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+            --output "download/$archive" "$url"
+
+        printf '%s  %s\n' "$checksum" "download/$archive" | sha256sum --check --strict -
     override-build: |
         set -eu
         mkdir -p $SNAPCRAFT_PART_INSTALL/projectlibre
 
-        # The tarball is downloaded separately into download/: pick the latest
-        # projectlibre-*.tar.gz there and derive the snap version from its
-        # filename (see issue #2).
+        # override-pull fetches the pinned tarball into download/: derive the
+        # snap version from its filename (see issue #2).
         tarball=$(ls -1 download/projectlibre-*.tar.gz|sort -V|tail -1)
         if [ -z "$tarball" ]; then
-            echo "ERROR: no download/projectlibre-*.tar.gz; fetch the latest tarball from https://sourceforge.net/projects/projectlibre/files/" >&2
+            echo "ERROR: no download/projectlibre-*.tar.gz; override-pull should have fetched it" >&2
             exit 1
         fi
         tar xzf "$tarball" -C $SNAPCRAFT_PART_INSTALL/projectlibre --strip-components=1
         chmod +x $SNAPCRAFT_PART_INSTALL/projectlibre/projectlibre.sh
-        cp snap/projectlibre-launch $SNAPCRAFT_PART_INSTALL/projectlibre/launch.sh
+        cp $SNAPCRAFT_PROJECT_DIR/snap/projectlibre-launch $SNAPCRAFT_PART_INSTALL/projectlibre/launch.sh
         chmod +x $SNAPCRAFT_PART_INSTALL/projectlibre/launch.sh
 
         # Register the application/x-projectlibre mime type (see snap/gui/
@@ -108,7 +126,7 @@ parts:
         # host file managers still see Perl POD; a real fix needs an upstream
         # extension/mime-type change (see issue #5).
         mkdir -p $SNAPCRAFT_PART_INSTALL/usr/share/mime/packages
-        cp snap/gui/projectlibre.xml $SNAPCRAFT_PART_INSTALL/usr/share/mime/packages/
+        cp $SNAPCRAFT_PROJECT_DIR/snap/gui/projectlibre.xml $SNAPCRAFT_PART_INSTALL/usr/share/mime/packages/
 
         # JAVA_HOME must not hardcode the architecture: symlink default-java
         # to the JVM staged for the build arch and point the app env at it, so
@@ -149,6 +167,7 @@ parts:
         done
     build-packages:
       - ca-certificates-java
+      - curl
       - openjdk-21-jre
     stage-packages:
       - ca-certificates-java

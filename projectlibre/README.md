@@ -3,14 +3,19 @@
 This is the `snapcraft.yaml` file to build the snap package of  ProjectLibre.
 
 ## How to build the package
-Download the latest projectlibre tar.gz from
-[Sourceforge](https://sourceforge.net/projects/projectlibre/files/)
-into the `download/` directory, then run the command:
+
+The build downloads the pinned ProjectLibre release from
+[SourceForge](https://sourceforge.net/projects/projectlibre/files/) and
+verifies it against a SHA-256 checksum recorded in `snapcraft.yaml`, so there
+is no manual download step. To move to a new upstream release, update
+`version` and `checksum` in the `override-pull` of the `projectlibre` part.
+
+From the repository root, run the command:
 ```
 $ snapcraft
 ```
 
-The build picks the latest `projectlibre-*.tar.gz` found in `download/`.
+The Snap version is taken from the archive name.
 
 ## Known Issues
 Printing works via the `cups` interface (verified end-to-end against a test
