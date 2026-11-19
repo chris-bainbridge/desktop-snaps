@@ -7,7 +7,11 @@ description: |
   same color and shape causing them to disappear.
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 layout:
   /usr/share/five-or-more/themes:
@@ -24,7 +28,10 @@ apps:
   five-or-more:
     command: usr/bin/five-or-more
     extensions: [ gnome ]
+    plugs:
+      - gsettings
     desktop: usr/share/applications/org.gnome.five-or-more.desktop
+    common-id: org.gnome.five-or-more.desktop
 
 parts:
   five-or-more:
@@ -34,18 +41,30 @@ parts:
     source-depth: 1
     override-pull: |
       craftctl default
-      craftctl set version=$(git describe --tags --abbrev=0)
+      craftctl set version=$(git describe --tags --abbrev=10)
     override-build: |
       sed -i.bak -e 's|Icon=org.gnome.five-or-more$|Icon=${SNAP}/meta/gui/org.gnome.five-or-more.png|g' $CRAFT_PART_SRC/data/org.gnome.five-or-more.desktop.in
       craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. five-or-more creates its Gio.Settings
+      # objects at start-up; make sure gschemas.compiled is in the snap.
+      glib-compile-schemas $CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
-      cp ../src/data/icons/hicolor/256x256/org.gnome.five-or-more.png $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/256x256/org.gnome.five-or-more.png $CRAFT_PART_INSTALL/meta/gui/
     plugin: meson
     meson-parameters: [--prefix=/usr]
     build-packages:
+      # not shipped by the gnome-core26 SDK
       - libgnome-games-support-1-dev
+    parse-info: [usr/share/metainfo/org.gnome.five-or-more.metainfo.xml]
+
+  libraries:
+    plugin: nil
     stage-packages:
+      # gnome-core26 ships libgnome-games-support-2, not the GTK3 -1 ABI
       - libgnome-games-support-1-3
-    parse-info: [usr/share/metainfo/org.gnome.SwellFoop.appdata.xml]
-    organize:
-      snap/five-or-more/current/usr: usr
+    prime:
+      # everything else this pulls in (GTK3, cairo, pango, librsvg, ...) is
+      # provided by gnome-core26; keep only the library and its translations
+      - usr/lib/*/libgnome-games-support*
+      - usr/share/locale/*/LC_MESSAGES/libgnome-games-support.mo
