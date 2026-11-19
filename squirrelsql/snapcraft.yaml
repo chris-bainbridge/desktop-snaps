@@ -64,14 +64,35 @@ parts:
   squirrelsql:
     after: [desktop-glib-only, jdbc-drivers, jdk]
     plugin: nil
-    source: squirrelsql-src
+    source: .
+    # The distribution ZIP name is the single source of truth for the version:
+    # pin the release and checksum here and let override-build derive the snap
+    # version from the filename.
+    override-pull: |
+      set -eu
+
+      version=5.2.0
+      archive="squirrelsql-$version-standard.zip"
+      checksum=c24e234ae65f54cc54cb6d647793c5dde980d66e3bf718e384107f4c53cb8d0a
+      url="https://downloads.sourceforge.net/project/squirrel-sql/1-stable/$version-plainzip/$archive"
+
+      cd "$CRAFT_PART_SRC"
+      mkdir -p download
+      # A stale archive from an earlier manual build must not outrank the
+      # pinned one in override-build's version sort.
+      find download -maxdepth 1 -type f -name 'squirrelsql-*-standard.zip' -delete
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "download/$archive" "$url"
+
+      printf '%s  %s\n' "$checksum" "download/$archive" | sha256sum --check --strict -
     build-packages:
+      - curl
       - default-jdk
       - unzip
     override-build: |
-      set -- "$SNAPCRAFT_PART_SRC"/squirrelsql-*-standard.zip
+      set -- "$SNAPCRAFT_PART_SRC"/download/squirrelsql-*-standard.zip
       if [ ! -f "$1" ]; then
-        echo "Add versioned squirrelsql-<version>-standard.zip archives to squirrelsql-src/" >&2
+        echo "override-pull should have fetched squirrelsql-<version>-standard.zip" >&2
         exit 1
       fi
       ZIP=$(printf '%s\n' "$@" | sort -V | tail -n 1)

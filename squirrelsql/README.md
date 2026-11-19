@@ -43,21 +43,23 @@ the SQuirreL SQL version and relevant database/JDBC driver details.
 Requirements: Snapcraft 9 and a working `snapcraft` installation. The build
 uses Snapcraft's managed build environment for the `core26` base.
 
-1. Download a SQuirreL SQL **standard ZIP** distribution from the
-   [upstream downloads](https://sourceforge.net/projects/squirrel-sql/files/).
-2. Place the original, versioned archive in `squirrelsql-src/`, for example
-   `squirrelsql-5.1.0-standard.zip`. ZIP files there are ignored by Git.
-3. From the repository root, run:
+The build downloads the pinned SQuirreL SQL **standard ZIP** distribution
+from the [upstream downloads](https://sourceforge.net/projects/squirrel-sql/files/)
+and verifies it against a SHA-256 checksum recorded in `snapcraft.yaml`, so
+there is no manual download step. To move to a new upstream release, update
+`version` and `checksum` in the `override-pull` of the `squirrelsql` part and
+the value in `UPSTREAM_VERSION`.
 
-   ```sh
-   snapcraft pack
-   ```
+From the repository root, run:
+
+```sh
+snapcraft pack
+```
 
 The generated `.snap` can be installed locally for a trial with
 `sudo snap install --dangerous ./<generated-snap-file>.snap`.
 
-If multiple standard ZIP archives are present, the build selects the highest
-version. It sets the Snap version from the selected archive name. 
+The Snap version is taken from the distribution archive name.
 
 ## Tests
 
