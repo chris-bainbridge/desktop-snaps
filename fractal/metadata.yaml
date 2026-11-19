@@ -1,9 +1,9 @@
-# Build metadata for fractal (imported 2026-11-17; core26 migration pending).
+# Build metadata for fractal (imported 2026-11-17; migrated to core26 2026-11-19).
 snap: fractal
-base: core20
+base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://gitlab.gnome.org/GNOME/fractal
+upstream: https://gitlab.gnome.org/GNOME/fractal (14.3)
 recipe: https://git.launchpad.net/~desktop-snappers/fractal (main)
 recipe-commit: e813ebfaadad0a22a62aae88c5881fc61e07cfb6
 imported: '2026-11-17'

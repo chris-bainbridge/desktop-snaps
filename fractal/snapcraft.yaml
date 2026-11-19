@@ -1,14 +1,18 @@
 name: fractal
 adopt-info: fractal
+summary: Matrix messaging client for GNOME
+description: |
+  Fractal is a decentralized, secure messaging client for collaborative group
+  communication. It is a Matrix client written in Rust and GTK 4, with
+  end-to-end encryption, media messages and file transfers.
+
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core20
-architectures:
-  - build-on: amd64
+base: core26
 
-layout:
-  /usr/share/fractal/resources.gresource:
-    symlink: $SNAP/usr/share/fractal/resources.gresource
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -19,7 +23,7 @@ slots:
 
 apps:
   fractal:
-    extensions: [gnome-3-38]
+    extensions: [gnome]
     command: usr/bin/fractal
     common-id: org.gnome.Fractal
     desktop: usr/share/applications/org.gnome.Fractal.desktop
@@ -28,7 +32,6 @@ apps:
       - home
       - gsettings
       - network
-      - opengl
       - password-manager-service
 
 parts:
@@ -36,68 +39,166 @@ parts:
     parse-info: [usr/share/metainfo/org.gnome.Fractal.metainfo.xml]
     source: https://gitlab.gnome.org/GNOME/fractal.git
     source-type: git
-    source-commit: 8781378a797d10d6b8e22698aa7cc8d825f13ae5
+    source-tag: '14.3'
+    source-depth: 1
     plugin: meson
-    meson-parameters: [--prefix=/snap/fractal/current/usr]
+    meson-parameters:
+      # The prefix is the runtime mount path, not /usr: LOCALEDIR and the
+      # D-Bus service's Exec line are compiled in and a /usr prefix would
+      # resolve them to the core26 base. organize moves the installed tree
+      # back under usr/.
+      - --prefix=/snap/fractal/current/usr
+      - --buildtype=release
     organize:
       snap/fractal/current/usr: usr
     build-packages:
       - appstream
-      - curl
-      - libssl-dev
-      - libgstreamer1.0-dev
-      - libgstreamer-plugins-bad1.0-dev
-      - libgstreamer-plugins-base1.0-dev
-      - libgstreamer-plugins-good1.0-dev
-      - libges-1.0-dev
+      # aws-lc-sys (pulled in by matrix-sdk's rustls-aws-lc-rs feature) is
+      # built with CMake and ships pregenerated assembly.
       - cmake
-    stage-packages:
-      - gstreamer1.0-gtk3
-      - gstreamer1.0-plugins-bad
-      - gstreamer1.0-plugins-base
-      - gstreamer1.0-plugins-good
-      - gstreamer1.0-plugins-ugly
-      - libges-1.0-0
-      - libgstreamer1.0-0
-      - libgstreamer-plugins-bad1.0-0
-      - libgstreamer-plugins-base1.0-0
-      - libgstreamer-plugins-good1.0-0
-    build-environment:
-      - PATH: $HOME/.cargo/bin:$PATH
-      - PKG_CONFIG_PATH: $SNAPCRAFT_STAGE/usr/lib/pkgconfig:$PKG_CONFIG_PATH
-    override-pull: |
-      snapcraftctl pull
-      snapcraftctl set-version $(git describe --tags --abbrev=10)
-      sed -i.bak -e 's|Icon=@icon@|Icon=${SNAP}/meta/gui/org.gnome.Fractal.svg|g' $SNAPCRAFT_PART_SRC/fractal-gtk/res/org.gnome.Fractal.desktop.in.in
-
+      - curl
+      - libgstreamer1.0-dev
+      # gstreamer-play-1.0.pc is in the -bad development package.
+      - libgstreamer-plugins-bad1.0-dev
+      # The gnome-core26 SDK provides GTK, libadwaita, GStreamer,
+      # gtksourceview, glycin, libwebp and sqlite, but not libshumate.
+      - libshumate-dev
+      - perl
+      - to amd64:
+        - nasm
     override-build: |
-      curl https://sh.rustup.rs -sSf | sh -s -- -y
-      . $HOME/.cargo/env
-      rustup toolchain install nightly
-      rustup default nightly
-      cd $SNAPCRAFT_PART_SRC
-      # Update a couple of crates that broke since the commit we are building
-      cargo update -p lexical-core --precise 0.7.5
-      cargo update -p olm-rs --precise 1.0.1
-      cd $SNAPCRAFT_PART_BUILD
-      snapcraftctl build
-      mkdir -p $SNAPCRAFT_PART_INSTALL/meta/gui/
-      cp $SNAPCRAFT_PART_SRC/fractal-gtk/res/icons/hicolor/scalable/apps/org.gnome.Fractal.svg $SNAPCRAFT_PART_INSTALL/meta/gui/
-    prime:
-      - -usr/lib/*/libpango*
-      - -usr/lib/*/libfribidi*
-      - -usr/lib/*/libharf*
-      - -usr/lib/*/libwayland*
-      - -usr/lib/*/libffi*
+      # Fractal 14.3 has rust-version = 1.96 (edition 2024), while 26.04
+      # ships rustc 1.93. Install a fixed stable toolchain so the build does
+      # not silently depend on whatever nightly happens to be current.
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.99.1
+      . "$HOME/.cargo/env"
+      # craftctl resets the environment to the part's build-environment, which
+      # drops the PATH entry rustup added; expose the proxies from a directory
+      # that is always on PATH.
+      for tool in cargo rustc rustdoc rustup; do
+        ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool"
+      done
+      rustc --version
+      # Meson needs a Sass compiler for the stylesheet; upstream's build
+      # accepts grass (the Rust compiler, used by the Flatpak) or dart-sass.
+      # Ubuntu has neither, so build the same grass release as the Flatpak.
+      cargo install --locked grass --version 0.13.4 --root /usr/local
+      craftctl default
 
-  # Find files provided by the base and platform snap and ensure they aren't
-  # duplicated in this snap
-  cleanup:
+      # Upstream's Cargo release profile keeps full debug info, and the
+      # meson custom_target copies the binary into the install tree without
+      # snapcraft stripping it (985 MB).
+      strip --strip-unneeded \
+        "$CRAFT_PART_INSTALL/snap/fractal/current/usr/bin/fractal"
+
+      # Use the icon bundled in the snap so it also shows outside the theme.
+      sed -i 's|^Icon=.*|Icon=${SNAP}/meta/gui/org.gnome.Fractal.svg|' \
+        "$CRAFT_PART_INSTALL/snap/fractal/current/usr/share/applications/org.gnome.Fractal.desktop"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.Fractal.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+
+  # gnome-core26 ships GStreamer core, base, good, extra, GL and the GTK 4
+  # sink, but no bad, ugly or libav plugins. Fractal plays arbitrary media
+  # from Matrix rooms, so stage the libav decoders and only the plugin a
+  # video player needs from -bad: the full package pulls in the
+  # ONNX/TensorFlow/OpenCV stack. h264/h265 parse live in videoparsersbad.
+  gst-plugins:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+
+  # Neither libshumate nor the libav GStreamer plugin is in the
+  # gnome-core26 content snap.
+  libraries:
     after: [fractal]
     plugin: nil
-    build-snaps: [core20, gnome-3-38-2004]
-    override-prime: |
-      set -eux
-      for snap in "core20" "gnome-3-38-2004"; do
-        cd "/snap/$snap/current" && find . -type f,l -name *.so.* -exec rm -f "$SNAPCRAFT_PRIME/{}" \;
-      done
+    stage-packages:
+      - gstreamer1.0-libav
+      - libshumate-1.0-1
+    prime:
+      - -usr/bin
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
+      # The gnome-core26 content snap already ships these data files; they
+      # arrive as dependencies of libshumate/GTK from the archive.
+      - -usr/share/icons
+      - -usr/share/gtk-4.0
+      - -usr/share/mime
+      - -usr/share/fonts
+      - -usr/share/fontconfig
+      - -usr/share/alsa
+      - -usr/share/iso-codes
+      - -usr/share/xml
+      - -usr/share/libthai
+      - -usr/share/libmysofa
+      - -usr/share/locale
+      - -usr/share/glib-2.0
+      - -usr/share/glycin-loaders
+      - -usr/share/gst-plugins-base
+      - -usr/share/thumbnailers
+      - -usr/share/apport
+      - -usr/share/bug
+      - -usr/share/lintian
+      - -usr/share/doc-base
+      - -usr/share/bash-completion
+      - -usr/share/zsh
+      - -usr/share/GConf
+      - -usr/share/gettext
+      - -usr/share/pkgconfig
+      - -usr/share/user-session-migration
+      - -usr/share/dbus-1
+      - -usr/share/metainfo
+      # Cleanup removes the SONAME symlinks to libraries that gnome-core26-sdk
+      # also provides, but not the versioned files staged as dependencies of
+      # libshumate. Drop both so only the platform copies are used.
+      - -usr/lib/*/libcairo*.so*
+      - -usr/lib/*/libfontconfig.so*
+      - -usr/lib/*/libgdk_pixbuf-2.0.so*
+      - -usr/lib/*/libgtk-4.so*
+      - -usr/lib/*/libharfbuzz*.so*
+      - -usr/lib/*/libpango*.so*
+      - -usr/lib/*/libpsl.so*
+      - -usr/lib/*/librsvg-2.so*
+      - -usr/lib/*/libsoup-3.0.so*
+      # libxml2 is bundled by the dedicated part below.
+      - -usr/lib/*/libxml2.so*
+      # Optional codec helpers the library linter reports as unused: flite
+      # voices, FFT threading plugins, the zvbi teletext chains and cJSON
+      # utilities are only dlopened by optional libavfilter features.
+      - -usr/lib/*/libcjson_utils.so*
+      - -usr/lib/*/libfftw3_omp.so*
+      - -usr/lib/*/libfftw3_threads.so*
+      - -usr/lib/*/libflite_cmu_grapheme_lang.so*
+      - -usr/lib/*/libflite_cmu_grapheme_lex.so*
+      - -usr/lib/*/libflite_cmu_indic_lex.so*
+      - -usr/lib/*/libflite_cmu_indic_lang.so*
+      - -usr/lib/*/libflite_cmu_time_awb.so*
+      - -usr/lib/*/libzvbi-chains.so*
+
+  # gnome-core26 has no libxml2, but libgtksourceview-5, librsvg and the
+  # staged libavformat link it. libxml2 is in the SDK, so the extension's
+  # cleanup would delete it from the multiarch directory; move it out of
+  # there. The snap's LD_LIBRARY_PATH has $SNAP/usr/lib.
+  libxml2:
+    after: [libraries]
+    plugin: nil
+    stage-packages:
+      - libxml2-16
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
