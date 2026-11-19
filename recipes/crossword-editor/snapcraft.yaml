@@ -127,9 +127,10 @@ parts:
 
   crossword-editor:
     after: [libipuz]
-    source: https://gitlab.gnome.org/jrb/crosswords/-/archive/0.3.19.1/crosswords-0.3.19.1.tar.gz
-    source-type: tar
-    source-checksum: sha256/a16aa295a54d4771bd0e8b8c94246220a3a56440815211a8e1e145bbc7e119b5
+    source: https://gitlab.gnome.org/jrb/crosswords.git
+    source-type: git
+    source-tag: '0.3.19.1'
+    source-depth: 1
     plugin: meson
     parse-info: [usr/share/metainfo/org.gnome.Crosswords.Editor.metainfo.xml]
     meson-parameters:
