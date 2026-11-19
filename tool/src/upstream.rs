@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -20,10 +21,41 @@ const REQUEST_DELAY: Duration = Duration::from_secs(1);
 const MAX_COOLDOWN: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
+pub struct RateLimited {
+    pub provider: &'static str,
+    pub remaining: Duration,
+}
+
+impl fmt::Display for RateLimited {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} rate limited; retry in {}",
+            self.provider,
+            format_duration(self.remaining)
+        )
+    }
+}
+
+impl std::error::Error for RateLimited {}
+
+pub fn format_duration(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    if seconds >= 3600 {
+        format!("{}h{}m", seconds / 3600, (seconds % 3600) / 60)
+    } else if seconds >= 60 {
+        format!("{}m{}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{seconds}s")
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct HttpConfig {
     github_token: Option<String>,
     gitlab_token: Option<String>,
-    limiter: Arc<RequestLimiter>,
+    github_limiter: Arc<RequestLimiter>,
+    gitlab_limiter: Arc<RequestLimiter>,
 }
 
 #[derive(Debug)]
@@ -40,7 +72,7 @@ impl RequestLimiter {
         }
     }
 
-    async fn wait(&self, delay: Duration) -> Result<()> {
+    async fn wait(&self, provider: &'static str, delay: Duration) -> Result<()> {
         {
             let mut blocked = self.blocked_until.lock().await;
             if let Some(until) = *blocked {
@@ -48,12 +80,16 @@ impl RequestLimiter {
                 if until > now {
                     let remaining = until - now;
                     if remaining > MAX_COOLDOWN {
-                        bail!("rate limited for another {}s", remaining.as_secs());
+                        return Err(RateLimited {
+                            provider,
+                            remaining,
+                        }
+                        .into());
                     }
                     if remaining > Duration::from_secs(1) {
                         eprintln!(
-                            "snap-repo: rate limited; waiting {}s before the next request",
-                            remaining.as_secs()
+                            "snap-repo: {provider} rate limited; waiting {} before the next request",
+                            format_duration(remaining)
                         );
                     }
                     sleep(remaining).await;
@@ -73,6 +109,12 @@ impl RequestLimiter {
         Ok(())
     }
 
+    async fn blocked_remaining(&self) -> Option<Duration> {
+        let blocked = self.blocked_until.lock().await;
+        let now = Instant::now();
+        blocked.and_then(|until| (until > now).then(|| until - now))
+    }
+
     async fn cooldown(&self, delay: Duration) {
         if delay.is_zero() {
             return;
@@ -90,28 +132,41 @@ impl HttpConfig {
         Self {
             github_token: github_token(),
             gitlab_token: env::var("GITLAB_TOKEN").ok(),
-            limiter: Arc::new(RequestLimiter::new()),
+            github_limiter: Arc::new(RequestLimiter::new()),
+            gitlab_limiter: Arc::new(RequestLimiter::new()),
         }
     }
 
-    async fn wait(&self) -> Result<()> {
-        self.limiter.wait(REQUEST_DELAY).await
+    async fn wait_github(&self) -> Result<()> {
+        self.github_limiter.wait("GitHub", REQUEST_DELAY).await
     }
 
-    async fn note_rate_limit(&self, response: &reqwest::Response) {
-        let status = response.status();
-        let primary_github_limit = status == StatusCode::FORBIDDEN
-            && (response
-                .headers()
-                .get("x-ratelimit-remaining")
-                .and_then(|value| value.to_str().ok())
-                == Some("0")
-                || response.headers().contains_key("retry-after"));
-        if status == StatusCode::TOO_MANY_REQUESTS || primary_github_limit {
-            let delay =
-                rate_limit_delay(response.headers()).unwrap_or_else(|| Duration::from_secs(60));
-            self.limiter.cooldown(delay).await;
+    async fn wait_gitlab(&self) -> Result<()> {
+        self.gitlab_limiter.wait("GitLab", REQUEST_DELAY).await
+    }
+
+    async fn note_github(&self, response: &reqwest::Response) {
+        note_rate_limit(&self.github_limiter, response, true).await;
+    }
+
+    async fn note_gitlab(&self, response: &reqwest::Response) {
+        note_rate_limit(&self.gitlab_limiter, response, false).await;
+    }
+
+    pub async fn blocked(&self, provider: Provider) -> Option<RateLimited> {
+        let (provider, limiter) = match provider {
+            Provider::Github => ("GitHub", &self.github_limiter),
+            Provider::Gitlab => ("GitLab", &self.gitlab_limiter),
+            _ => return None,
+        };
+        let remaining = limiter.blocked_remaining().await?;
+        if remaining <= MAX_COOLDOWN {
+            return None;
         }
+        Some(RateLimited {
+            provider,
+            remaining,
+        })
     }
 
     pub fn client(&self) -> Result<Client> {
@@ -120,6 +175,31 @@ impl HttpConfig {
             .timeout(Duration::from_secs(30))
             .build()
             .context("cannot create HTTP client")
+    }
+}
+
+async fn note_rate_limit(limiter: &RequestLimiter, response: &reqwest::Response, github: bool) {
+    let status = response.status();
+    let headers = response.headers();
+    let remaining = header_seconds(
+        headers,
+        if github {
+            "x-ratelimit-remaining"
+        } else {
+            "ratelimit-remaining"
+        },
+    );
+    let limited = if github {
+        status == StatusCode::TOO_MANY_REQUESTS
+            || (status == StatusCode::FORBIDDEN
+                && (remaining == Some(0) || headers.contains_key("retry-after")))
+    } else {
+        status == StatusCode::TOO_MANY_REQUESTS
+    };
+    let exhausted = remaining == Some(0);
+    if limited || exhausted {
+        let delay = rate_limit_delay(headers).unwrap_or_else(|| Duration::from_secs(60));
+        limiter.cooldown(delay).await;
     }
 }
 
@@ -214,9 +294,9 @@ async fn github_latest_release(
     let request = github_request(client.get(&url), config)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");
-    config.wait().await?;
+    config.wait_github().await?;
     let response = request.send().await.context("GitHub request failed")?;
-    config.note_rate_limit(&response).await;
+    config.note_github(&response).await;
     if response.status() == StatusCode::NOT_FOUND {
         return Ok(None);
     }
@@ -239,12 +319,12 @@ async fn gitlab_releases(
         .context("gitlab project missing")?;
     let encoded = utf8_percent_encode(project, NON_ALPHANUMERIC).to_string();
     let url = format!("https://{host}/api/v4/projects/{encoded}/releases?per_page=100");
-    config.wait().await?;
+    config.wait_gitlab().await?;
     let response = gitlab_request(client.get(&url), config, host)
         .send()
         .await
         .context("GitLab request failed")?;
-    config.note_rate_limit(&response).await;
+    config.note_gitlab(&response).await;
     if response.status() == StatusCode::NOT_FOUND {
         return Ok(Vec::new());
     }
@@ -267,11 +347,11 @@ async fn gitlab_repository_tags(
         .context("gitlab project missing")?;
     let encoded = utf8_percent_encode(project, NON_ALPHANUMERIC).to_string();
     let url = format!("https://{host}/api/v4/projects/{encoded}/repository/tags?per_page=100");
-    config.wait().await?;
+    config.wait_gitlab().await?;
     let response = gitlab_request(client.get(&url), config, host)
         .send()
         .await?;
-    config.note_rate_limit(&response).await;
+    config.note_gitlab(&response).await;
     let tags: Vec<GitlabTag> = parse_json(response).await?;
     Ok(tags.into_iter().map(|tag| tag.name).collect())
 }
@@ -390,10 +470,34 @@ struct GitlabTag {
 
 #[cfg(test)]
 mod tests {
-    use super::{rate_limit_delay, select_latest};
+    use super::{HttpConfig, rate_limit_delay, select_latest};
+    use crate::metadata::Provider;
     use regex::Regex;
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    #[tokio::test]
+    async fn provider_rate_limits_are_independent() {
+        let config = HttpConfig {
+            github_token: None,
+            gitlab_token: None,
+            github_limiter: Arc::new(super::RequestLimiter::new()),
+            gitlab_limiter: Arc::new(super::RequestLimiter::new()),
+        };
+        config
+            .gitlab_limiter
+            .cooldown(Duration::from_secs(30))
+            .await;
+        assert!(config.blocked(Provider::Gitlab).await.is_none());
+        config
+            .gitlab_limiter
+            .cooldown(Duration::from_secs(300))
+            .await;
+        let limit = config.blocked(Provider::Gitlab).await.unwrap();
+        assert_eq!(limit.provider, "GitLab");
+        assert!(config.blocked(Provider::Github).await.is_none());
+    }
 
     #[test]
     fn parses_retry_after() {

@@ -31,6 +31,8 @@ struct PackageResult {
     package: Package,
     rows: Vec<Row>,
     error: Option<String>,
+    rate_limited: Option<upstream::RateLimited>,
+    skipped: bool,
 }
 
 pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
@@ -63,13 +65,27 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
     });
     let mut stream = futures::stream::iter(futures).buffer_unordered(jobs);
     let mut results = Vec::with_capacity(total);
+    let mut skipped = Vec::new();
     let mut completed = 0;
     while let Some(result) = stream.next().await {
+        if result.skipped {
+            skipped.push(result);
+            continue;
+        }
         completed += 1;
         print_progress(completed, total, name_width, &result);
         results.push(result);
     }
     results.sort_by(|left, right| left.package.name.cmp(&right.package.name));
+
+    if let Some(first) = skipped.first() {
+        match &first.rate_limited {
+            Some(limit) => {
+                eprintln!("snap-repo: {} package(s) skipped: {limit}", skipped.len());
+            }
+            None => eprintln!("snap-repo: {} package(s) skipped", skipped.len()),
+        }
+    }
 
     let rows: Vec<&Row> = results
         .iter()
@@ -107,8 +123,9 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
         .filter(|result| result.package.metadata.upstream.provider.is_manual())
         .count();
     println!(
-        "{} packages, {} tracks; {} manual",
+        "{} packages checked, {} skipped, {} tracks; {} manual",
         results.len(),
+        skipped.len(),
         rows.len(),
         manual
     );
@@ -125,9 +142,10 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
     let errors = results
         .iter()
         .filter(|result| result.error.is_some())
-        .count();
+        .count()
+        + skipped.len();
     if errors > 0 {
-        bail!("{errors} package(s) failed");
+        bail!("{errors} package(s) failed or skipped");
     }
     Ok(())
 }
@@ -142,6 +160,15 @@ async fn resolve_package(
             .tracks
             .iter()
             .any(|track| track.mode == BumpMode::Tag);
+    if needs_fetch && let Some(limit) = config.blocked(package.metadata.upstream.provider).await {
+        return PackageResult {
+            package,
+            rows: Vec::new(),
+            error: Some(limit.to_string()),
+            rate_limited: Some(limit),
+            skipped: true,
+        };
+    }
     let latest = if needs_fetch {
         Some(upstream::latest_tag(client, config, &package.metadata.upstream).await)
     } else {
@@ -152,8 +179,18 @@ async fn resolve_package(
         package,
         rows: Vec::new(),
         error: None,
+        rate_limited: None,
+        skipped: false,
     };
     if let Some(Err(error)) = &latest {
+        if let Some(limit) = error.downcast_ref::<upstream::RateLimited>() {
+            result.rate_limited = Some(limit.clone());
+        } else if let Some(limit) = config
+            .blocked(result.package.metadata.upstream.provider)
+            .await
+        {
+            result.rate_limited = Some(limit);
+        }
         result.error = Some(format!("{error:#}"));
     }
 
@@ -220,6 +257,9 @@ fn print_progress(completed: usize, total: usize, name_width: usize, result: &Pa
 }
 
 fn progress_status(result: &PackageResult) -> String {
+    if let Some(limit) = &result.rate_limited {
+        return format!("! {limit}");
+    }
     if let Some(error) = &result.error {
         return format!("! {}", concise_error(error));
     }
