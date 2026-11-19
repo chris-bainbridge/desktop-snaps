@@ -1,15 +1,18 @@
 name: drawing
 adopt-info: drawing
+title: Drawing
+license: GPL-3.0-or-later
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core22
+base: core26
 issues: https://github.com/ubuntu/drawing/issues
 contact: https://github.com/ubuntu/drawing
 website: https://maoschanz.github.io/drawing
+source-code: https://github.com/maoschanz/drawing
 
-layout:
-  /usr/share/drawing:
-    bind: $SNAP/usr/share/drawing
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -25,17 +28,27 @@ apps:
     common-id: com.github.maoschanz.drawing.desktop
     desktop: usr/share/applications/com.github.maoschanz.drawing.desktop
     plugs:
+      - gsettings
       - home
-    environment:
-      PYTHONPATH: $SNAP/gnome-platform/usr/lib/python3/dist-packages:$SNAP/gnome-platform/usr/lib/python3.10
+    # Drawing is a Python 3 + GTK 3 application. core26 has no
+    # /usr/bin/python3, but the gnome extension mounts gnome-core26 at
+    # $SNAP/gnome-platform; its desktop-launch puts the platform's usr/bin on
+    # PATH, so the "#!/usr/bin/env python3" shebang resolves to an interpreter
+    # that ships PyGObject and pycairo. The app's own modules are loaded from
+    # pkgdatadir, which is inside the snap.
 
+# 1.0.2 is the latest stable upstream release (2023-02-25); the project has
+# published no newer tag since.
 parts:
   drawing:
     source: https://github.com/maoschanz/drawing.git
     source-tag: 1.0.2
+    source-depth: 1
     plugin: meson
     meson-parameters:
-      - --prefix=/usr
+      # Install into the path the snap is mounted at so pkgdatadir and
+      # localedir compiled into the launcher point at the snap's own data.
+      - --prefix=/snap/drawing/current/usr
     parse-info: [usr/share/metainfo/com.github.maoschanz.drawing.appdata.xml]
     organize:
       snap/drawing/current/usr: usr
@@ -44,3 +57,10 @@ parts:
       craftctl default
       sed -i 's#@PYTHON@#/usr/bin/env python3#g' src/drawing.in
       craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # meson skips the post-install script when DESTDIR is set, so compile
+      # the GSettings schema here; the app creates Gio.Settings objects at
+      # start-up and aborts without it.
+      glib-compile-schemas \
+          $CRAFT_PART_INSTALL/snap/drawing/current/usr/share/glib-2.0/schemas
