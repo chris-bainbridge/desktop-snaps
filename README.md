@@ -5,18 +5,18 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 138 repackage snaps: the 13
+one-repository-per-snap setup. It contains 140 repackage snaps: the 13
 migrated to `core26` in the 2026-11 migration, 42 packaging recipes imported
 from `~desktop-snappers` and the personal packaging repositories of
 Canonical staff on 2026-11-17, one infrastructure recipe imported from
 Canonical's pipewire-snap repository on 2026-11-18, 64 new recipes written
-on 2026-11-17, and 18 GNOME apps added on 2026-11-19.
+on 2026-11-17, and 20 apps/utilities added on 2026-11-19.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the eighty packages written here, which are not in the store yet; `gthumb`
-and `quadrapassel` are refreshed imports of existing store snaps. Every
-package is on `core26`; the 36 legacy imports were migrated during the
-2026-11-19 refresh.
+the eighty-two packages written here, which are not in the store yet;
+`gthumb` and `quadrapassel` are refreshed imports of existing store snaps.
+Every package is on `core26`; the 36 legacy imports were migrated during
+the 2026-11-19 refresh.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
@@ -203,7 +203,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (138)
+## Snaps in scope (140)
 
 ### Migrated to core26 (13)
 
@@ -254,6 +254,14 @@ video and camera apps, the music and maps apps, the archive manager, the
 remote-desktop client and resource monitor, plus a set of small utilities
 and games. All are strict and built from upstream source; archive libraries
 are used where they work.
+
+### New audio utilities (2026-11-19, 2)
+
+`vocalis` 1.0.0 is the actively maintained GJS/GTK4 continuation of GNOME
+Sound Recorder, pinned to its current `main` commit because it has no newer
+release tags. `pavucontrol` 6.2 is the PulseAudio per-application volume
+mixer. Both use the `audio-record`/`audio-playback` or `pulseaudio` slots
+provided by the `pipewire` snap.
 
 ### Imported 2026-11-19 (2)
 
@@ -386,7 +394,10 @@ Storage/Network data; `gthumb` has RAW support disabled (26.04 ships
 libraw 0.21, gthumb 4 needs 0.22); `quadrapassel` aborts when no audio
 device is available; `polari` bundles the legacy Telepathy stack; `gnote`
 keeps notes in its private data directory; `aisleriot` carries a 48 MB
-Guile compiled-module cache.
+Guile compiled-module cache. `vocalis` writes recordings to its private
+data directory and needs `audio-record`; `pavucontrol` needs the
+`pulseaudio` connection, and may need `PULSE_SERVER` adjusted if the
+PipeWire pulse socket lives under its per-snap runtime directory.
 
 Among the migrated imports, `gnome-boxes` runs a private session
 libvirt/QEMU and cannot use the host's system libvirt; `shotwell` has no
@@ -401,7 +412,7 @@ launchers the vendor artifacts, at build time - no vendor binaries are
 tracked in this repository. `element-desktop` is not included: it has no
 public recipe.
 
-All 138 repackage another upstream project. Nearly all are GNOME
+All 140 repackage another upstream project. Nearly all are GNOME
 applications whose source lives at gitlab.gnome.org; the others include
 Mozilla (thunderbird), Matrix (fractal), Element (not imported), Epic,
 NVIDIA, Lunar Client, Godot, Ghostty, TigerVNC, Widelands, Thrive,
