@@ -1,0 +1,152 @@
+name: gnome-connections
+adopt-info: gnome-connections
+title: Connections
+summary: View and use other desktops
+description: |
+  Connections allows you to connect to and use other desktops. This can be a
+  great way to access content or software on a different desktop operating
+  system. It can also be used as a way to provide support to users who might
+  need help.
+
+  A range of different operating systems can be connected to, including Linux
+  and Windows desktops. You can also connect to virtual machines.
+
+  Connections uses the widely supported VNC and RDP protocols, and one of
+  these must be enabled on the desktop that you want to connect to.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+license: GPL-3.0-or-later
+website: https://wiki.gnome.org/Apps/Connections
+source-code: https://gitlab.gnome.org/GNOME/gnome-connections
+issues: https://gitlab.gnome.org/GNOME/gnome-connections/-/issues
+contact: https://gitlab.gnome.org/GNOME/gnome-connections/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration; snapd also writes the D-Bus service
+  # file for the org.gnome.Connections GtkApplication
+  gnome-connections:
+    interface: dbus
+    bus: session
+    name: org.gnome.Connections
+
+apps:
+  gnome-connections:
+    extensions: [gnome]
+    command: usr/bin/gnome-connections
+    desktop: usr/share/applications/org.gnome.Connections.desktop
+    common-id: org.gnome.Connections.desktop
+    plugs:
+      - gsettings
+      # open *.vnc files from the user's home directory
+      - home
+      # VNC and RDP connections to remote desktops
+      - network
+      # GNetworkMonitor (connectivity changes for reconnecting)
+      - network-status
+      # gtk-vnc's GVncPulse plays the remote desktop's audio
+      - audio-playback
+      # libsecret stores saved connection passwords in the host keyring.
+      # This interface is deny-auto-connection, so users have to run
+      #   snap connect gnome-connections:password-manager-service
+      # to save and reload passwords across restarts.
+      - password-manager-service
+    environment:
+      # Upstream builds its gtk-frdp subproject (the RDP backend) with
+      # package_subdir=gnome-connections, so the library is installed below
+      # usr/lib/<triplet>/gnome-connections, which is not on the platform
+      # library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gnome-connections
+
+parts:
+  gnome-connections:
+    source: https://gitlab.gnome.org/GNOME/gnome-connections.git
+    source-type: git
+    source-tag: '51.0'
+    source-depth: 1
+    # subprojects/gtk-frdp is a git submodule pinned by the 51.0 tag; the
+    # default (recurse submodules) fetches it at that commit.
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Connections.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    # Upstream's optional SPICE backend is not built: the snap is VNC/RDP
+    # only, so spice-client-gtk is deliberately absent and the assistant
+    # hides the SPICE option (Config.HAS_SPICE == 0).
+    build-packages:
+      - valac
+      - libgtk-3-dev
+      - libhandy-1-dev
+      - libsecret-1-dev
+      - libxml2-dev
+      # VNC backend (gtk-vnc widget + gvncpulse audio)
+      - libgtk-vnc-2.0-dev
+      - libgvnc-1.0-dev
+      # RDP backend, built as the bundled gtk-frdp subproject
+      - freerdp3-dev
+      # gtk-frdp's RDP file-transfer clipboard uses libfuse3 directly. Without
+      # a fuse interface in strict confinement the FUSE mount fails at run
+      # time, but gtk-frdp logs a warning and text clipboard still works.
+      - libfuse3-dev
+      # g-ir-scanner/vapigen for the gtk-frdp GIR and Vala bindings
+      - gobject-introspection
+      - libglib2.0-bin
+      - gettext
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Help media symlinks would dangle in the snap.
+      sed -i -e 's|symlink_media: true|symlink_media: false|' $CRAFT_PART_SRC/help/meson.build
+    override-build: |
+      craftctl default
+      # meson's gnome.post_install() is skipped when DESTDIR is set, so the
+      # GSettings schema would otherwise only be compiled by the extension's
+      # desktop-launch helper at first run.
+      glib-compile-schemas $CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.Connections.svg \
+         $CRAFT_PART_INSTALL/meta/gui/
+      sed -i -e 's|Icon=org.gnome.Connections$|Icon=${SNAP}/meta/gui/org.gnome.Connections.svg|' \
+         $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.Connections.desktop
+      # D-Bus activation is provided by the dbus slot above (snapd writes a
+      # service file that runs "snap run"). Upstream's own service file has a
+      # host-absolute Exec (/usr/bin/gnome-connections) and would launch the
+      # host application instead of the confined snap, so do not ship it.
+      rm -f $CRAFT_PART_INSTALL/usr/share/dbus-1/services/org.gnome.Connections.service
+    prime:
+      # gtk-frdp development files installed by the bundled subproject
+      - -usr/include
+      - -usr/share/gnome-connections
+      - -usr/lib/*/gnome-connections/girepository-1.0
+      - -usr/lib/*/gnome-connections/pkgconfig
+
+  runtime:
+    # gnome-core26 ships GTK 3, libhandy and libsecret, but none of the VNC
+    # or RDP client libraries, and it has no libxml2.
+    after: [gnome-connections]
+    plugin: nil
+    stage-packages:
+      - libgtk-vnc-2.0-0
+      - libgvnc-1.0-0
+      - libfreerdp-client3-3
+      - libfuse3-4
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every primed library whose path also exists in
+      # the build-time GNOME SDK. libxml2 is present in the SDK but not in the
+      # content snap, so keep it outside the SDK's multiarch path; $SNAP/usr/lib
+      # is on the library path set by the gnome extension.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
