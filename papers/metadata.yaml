@@ -1,0 +1,7 @@
+# Build metadata for papers (core26, 2026-11).
+snap: papers
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/papers (51.1)
+imported: '2026-11-18'

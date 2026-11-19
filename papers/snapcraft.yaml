@@ -1,0 +1,122 @@
+name: papers
+adopt-info: papers
+summary: Document viewer for popular document formats
+description: |
+  Papers is a document viewer for the GNOME desktop. It supports PDF, DjVu,
+  TIFF, and Comic Books archives (CBR, CBT, CBZ, CB7).
+
+  It can view, search, annotate, fill in forms, sign and print documents.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  papers:
+    interface: dbus
+    bus: session
+    name: org.gnome.Papers
+
+apps:
+  papers:
+    extensions: [gnome]
+    command: usr/bin/papers
+    plugs:
+      - gsettings
+      - cups-control
+      - home
+      - network
+      - removable-media
+    desktop: usr/share/applications/org.gnome.Papers.desktop
+    common-id: org.gnome.Papers.desktop
+
+  papers-previewer:
+    command: usr/bin/papers-previewer
+    plugs:
+      - gsettings
+      - cups-control
+      - home
+      - network
+    desktop: usr/share/applications/org.gnome.Papers-previewer.desktop
+
+  papers-thumbnailer:
+    command: usr/bin/papers-thumbnailer
+    plugs:
+      - gsettings
+      - home
+
+parts:
+  papers:
+    source: https://gitlab.gnome.org/GNOME/papers.git
+    source-type: git
+    source-tag: '51.1'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Papers.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      - -Dnautilus=false
+      - -Ddocumentation=false
+      - -Dintrospection=disabled
+      - -Dtests=false
+      - -Dfile_tests=false
+      - -Dsysprof=disabled
+      - -Dcomics=enabled
+      - -Ddjvu=enabled
+      - -Dpdf=enabled
+      - -Dtiff=enabled
+      - -Dspell_check=enabled
+      - -Dkeyring=enabled
+    build-packages:
+      - appstream
+      - blueprint-compiler
+      - cargo
+      - libarchive-dev
+      - libdjvulibre-dev
+      - libexempi-dev
+      - libsecret-1-dev
+      - libspelling-1-dev
+      - libssl-dev
+      - libtiff-dev
+      - rustc
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Use the icon bundled in the snap rather than a themed icon
+      sed -i.bak -e 's|Icon=@PACKAGE_ICON_NAME@|Icon=${SNAP}/meta/gui/org.gnome.Papers.svg|g' \
+        $CRAFT_PART_SRC/data/org.gnome.Papers.desktop.in.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/scalable/apps/org.gnome.Papers.svg \
+        $CRAFT_PART_INSTALL/meta/gui/
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/libexec
+      - -usr/share/gtk-doc
+      - -usr/share/man
+      - -usr/share/doc
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides poppler-glib, libarchive, libtiff and libsecret
+      # but not the DjVu, XMP (exempi) or spell-check libraries.
+      - libdjvulibre21
+      - libdjvulibre-text
+      - libexempi8
+      - libspelling-1-2
+    prime:
+      - usr/lib/*/libdjvulibre.so.*
+      - usr/lib/*/libexempi.so.*
+      - usr/lib/*/libspelling-1.so.*
+      - usr/share/djvu
