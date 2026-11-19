@@ -1,0 +1,98 @@
+name: ghex
+adopt-info: ghex
+summary: GNOME hex editor
+contact: https://gitlab.gnome.org/GNOME/ghex/-/issues
+description: |
+  GHex allows the user to load data from any file and to view and edit it in
+  either hexadecimal or decimal. A conversion dialog permits converting
+  between integer and floating-point formats.
+
+  It supports multiple open files in one window, find and replace, bookmarks,
+  a character table, and printing.
+
+  Strict-confinement notes:
+   * Files under the home directory and on removable media are accessible;
+     other locations are only reachable through the file chooser
+     (XDG document portal).
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.GHex.service.in)
+  ghex:
+    interface: dbus
+    bus: session
+    name: org.gnome.GHex
+
+apps:
+  ghex:
+    extensions: [gnome]
+    command: usr/bin/ghex
+    desktop: usr/share/applications/org.gnome.GHex.desktop
+    common-id: org.gnome.GHex.desktop
+    plugs:
+      # the snap's org.gnome.GHex GSettings schema
+      - gsettings
+      # open and save files
+      - home
+      # files on mounted volumes
+      - removable-media
+
+# GHex is a C GTK4/libadwaita application. It uses no GtkSourceView.
+#
+# The prefix is the runtime mount path, not /usr: libgtkhex loads its buffer
+# backends from the compiled-in PACKAGE_PLUGINDIR, and a /usr prefix would
+# resolve that to the core26 base instead of the snap. organize moves the
+# installed tree back under usr/.
+parts:
+  ghex:
+    source: https://gitlab.gnome.org/GNOME/ghex.git
+    source-type: git
+    source-tag: '50.4'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.GHex.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/ghex/current/usr
+      - --buildtype=release
+      # only the library and the app are needed; skip introspection/VAPI
+      - -Dintrospection=disabled
+      - -Dvapi=false
+    organize:
+      snap/ghex/current/usr: usr
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@app_id@$|Icon=${SNAP}/meta/gui/org.gnome.GHex.svg|g' \
+        data/org.gnome.GHex.desktop.in.in
+      # don't install the media symlinks; ghex has no media, so they dangle
+      sed -i.bak -e 's|sources: help_pages,|sources: help_pages, symlink_media: false,|g' \
+        help/meson.build
+    override-build: |
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. GHex creates its Gio.Settings objects at
+      # start-up; make sure gschemas.compiled is present in the snap.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/ghex/current/usr/share/glib-2.0/schemas"
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/icons/hicolor/scalable/apps/org.gnome.GHex.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      # Don't include files needed to develop things against libgtkhex
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/*/libgtkhex-4.so
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/gtk-doc
+      - -usr/share/man
+      - -usr/share/doc
