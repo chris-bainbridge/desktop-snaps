@@ -1,6 +1,6 @@
-# Build metadata for gnome-robots (imported 2026-11-17; core26 migration pending).
+# Build metadata for gnome-robots (imported 2026-11-17; migrated to core26 2026-11-19).
 snap: gnome-robots
-base: core24
+base: core26
 mode: vendored
 redistribution: open-source
 upstream: https://gitlab.gnome.org/GNOME/gnome-robots
