@@ -22,8 +22,11 @@ export LD_PRELOAD="$SNAP/lib/app-path-redirect.so"
 # which (since flatpak always runs GeForceNOW from /app/cef) resolves to
 # /app/cef -- letting dlopen'd helper libraries (e.g. the GameStreamClient
 # plugin's dependency on libBifrost2.so) find their sibling libs there. We
-# don't get that for free, so set it explicitly.
-export LD_LIBRARY_PATH="$SNAP/cef${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# don't get that for free, so set it explicitly. cef/dependencies is where
+# NVIDIA keeps libs that only the optional plugins link (e.g. libNetworkTest
+# -> libNetworkTestSDK.so); the plugin's baked-in RPATH points at build-host
+# paths, so include that directory here as well.
+export LD_LIBRARY_PATH="$SNAP/cef:$SNAP/cef/dependencies${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # The client is SDL2-based (not Electron). Under XWayland it enumerates
 # monitors via X11 RandR, and on a mixed-DPI multi-monitor setup (e.g. a
@@ -52,12 +55,14 @@ export LIBDECOR_PLUGIN_DIR="$SNAP/usr/lib/x86_64-linux-gnu/libdecor/plugins-1"
 
 cd "$SNAP/cef" || exit 1
 
-# mesa-2404 (the GPU content snap the gnome extension pulls in) ships no
-# VAAPI video-decode drivers, so Chromium's hardware video decode fails for
-# any <video> element GeForceNOW renders (e.g. the queue-wait ad), logging
-# "Unsupported pixel format: -1" on a loop. This forces software decode for
-# that path instead; it doesn't touch the actual game stream, which is
-# decoded by NVIDIA's own pipeline, not Chromium.
+# The GPU content snap the gnome extension pulls in is now mesa-2604. It does
+# ship VA-API drivers, but only Mesa ones (Intel/AMD); there is no NVIDIA
+# VA-API backend in it (the proprietary driver only provides VDPAU). GeForce
+# NOW users are normally on the NVIDIA driver, so Chromium's hardware video
+# decode still fails for any <video> element GeForceNOW renders (e.g. the
+# queue-wait ad), logging "Unsupported pixel format: -1" on a loop. This
+# forces software decode for that path instead; it doesn't touch the actual
+# game stream, which is decoded by NVIDIA's own pipeline, not Chromium.
 set -- --disable-accelerated-video-decode "$@"
 
 status=0

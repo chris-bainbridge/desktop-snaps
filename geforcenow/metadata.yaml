@@ -1,6 +1,6 @@
-# Build metadata for geforcenow (imported 2026-11-17; core26 migration pending).
+# Build metadata for geforcenow (imported 2026-11-17).
 snap: geforcenow
-base: core24
+base: core26
 mode: vendored
 redistribution: canonical-published
 upstream: https://www.nvidia.com/en-us/geforce-now/

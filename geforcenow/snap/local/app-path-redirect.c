@@ -6,7 +6,7 @@
  * "$HOME/.var/NVIDIA/GeForceNOW/<same relative path>" -- a location that is
  * never populated outside of a real flatpak/native-installer environment.
  * Under strict snap confinement neither path exists: there's no /app (and
- * snapd's `layout` can't create a new top-level /app on core24), and $HOME
+ * snapd's `layout` can't create a new top-level /app on core26), and $HOME
  * is the per-revision snap data dir, which never gets that .var tree seeded
  * into it either.
  *

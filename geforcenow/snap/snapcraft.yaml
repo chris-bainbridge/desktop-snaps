@@ -4,9 +4,12 @@ summary: GeForce NOW
 description: Stream games using the nvidia GeForce NOW service
 grade: stable
 confinement: strict
-base: core24
+base: core26
 
 platforms:
+  # amd64 only: NVIDIA publishes the Linux client solely as an x86_64 flatpak
+  # (app/com.nvidia.geforcenow/x86_64/master in the ostree repo). There is no
+  # aarch64 ref, so there is nothing to package for arm64.
   amd64:
 compression: lzo
 
@@ -59,6 +62,11 @@ parts:
       - libxfixes-dev
       - libxss-dev
       - libxxf86vm-dev
+    # Only the shared library is used at runtime: it is copied into
+    # cef/ by the geforcenow part below. Keep headers, static archives,
+    # CMake files and pkg-config data out of the snap.
+    prime:
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libSDL2-2.0.so.0*
 
   geforcenow:
     after: [ sdl2 ]
@@ -146,7 +154,7 @@ parts:
 
       # GeForceNOW hardcodes /app-relative paths (a flatpak-only convention:
       # flatpak always mounts the app's install tree at /app). snapd can't
-      # create a new top-level /app via `layout` on core24, so instead
+      # create a new top-level /app via `layout` on core26, so instead
       # LD_PRELOAD a shim that rewrites "/app/..." opens to "$SNAP/...".
       mkdir -p "$SNAPCRAFT_PART_INSTALL/lib"
       gcc -shared -fPIC -O2 -o "$SNAPCRAFT_PART_INSTALL/lib/app-path-redirect.so" \
@@ -166,18 +174,21 @@ parts:
       - usr/bin/xrandr
       # libdecor-cairo.so (the fallback decoration renderer) pulls in
       # libcairo/libpango/etc. as transitive deps of the
-      # libdecor-0-plugin-1-cairo stage-package; prime the whole staged lib
-      # tree rather than hand-picking each one, since apt already resolved
-      # the full dependency chain.
-      - usr/lib/x86_64-linux-gnu/**
+      # libdecor-0-plugin-1-cairo stage-package. Those are all provided by
+      # gnome-core26 at runtime, so only libdecor itself needs to be primed;
+      # the cleanup part drops the copies apt stages. This deliberately does
+      # not prime all of usr/lib: that would also pull in the sdl2 part's
+      # install tree (headers/cmake/.a files), which nothing loads.
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdecor-0.so.*
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdecor/**
 
   cleanup:
     after: [ geforcenow ]
     plugin: nil
-    build-snaps: [ gnome-46-2404 ]
+    build-snaps: [ gnome-core26 ]
     override-prime: |
         set -eux
-        cd /snap/gnome-46-2404/current
+        cd /snap/gnome-core26/current
         find . -type f,l -exec rm -f $SNAPCRAFT_PRIME/{} \;
 
 plugs:
