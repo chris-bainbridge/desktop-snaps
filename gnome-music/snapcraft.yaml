@@ -1,0 +1,259 @@
+name: gnome-music
+adopt-info: gnome-music
+summary: Music player and organizer for GNOME
+description: |
+  Music is the GNOME music player. It plays the local music collection,
+  organizes it by album and artist, and provides playlists, search and
+  ReplayGain support.
+
+  The player is built on GStreamer and reads its library from a TinySPARQL
+  (Tracker) index through Grilo. The GStreamer base and good plugin sets come
+  from the GNOME content snap; this recipe bundles the remaining plugins and
+  the Grilo stack.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://apps.gnome.org/Music/
+source-code: https://gitlab.gnome.org/GNOME/gnome-music
+issues: https://gitlab.gnome.org/GNOME/gnome-music/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Music.service.in)
+  gnome-music:
+    interface: dbus
+    bus: session
+    name: org.gnome.Music
+  # MPRIS remote control (gnomemusic/mpris.py registers
+  # org.mpris.MediaPlayer2.<application id>)
+  mpris:
+    interface: dbus
+    bus: session
+    name: org.mpris.MediaPlayer2.org.gnome.Music
+
+apps:
+  gnome-music:
+    extensions: [gnome]
+    command: usr/bin/gnome-music
+    desktop: usr/share/applications/org.gnome.Music.desktop
+    common-id: org.gnome.Music.desktop
+    plugs:
+      - gsettings       # theme, fonts and the app's own preferences
+      - home            # the music collection in the user's home directory
+      - removable-media # music on USB sticks and other removable media
+      - audio-playback  # playback through the desktop's PulseAudio/PipeWire
+      - network         # cover art lookup (MusicBrainz, Last.fm, TheAudioDB)
+    environment:
+      # The application module is installed into the snap, outside the
+      # platform interpreter's default sys.path.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # libgrilo and the Lua plugin factory have compiled-in paths that do not
+      # exist in the base; point them at the staged copies.
+      GRL_PLUGIN_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/grilo-0.3
+      GRL_LUA_SOURCES_PATH: $SNAP/usr/share/grilo-plugins/grl-lua-factory
+
+parts:
+  gnome-music:
+    source: https://gitlab.gnome.org/GNOME/gnome-music.git
+    source-type: git
+    source-tag: '50.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Music.metainfo.xml]
+    meson-parameters:
+      # Install under the path the snap is mounted at, so the datadir and
+      # localedir baked into usr/bin/gnome-music point inside the snap; the
+      # organize entry below then moves the tree to usr/.
+      - --prefix=/snap/gnome-music/current/usr
+      - --buildtype=release
+    organize:
+      snap/gnome-music/current/usr: usr
+    build-packages:
+      # GTK4, libadwaita, GLib, GStreamer, libsoup, gobject-introspection and
+      # meson/ninja come from the gnome-core26-sdk build snap. These do not.
+      - libgrilo-0.3-dev
+      # gnome-music's meson.build looks up grilo-plugins-0.3 with pkg-config;
+      # its .pc file ships in the runtime package, not in a -dev package.
+      - grilo-plugins-0.3
+      - libmediaart-2.0-dev
+      - libtracker-sparql-3.0-dev
+      - patch              # applies patches/0001 in override-pull
+      - python-gi-dev      # pygobject-3.0.pc
+      - python3-cairo-dev  # py3cairo.pc
+      - yelp-tools         # the user documentation is built with yelp-build
+    override-pull: |
+      craftctl default
+      # Use the TinySPARQL indexer bundled in the snap: a strict snap cannot
+      # reach the host's indexer, and the session bus cannot activate the
+      # bundled copy.
+      patch -p1 --silent \
+        < "${CRAFT_PROJECT_DIR}/patches/0001-snap-use-bundled-indexer.patch"
+      # Use the icon shipped in the snap so it appears in the launcher.
+      sed -i.bak \
+        -e 's|^Icon=@icon@$|Icon=${SNAP}/meta/gui/org.gnome.Music.svg|' \
+        data/org.gnome.Music.desktop.in.in
+      # Do not install the help media as a symlink into the build tree.
+      sed -i.bak \
+        -e "s|media: 'figures/org.gnome.Music.svg'|media: 'figures/org.gnome.Music.svg', symlink_media: false|" \
+        help/meson.build
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Music.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+
+  libraries:
+    after: [gnome-music]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships neither Grilo, the TinySPARQL typelibs nor
+      # libmediaart. grilo-plugins provides the metadata-store, filesystem and
+      # tracker sources; the Lua factory plugins supply cover art.
+      - libgrilo-0.3-0
+      - grilo-plugins-0.3
+      - gir1.2-grilo-0.3
+      - libmediaart-2.0-0
+      - gir1.2-mediaart-2.0
+      - gir1.2-tsparql-3.0
+      - gir1.2-tracker-3.0
+      # The content snap already has the GStreamer base, good and extra plugin
+      # sets, including the MP3, FLAC, Ogg and AAC parsers. The ugly set adds
+      # the ASF/WMA demuxer and the AC-3 decoder.
+      - gstreamer1.0-plugins-ugly
+      # libav supplies the decoders the platform does not ship (AAC, ALAC,
+      # WMA, ...).
+      - gstreamer1.0-libav
+      # grilo-plugins, totem-pl-parser and libgrilo's Lua factory link
+      # libxml2, which is in the SDK but not in the gnome-core26 content snap.
+      - libxml2-16
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension's cleanup part deletes every staged shared object
+      # whose path also exists in gnome-core26-sdk. libxml2 is in the SDK but
+      # not in the content snap, so move it out of the SDK's multiarch path;
+      # usr/lib is added to LD_LIBRARY_PATH by snapcraft.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+        "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/help
+      - -usr/share/man
+
+  # gnome-music reads its library from a TinySPARQL database. A strict snap
+  # cannot use the indexer running in the host session, so build the same
+  # indexer Flatpak bundles: LocalSearch with an application-specific D-Bus
+  # domain. It indexes XDG_MUSIC only and keeps its database in the snap's
+  # private cache directory.
+  localsearch:
+    source: https://gitlab.gnome.org/GNOME/localsearch.git
+    source-type: git
+    source-tag: '3.11.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/gnome-music/current/usr
+      - --buildtype=release
+      - -Ddomain_prefix=org.gnome.Music
+      - -Dminer_fs_cache_location=gnome-music/miner
+      - "-Ddefault_index_recursive_dirs=&MUSIC"
+      - "-Ddefault_index_single_dirs="
+      - -Dminer_fs=true
+      - -Dextract=true
+      - -Dwriteback=false
+      - -Dsystemd_user_services=false
+      - -Dman=false
+      - -Dfunctional_tests=false
+      - -Dsandbox_tests=false
+      - -Dseccomp=false
+      - -Dlandlock=disabled
+      - -Dbattery_detection=none
+      - -Dcharset_detection=icu
+      # Only the audio extractor is needed; the document and image
+      # extractors (and their dependencies) are not.
+      - -Dmp3=true
+      - -Dabiword=false
+      - -Dicon=false
+      - -Dps=false
+      - -Dtext=false
+      - -Dcue=disabled
+      - -Dexif=disabled
+      - -Dgif=disabled
+      - -Dgsf=disabled
+      - -Diptc=disabled
+      - -Diso=disabled
+      - -Djpeg=disabled
+      - -Dpdf=disabled
+      - -Dplaylist=disabled
+      - -Dpng=disabled
+      - -Draw=disabled
+      - -Dtiff=disabled
+      - -Dwebp=disabled
+      - -Dxmp=disabled
+      - -Dxps=disabled
+      - -Dzip=disabled
+    organize:
+      snap/gnome-music/current/usr: usr
+    build-packages:
+      - libdbus-1-dev
+      - libicu-dev
+      - libgstreamer-plugins-base1.0-dev
+      - libgstreamer1.0-dev
+      - libtracker-sparql-3.0-dev
+      - libxml2-dev      # the playlist and XML extractors link it
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/pkgconfig
+      - -usr/share/man
+
+  cleanup:
+    after: [libraries, localsearch]
+    plugin: nil
+    build-snaps: [gnome-core26]
+    override-prime: |
+      set -eux
+      # Staging grilo-plugins and the GStreamer plugin sets pulls in copies of
+      # libraries, GStreamer plugins and other desktop files that the
+      # gnome-core26 content snap already provides. Drop every primed file
+      # whose path also exists in the content snap.
+      cd /snap/gnome-core26/current
+      find usr/lib usr/share/glib-2.0 -type f -o -type l | while IFS= read -r file; do
+        rm -f "$CRAFT_PRIME/$file"
+      done
+      # Some staged libraries have a different file name but the same SONAME
+      # as the copy in the content snap (libcairo, libgdk-pixbuf, ...). Drop
+      # those too, so the platform's newer copy is the one that is loaded.
+      for dir in "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR" "$CRAFT_PRIME/usr/lib"; do
+        for file in "$dir"/*.so*; do
+          [ -f "$file" ] || continue
+          soname=$(readelf -d "$file" 2>/dev/null |
+            sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')
+          [ -n "$soname" ] || continue
+          for candidate in \
+            "/snap/gnome-core26/current/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$soname" \
+            "/snap/gnome-core26/current/usr/lib/$soname" \
+            "/snap/gnome-core26/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$soname"; do
+            if [ -e "$candidate" ]; then
+              rm -f "$file"
+              break
+            fi
+          done
+        done
+      done
+      # Rebuild the schema cache for the schemas that remain in prime.
+      cd "$CRAFT_PRIME/usr/share/glib-2.0/schemas"
+      glib-compile-schemas .

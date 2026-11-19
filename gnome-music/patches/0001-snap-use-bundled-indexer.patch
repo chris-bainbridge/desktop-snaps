@@ -1,0 +1,79 @@
+diff --git a/gnomemusic/application.py b/gnomemusic/application.py
+index 5b40433..204d8ee 100644
+--- a/gnomemusic/application.py
++++ b/gnomemusic/application.py
+@@ -11,6 +11,9 @@
+ # SPDX-License-Identifier: GPL-2.0-or-later WITH GStreamer-exception-2008
+ 
+ import asyncio
++import os
++import subprocess
++import time
+ from gettext import gettext as _
+ 
+ from gi.events import GLibEventLoopPolicy
+@@ -31,6 +34,38 @@ from gnomemusic.widgets.preferencesdialog import PreferencesDialog
+ from gnomemusic.window import Window
+ 
+ 
++_INDEXER_PROCESS = None
++
++
++def _start_bundled_indexer() -> None:
++    """Start the TinySPARQL indexer bundled in the snap.
++
++    A strictly confined snap cannot reach the indexer running in the host
++    session, and the session bus cannot activate the bundled copy because its
++    service file is not in the host's XDG data directories. Launch it
++    directly and wait until it owns the bus name the Tracker wrapper uses.
++    """
++    global _INDEXER_PROCESS
++
++    if _INDEXER_PROCESS is not None:
++        return
++
++    indexer = os.path.join(os.environ["SNAP"], "usr/libexec/localsearch-3")
++    _INDEXER_PROCESS = subprocess.Popen([indexer])
++
++    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
++    name = "org.gnome.Music.Tracker3.Miner.Files"
++    for _attempt in range(30):
++        result = bus.call_sync(
++            "org.freedesktop.DBus", "/org/freedesktop/DBus",
++            "org.freedesktop.DBus", "NameHasOwner",
++            GLib.Variant("(s)", (name,)), None,
++            Gio.DBusCallFlags.NONE, -1, None)
++        if result.unpack()[0]:
++            return
++        time.sleep(0.1)
++
++
+ class Application(Adw.Application):
+ 
+     def __init__(self, application_id, version):
+@@ -288,6 +323,8 @@ class Application(Adw.Application):
+         self._set_actions()
+ 
+     def do_activate(self):
++        if os.environ.get("SNAP_NAME"):
++            _start_bundled_indexer()
+         self._coregrilo = CoreGrilo(self)
+ 
+         if not self._window:
+diff --git a/gnomemusic/trackerwrapper.py b/gnomemusic/trackerwrapper.py
+index 0d87c5d..a836ac7 100644
+--- a/gnomemusic/trackerwrapper.py
++++ b/gnomemusic/trackerwrapper.py
+@@ -84,6 +84,12 @@ class TrackerWrapper(GObject.GObject):
+         return os.path.exists("/.flatpak-info")
+ 
+     async def _setup_host_miner_fs(self) -> None:
++        if os.environ.get("SNAP_NAME"):
++            # Strict snaps cannot reach the indexer running in the host
++            # session; connect to the copy bundled in the snap instead.
++            self._setup_local_miner_fs()
++            return
++
+         self._miner_fs_busname = "org.freedesktop.Tracker3.Miner.Files"
+ 
+         self._log.debug(
