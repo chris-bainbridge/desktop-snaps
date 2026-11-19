@@ -21,7 +21,7 @@ description: |
   of the libjpeg-turbo JPEG codec.
 grade: stable
 confinement: strict
-base: core22
+base: core26
 license: GPL-2.0-or-later
 website: https://github.com/TigerVNC/tigervnc
 source-code: https://github.com/TigerVNC/tigervnc
@@ -66,10 +66,10 @@ parts:
       # remaining unix/ targets (vncserver, x0vncserver, vncconfig,
       # vncpasswd) are compiled but pruned in prime below.
       - -DBUILD_VIEWER=ON
-      # H.264 needs the jammy libav* stack, which is not part of the gnome
-      # platform and drags ~25 MB of extra libraries into the snap.  The
-      # previously shipped 1.12 viewer had no H.264 support either; the
-      # viewer falls back to the Tight/RLE/raw encodings.
+      # H.264 needs the FFmpeg libav* stack, which is not part of core26 or
+      # the gnome-core26 platform and drags ~25 MB of extra libraries into
+      # the snap.  The previously shipped 1.12 viewer had no H.264 support
+      # either; the viewer falls back to the Tight/RLE/raw encodings.
       - -DENABLE_H264=OFF
       # Translated desktop entry and AppStream metadata via gettext.
       - -DENABLE_NLS=ON
@@ -77,7 +77,7 @@ parts:
       - build-essential
       - cmake
       - gettext           # msgfmt --desktop/--xml for the viewer's metadata
-      - pkg-config
+      - pkgconf
       - libfltk1.3-dev    # the only FLTK series the viewer supports
       - libx11-dev        # Xlib and XKB headers
       - libxext-dev
@@ -106,16 +106,18 @@ parts:
       - usr/share/locale
 
   runtime:
-    # FLTK is the only library the viewer links that neither core22 nor the
-    # gnome-42-2204 platform ships; everything else (X11, GnuTLS, nettle,
-    # jpeg, pixman, fontconfig) comes from them at run time, exactly as in
-    # the previously staged Debian package.  libfltk_images is a separate
-    # package in jammy, even though the viewer links it directly.
+    # FLTK is the only library the viewer links that neither core26 nor the
+    # gnome-core26 platform ships.  The X11 stack comes from gnome-core26
+    # (libXft, libXinerama, libXcursor, libXrender, libXi, libXrandr) and the
+    # gpu-2604 content snap (mesa-2604: libX11, libXext, libXfixes), while
+    # GnuTLS, nettle, libjpeg, pixman and fontconfig come from core26 and
+    # gnome-core26.  libfltk_images is a separate package from libfltk1.3 in
+    # 26.04, even though the viewer links it directly.
     after: [tigervnc]
     plugin: nil
     stage-packages:
-      - libfltk1.3
-      - libfltk-images1.3
+      - libfltk1.3t64
+      - libfltk-images1.3t64
     prime:
       - -usr/include
       - -usr/lib/*.la
@@ -125,15 +127,21 @@ parts:
       - -usr/share/doc
       - -usr/share/man
       - -usr/share/lintian
+      # libfltk pulls in the archive's fontconfig 2.16, which is older than
+      # the 2.17 copy gnome-core26 ships.  The gnome extension's cleanup
+      # removes the .so.1 symlink (it exists in the SDK) but leaves the
+      # versioned file behind, so drop both and use the platform's copy,
+      # which libXft from gnome-core26 is built against.
+      - -usr/lib/*/libfontconfig.so*
 
   # Find files provided by the base and platform snap and ensure they aren't
   # duplicated in this snap
   cleanup:
     after: [tigervnc, runtime]
     plugin: nil
-    build-snaps: [core22, gnome-42-2204]
+    build-snaps: [core26, gnome-core26]
     override-prime: |
       set -eux
-      for snap in "core22" "gnome-42-2204"; do
+      for snap in "core26" "gnome-core26"; do
         cd "/snap/$snap/current" && find . -type f,l -name *.so.* -exec rm -f "$CRAFT_PRIME/{}" \;
       done
