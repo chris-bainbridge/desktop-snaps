@@ -1,0 +1,117 @@
+name: gnote
+adopt-info: gnote
+summary: Take notes, link ideas, and stay organized
+description: |
+  Gnote is a desktop note-taking application for Linux and Unix. Simple and
+  easy to use, but with potential to underlie the most complex note-taking
+  systems.
+
+  Notes are written in an easy-to-learn wiki-like syntax that supports
+  formatting, links between notes, notebooks, tags and embedded images.
+
+contact: https://gitlab.gnome.org/GNOME/gnote/-/issues
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and the upstream
+  # usr/share/dbus-1/services/org.gnome.Gnote.service file
+  gnote:
+    interface: dbus
+    bus: session
+    name: org.gnome.Gnote
+
+apps:
+  gnote:
+    extensions: [gnome]
+    command: usr/bin/gnote
+    environment:
+      # gnome-core26 has no libxml2, and the gnome extension only puts the
+      # platform on the library path. libgnote and the bundled libxml2 live
+      # in $SNAP/usr/lib.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      - gsettings
+      # notes and attachments live in the user's data directory
+      - home
+      # WebDAV synchronization
+      - network
+      # libsecret stores the WebDAV password in the host keyring
+      - password-manager-service
+    desktop: usr/share/applications/org.gnome.Gnote.desktop
+    common-id: org.gnome.Gnote.desktop
+
+parts:
+  gnote:
+    source: https://gitlab.gnome.org/GNOME/gnote.git
+    source-type: git
+    source-tag: '51.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Gnote.appdata.xml]
+    meson-parameters:
+      # The compiled-in LIBDIR/DATADIR are used for the add-in modules
+      # ($LIBDIR/gnote/plugins/51), the schemas, icons, help and the
+      # introspection XML, so they have to point at the mounted snap rather
+      # than at the host's /usr.
+      - --prefix=/snap/gnote/current/usr
+      - --libdir=lib
+      - --buildtype=release
+    organize:
+      snap/gnote/current/usr: usr
+    build-packages:
+      - libgtkmm-4.0-dev
+      - libglibmm-2.68-dev
+      - libadwaita-1-dev
+      - libsecret-1-dev
+      - libxml2-dev
+      - libxslt1-dev
+      - uuid-dev
+      - itstool
+    override-build: |
+      craftctl default
+
+      desktop="$CRAFT_PART_INSTALL/snap/gnote/current/usr/share/applications/org.gnome.Gnote.desktop"
+      # Use the bundled icon rather than the theme icon.
+      sed -i 's|^Icon=org.gnome.Gnote$|Icon=${SNAP}/meta/gui/org.gnome.Gnote.svg|' "$desktop"
+      # Upstream's D-Bus service file starts the bare executable with
+      # /snap/gnote/current/usr/bin/gnote, bypassing the snap launcher and
+      # therefore the gnome extension's environment. The desktop file and
+      # the dbus slot handle launching instead.
+      sed -i 's|^DBusActivatable=true$|DBusActivatable=false|' "$desktop"
+      rm -f "$CRAFT_PART_INSTALL/snap/gnote/current/usr/share/dbus-1/services/org.gnome.Gnote.service"
+
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/hicolor_apps_scalable_org.gnome.Gnote.svg" \
+         "$CRAFT_PART_INSTALL/meta/gui/org.gnome.Gnote.svg"
+
+      # meson's gnome.post_install() skips glib-compile-schemas when DESTDIR
+      # is set, which is how snapcraft installs.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gnote/current/usr/share/glib-2.0/schemas"
+
+  # gnome-core26 ships libgtkmm-4.0 and the glibmm/giomm libraries it links
+  # against (in its usr/lib, which the gnome extension's desktop-launch puts
+  # on LD_LIBRARY_PATH). Only libxml2 is missing: gnote links it directly
+  # and gnome-core26's libxslt needs it too.
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has libxslt but no libxml2, and gnote links libxml2
+      # directly (note format, XSLT export).
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk, where libxml2 is a build
+      # dependency. Keep the bundled copy out of the SDK's multiarch path.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*

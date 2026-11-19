@@ -1,0 +1,7 @@
+# Build metadata for gnote (new core26 recipe, 2026-11).
+snap: gnote
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/gnote (51.0)
+imported: '2026-11-19'
