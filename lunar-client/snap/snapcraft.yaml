@@ -1,5 +1,5 @@
 name: lunar-client
-base: core24
+base: core26
 adopt-info: lunar-client
 title: Lunar Client
 summary: A modpack for all modern versions of Minecraft!
@@ -9,14 +9,33 @@ description: |
 
 grade: stable
 confinement: strict
+license: Proprietary
 compression: lzo
 platforms:
+  # Upstream offers exactly one Linux download (an ELF x86-64 AppImage) at
+  # https://www.lunarclient.com/download; there is no arm64 build to package.
+  # The published store snap is amd64-only for the same reason.
   amd64:
 
 contact: https://github.com/kenvandine/lunar-client/issues
 issues: https://github.com/kenvandine/lunar-client/issues
 website: https://www.lunarclient.com/
 icon: icon.png
+
+# Migration notes (core24 -> core26):
+#   * The gnome extension on core26 connects gnome-core26 for the GTK/GLib
+#     stack and is a GPU extension, so it also connects mesa-2604 through the
+#     gpu-2604 content interface. The extension's gnome/cleanup part removes
+#     primed libraries that the gnome-core26-sdk also ships.
+#   * mesa-2604 supplies libX11, libXext, libXfixes, libXdamage, libxcb and
+#     libgbm, none of which live in core26 or gnome-core26. The gpu wrapper
+#     puts them on LD_LIBRARY_PATH before the app starts.
+#   * The AppImage's bundled usr/lib (libnotify, libappindicator3, libXtst,
+#     libXss, libgconf) is pruned. libnotify and libXtst come from
+#     gnome-core26; nothing in the DT_NEEDED closure requires the others.
+#
+# Lunar Client is proprietary and distributed only as the official AppImage;
+# that prebuilt binary is the packaged application, not a build artifact.
 
 parts:
   launcher:
@@ -41,6 +60,7 @@ parts:
     build-packages:
       - wget
       - curl
+      - ca-certificates
     override-build: |
       craftctl default
       url=$(curl -sIL -o /dev/null -w '%{url_effective}' "https://api.lunarclientprod.com/site/download?os=linux")
@@ -50,7 +70,7 @@ parts:
       chmod -R a+rX squashfs-root
       mv squashfs-root/* $CRAFT_PART_INSTALL/
       chmod 755 $CRAFT_PART_INSTALL/
-      sed -i.bak -e 's|Icon=lunarclient$|Icon=${SNAP}/lunarclient.png|g' $CRAFT_PART_INSTALL/lunarclient.desktop
+      sed -i -e 's|Icon=lunarclient$|Icon=${SNAP}/lunarclient.png|g' $CRAFT_PART_INSTALL/lunarclient.desktop
       version=$(echo "$url" | grep -oP 'Lunar%20Client-\K[0-9.]+(?=-ow)')
       craftctl set version="$version"
     prime:
@@ -67,6 +87,10 @@ apps:
       - network
       - audio-playback
       - shmem
+      # The gnome extension adds gsettings automatically only up to core24;
+      # on core26 it has to be declared. Without it GTK falls back to the
+      # keyfile backend and ignores the desktop's dconf settings.
+      - gsettings
     environment:
       HOME: $SNAP_USER_COMMON
       TMPDIR: $XDG_RUNTIME_DIR

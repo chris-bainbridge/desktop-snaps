@@ -1,6 +1,6 @@
-# Build metadata for lunar-client (imported 2026-11-17; core26 migration pending).
+# Build metadata for lunar-client (core26 migration, 2026-11-19).
 snap: lunar-client
-base: core24
+base: core26
 mode: vendored
 redistribution: canonical-published
 upstream: https://www.lunarclient.com/
