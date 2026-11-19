@@ -1,0 +1,7 @@
+# Build metadata for four-in-a-row (new core26 recipe, 2026-11).
+snap: four-in-a-row
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/four-in-a-row (3.38.1)
+imported: '2026-11-18'

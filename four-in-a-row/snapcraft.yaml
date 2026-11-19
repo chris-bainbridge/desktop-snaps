@@ -1,0 +1,109 @@
+name: four-in-a-row
+adopt-info: four-in-a-row
+title: Four-in-a-row
+license: GPL-3.0+
+contact: https://gitlab.gnome.org/GNOME/four-in-a-row/-/issues
+source-code: https://gitlab.gnome.org/GNOME/four-in-a-row
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+# four-in-a-row 3.38.1 (2020-10-03) is the latest stable upstream release;
+# the project left the GNOME release sets and only receives translation
+# updates on master. It is a GTK3 + Vala application, which the gnome
+# extension still supports on core26 (the content snap ships GTK3, gsound
+# and librsvg).
+#
+# The content snap's librsvg is built against libxml2, which gnome-core26
+# does not ship; the libraries part below bundles the archive's libxml2-16.
+
+slots:
+  # for GtkApplication registration
+  four-in-a-row:
+    interface: dbus
+    bus: session
+    name: org.gnome.Four-in-a-row
+
+apps:
+  four-in-a-row:
+    extensions: [gnome]
+    command: usr/bin/four-in-a-row
+    common-id: org.gnome.Four-in-a-row.desktop
+    plugs:
+      - audio-playback
+      # the gnome extension no longer adds it on core26
+      - gsettings
+    desktop: usr/share/applications/org.gnome.Four-in-a-row.desktop
+
+# The prefix is the runtime mount path, not /usr: SOUND_DIRECTORY, DATA_DIRECTORY
+# and LOCALEDIR are compiled into the binary, and a /usr prefix would resolve
+# them to the core26 base instead of the snap. organize moves the installed
+# tree back under usr/.
+parts:
+  four-in-a-row:
+# ext:updatesnap
+#   version-format:
+#     lower-than: '3.39'
+#     no-9x-revisions: true
+    source: https://gitlab.gnome.org/GNOME/four-in-a-row.git
+    source-type: git
+    source-tag: '3.38.1'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      - --prefix=/snap/four-in-a-row/current/usr
+      - --buildtype=release
+    organize:
+      snap/four-in-a-row/current/usr: usr
+    parse-info: [usr/share/metainfo/org.gnome.Four-in-a-row.appdata.xml]
+    build-packages:
+      # gnome.yelp needs yelp-build; gnome-core26-sdk only ships itstool
+      - yelp-tools
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # The help media symlinks would dangle in the snap.
+      sed -i.bak -e 's|symlink_media: true|symlink_media: false|' help/meson.build
+      # Meson 0.63 removed the python3 module; the install script itself is
+      # skipped when DESTDIR is set, but configure still has to succeed.
+      sed -i.bak \
+        -e "s|^python3 = import('python3')$|python3 = import('python')|" \
+        -e 's|python3.find_python()|python3.find_installation()|' meson.build
+      # Vala 0.56 requires [GtkChild] fields to be unowned.
+      sed -i -E 's/^([[:space:]]*)\[GtkChild\] ([a-z]+) /\1[GtkChild] \2 unowned /' src/*.vala
+    override-build: |
+      craftctl default
+      # meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. Compile the schema here so GSettings can
+      # resolve org.gnome.Four-in-a-row on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/four-in-a-row/current/usr/share/glib-2.0/schemas"
+      # gtk-common-themes does not carry the application icon, so ship the
+      # upstream icon in meta/gui and point the desktop file at it.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_INSTALL/snap/four-in-a-row/current/usr/share/icons/hicolor/256x256/apps/org.gnome.Four-in-a-row.png" \
+         "$CRAFT_PART_INSTALL/meta/gui/"
+      sed -i 's|^Icon=org.gnome.Four-in-a-row$|Icon=${SNAP}/meta/gui/org.gnome.Four-in-a-row.png|' \
+        "$CRAFT_PART_INSTALL/snap/four-in-a-row/current/usr/share/applications/org.gnome.Four-in-a-row.desktop"
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26's librsvg links libxml2 directly, but the content snap
+      # does not ship libxml2. The game loads its SVG pieces through it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome/cleanup part deletes every primed library whose path also
+      # exists in the gnome-core26 SDK. libxml2 is in the SDK but not in the
+      # content snap, so move it out of the SDK's multiarch path; $SNAP/usr/lib
+      # is on the default LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
