@@ -1,6 +1,5 @@
 name: gnome-recipes
 adopt-info: gnome-recipes
-base: core24
 summary: GNOME loves to cook
 description: |
   Recipes is an easy-to-use application that will help you to discover what to cook
@@ -23,7 +22,17 @@ description: |
   today, tomorrow, the rest of the week and for your special occasions.
 
 grade: stable
-confinement: strict # use 'strict' once you have the right plugs and slots
+confinement: strict
+base: core26
+license: GPL-3.0-or-later
+contact: https://gitlab.gnome.org/GNOME/recipes/-/issues
+website: https://gitlab.gnome.org/GNOME/recipes
+source-code: https://gitlab.gnome.org/GNOME/recipes
+issues: https://gitlab.gnome.org/GNOME/recipes/-/issues
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   gnome-recipes:
@@ -36,75 +45,123 @@ apps:
     extensions: [gnome]
     command: usr/bin/gnome-recipes
     desktop: usr/share/applications/org.gnome.Recipes.desktop
+    common-id: org.gnome.Recipes.desktop
     plugs:
+      # dconf access for the org.gnome.Recipes schema. The gnome extension
+      # only adds this plug for core24 and older.
+      - gsettings
       - network
       - network-status
+    environment:
+      # The staged libxml2 (needed by libsoup2.4 and librest) is kept in
+      # $SNAP/usr/lib, outside the SDK's multiarch path. The gnome extension
+      # only puts the platform on the library path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
 
 parts:
+  # Recipes 2.0.4 uses the rest-0.7 API. librest 0.8.1 is the last release of
+  # that API series (0.9 and newer are the incompatible rest-1.0 API, which
+  # gnome-core26 ships); it still builds against the libsoup-2.4 that the
+  # 26.04 archive carries in universe.
   librest:
     source: https://gitlab.gnome.org/GNOME/librest.git
+    source-type: git
     source-tag: '0.8.1'
     source-depth: 1
-# ext:updatesnap
-#   version-format:
-#     same-major: true
-#     same-minor: true
     plugin: autotools
     autotools-configure-parameters:
       - --prefix=/usr
       - --libdir=\${exec_prefix}/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      # Only the shared libraries are needed; skip the docs and typelib so the
+      # build does not depend on a matching libsoup-2.4 GIR.
+      - --disable-gtk-doc
+      - --disable-introspection
     build-packages:
-      - gtk-doc-tools
       - libsoup2.4-dev
       - libsoup-gnome2.4-dev
-    stage-packages:
-      - libsoup-2.4-1
-      - libsoup-gnome-2.4-1
+      - libxml2-dev
+    override-pull: |
+      craftctl default
+      # autogen.sh probes for gtkdocize with `which` (not shipped in 26.04)
+      # and the command substitution's failure status makes `set -e` abort
+      # the script silently when gtkdocize is absent. Use a shell lookup that
+      # cannot fail; gtk-doc is disabled for the configure run anyway.
+      sed -i 's|^GTKDOCIZE=.*|GTKDOCIZE=$(command -v gtkdocize \|\| true)|' autogen.sh
+    # Recipes only uses the rest-0.7 core library; drop rest-extras, the
+    # headers, the .so development symlink and the pkg-config files.
+    prime:
+      - usr/lib/*/librest-0.7.so.*
 
   gnome-recipes:
-    after: [librest]
+    # 2.0.4 (2020-03-05) is upstream's latest release tag. master has only
+    # received translation updates since then, and the project has had no
+    # code changes for over five years.
     source: https://github.com/GNOME/recipes.git
     source-type: git
     source-tag: '2.0.4'
     source-depth: 1
+    # libgd is a git submodule and is empty in the release tarball.
+    source-submodules:
+      - subprojects/libgd
+    after: [librest]
     plugin: meson
     parse-info: [usr/share/metainfo/org.gnome.Recipes.appdata.xml]
     meson-parameters:
-      - --prefix=/usr
+      # Recipes compiles DATADIR, PKGDATADIR and LOCALEDIR and has no
+      # environment override for the first two. Use the runtime mount path as
+      # prefix so those paths are valid inside the confined snap; organize
+      # moves the installed tree back under usr/.
+      - --prefix=/snap/gnome-recipes/current/usr
       - --buildtype=release
+      # This 2020 code base predates the C23 default of GCC 15.
+      - -Dc_std=gnu11
+    organize:
+      snap/gnome-recipes/current/usr: usr
     build-packages:
-      - libgnome-autoar-0-dev
       - libsoup2.4-dev
       - libsoup-gnome2.4-dev
-      - librest-dev
+      - libxml2-dev
+      - libgnome-autoar-0-dev
       - libgoa-1.0-dev
+    override-pull: |
+      craftctl default
+      # GCC 14+ rejects latent incompatible-pointer-types mismatches in this
+      # 2020 code base (two GPtrArray/GArray mixups and two GtkListStore to
+      # GtkTreeModel returns).
+      patch -p1 < "$CRAFT_PROJECT_DIR/patches/0001-gcc15-pointer-types.patch"
+    override-build: |
+      craftctl default
+      # meson's gnome.compile_schemas() post-install step is skipped when
+      # DESTDIR is set, which is how snapcraft installs. Compile the schema
+      # here so GSettings can resolve org.gnome.Recipes on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gnome-recipes/current/usr/share/glib-2.0/schemas"
+
+  libraries:
+    after: [gnome-recipes]
+    plugin: nil
     stage-packages:
-      - libgnome-autoar-0-0
+      # gnome-core26 provides GTK3, GLib/GIO, gnome-online-accounts, gspell,
+      # json-glib, libcanberra, libpsl, brotli and libarchive. It does not
+      # ship libsoup-2.4, librest-0.7, gnome-autoar or libxml2, which this
+      # application links either directly or through librest.
       - libsoup-2.4-1
       - libsoup-gnome-2.4-1
-      - librest-1.0-0
-      - libgoa-1.0-0b
-    build-snaps:
-      - gnome-46-2404-sdk/latest/candidate
-
-  cleanup:
-    after: [ gnome-recipes ]
-    plugin: nil
-    build-snaps: [core24, gtk-common-themes, gnome-46-2404/latest/candidate]
-    override-prime: |
-      set -eux
-      for snap in "core24" "gtk-common-themes" "gnome-46-2404"; do
-        cd "/snap/$snap/current" && find . -type f,l -name *.so.* -exec rm -f "$CRAFT_PRIME/{}" \;
-      done
-      # remove cross-installed repeated libraries (in /usr/lib in the SDK, but in /usr/lib/TRIPLET
-      # here, and the opposite)
-      for snap in "core24" "gnome-46-2404"; do
-        cd "/snap/$snap/current/usr/lib"
-        for filename in [ *.so* ]; do
-          rm -f "$CRAFT_PRIME/usr/lib/$CRAFT_ARCH_TRIPLET/$filename"
-        done
-        cd "/snap/$snap/current/usr/lib/$CRAFT_ARCH_TRIPLET"
-        for filename in [ *.so* ]; do
-          rm -f "$CRAFT_PRIME/usr/lib/$filename"
-        done
-      done
+      - libgnome-autoar-0-0
+      # libsoup2.4 and librest both link libxml2. It is in the gnome-core26
+      # SDK but not in the content snap.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/*/libsoup-2.4.so.*
+      - usr/lib/*/libsoup-gnome-2.4.so.*
+      - usr/lib/*/libgnome-autoar-0.so.*
+      - usr/lib/libxml2.so.*
