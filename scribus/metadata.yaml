@@ -2,5 +2,6 @@ snap: scribus
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://sourceforge.net/p/scribus/code/HEAD/tree/ (1.6.7)
+# SourceForge hosts the releases; the code lives in the project's own SVN.
+upstream: svn://scribus.net (1.6.7)
 imported: '2026-11-17'
