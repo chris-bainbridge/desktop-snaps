@@ -212,8 +212,8 @@ fn print_progress(completed: usize, total: usize, name_width: usize, result: &Pa
 }
 
 fn progress_status(result: &PackageResult) -> String {
-    if result.error.is_some() {
-        return "[error]".to_string();
+    if let Some(error) = &result.error {
+        return format!("[error - {}]", concise_error(error));
     }
     if result.package.metadata.upstream.provider.is_manual() {
         return "[manual]".to_string();
@@ -229,6 +229,41 @@ fn progress_status(result: &PackageResult) -> String {
         "report-only" => format!("[{}] report-only", row.version),
         "error" => "[error]".to_string(),
         _ => format!("[{}]", row.version),
+    }
+}
+
+fn concise_error(error: &str) -> String {
+    let line = error.lines().next().unwrap_or(error).trim();
+    let line = if let Some(rest) = line.strip_prefix("HTTP ") {
+        rest.split(':').next().unwrap_or(rest).trim()
+    } else {
+        line
+    };
+    let mut short: String = line.chars().take(100).collect();
+    if line.chars().count() > 100 {
+        short.push_str("...");
+    }
+    short
+}
+
+#[cfg(test)]
+mod tests {
+    use super::concise_error;
+
+    #[test]
+    fn shortens_http_status_errors() {
+        assert_eq!(
+            concise_error("HTTP 429 Too Many Requests: Retry later"),
+            "429 Too Many Requests"
+        );
+    }
+
+    #[test]
+    fn keeps_other_errors_intact() {
+        assert_eq!(
+            concise_error("git ls-remote https://example.invalid failed: boom"),
+            "git ls-remote https://example.invalid failed: boom"
+        );
     }
 }
 
