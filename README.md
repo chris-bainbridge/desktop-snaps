@@ -13,9 +13,10 @@ Canonical's pipewire-snap repository on 2026-11-18, 64 new recipes written
 on 2026-11-17, and 18 GNOME apps added on 2026-11-19.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the eighty-two packages added on 2026-11-17/19, which are not in the store
-yet. Every package is on `core26`; the 36 legacy imports were migrated
-during the 2026-11-19 refresh.
+the eighty packages written here, which are not in the store yet; `gthumb`
+and `quadrapassel` are refreshed imports of existing store snaps. Every
+package is on `core26`; the 36 legacy imports were migrated during the
+2026-11-19 refresh.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
