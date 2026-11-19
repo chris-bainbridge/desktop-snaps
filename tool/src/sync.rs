@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use futures::StreamExt;
 use regex::Regex;
 
-use crate::cli::SyncArgs;
+use crate::cli::{MAX_JOBS, SyncArgs};
 use crate::discover;
 use crate::package::{BumpMode, Package};
 use crate::upstream::{self, HttpConfig};
@@ -38,22 +38,35 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
     if args.jobs == 0 {
         bail!("--jobs must be at least 1");
     }
+    if args.jobs > MAX_JOBS {
+        eprintln!("snap-repo: --jobs capped at {MAX_JOBS}");
+    }
 
     let packages = discover::discover(root)?;
     let selected = select(packages, args)?;
     let config = HttpConfig::from_env();
     let client = config.client()?;
-    let jobs = args.jobs;
+    let jobs = args.jobs.min(MAX_JOBS);
+    let total = selected.len();
+    let name_width = selected
+        .iter()
+        .map(|package| package.name.len())
+        .max()
+        .unwrap_or(0);
 
     let futures = selected.into_iter().map(|package| {
         let client = client.clone();
         let config = config.clone();
         async move { resolve_package(&client, &config, package).await }
     });
-    let mut results: Vec<PackageResult> = futures::stream::iter(futures)
-        .buffer_unordered(jobs)
-        .collect()
-        .await;
+    let mut stream = futures::stream::iter(futures).buffer_unordered(jobs);
+    let mut results = Vec::with_capacity(total);
+    let mut completed = 0;
+    while let Some(result) = stream.next().await {
+        completed += 1;
+        print_progress(completed, total, name_width, &result);
+        results.push(result);
+    }
     results.sort_by(|left, right| left.package.name.cmp(&right.package.name));
 
     let rows: Vec<&Row> = results
@@ -188,6 +201,35 @@ async fn resolve_package(
 
 fn count(rows: &[&Row], action: &str) -> usize {
     rows.iter().filter(|row| row.action == action).count()
+}
+
+fn print_progress(completed: usize, total: usize, name_width: usize, result: &PackageResult) {
+    eprintln!(
+        "[{completed}/{total}] {:<name_width$} {}",
+        result.package.name,
+        progress_status(result)
+    );
+}
+
+fn progress_status(result: &PackageResult) -> String {
+    if result.error.is_some() {
+        return "[error]".to_string();
+    }
+    if result.package.metadata.upstream.provider.is_manual() {
+        return "[manual]".to_string();
+    }
+    let Some(row) = result.rows.first() else {
+        return "[-]".to_string();
+    };
+    match row.action {
+        "bump" => format!("[{} -> {}] *UPDATED*", row.version, row.latest),
+        "ahead" => format!("[{} -> {}] *AHEAD*", row.version, row.latest),
+        "up-to-date" => format!("[{}]", row.version),
+        "report-only" if row.version == "-" => "[report-only]".to_string(),
+        "report-only" => format!("[{}] report-only", row.version),
+        "error" => "[error]".to_string(),
+        _ => format!("[{}]", row.version),
+    }
 }
 
 fn select(packages: Vec<Package>, args: &SyncArgs) -> Result<Vec<Package>> {

@@ -1,5 +1,6 @@
 use std::env;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
@@ -8,24 +9,56 @@ use reqwest::{Client, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use tokio::process::Command;
+use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 use crate::metadata::{Provider, Upstream};
 use crate::version;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct HttpConfig {
     github_token: Option<String>,
     gitlab_token: Option<String>,
+    limiter: Arc<RequestLimiter>,
+}
+
+#[derive(Debug)]
+struct RequestLimiter {
+    delay: Duration,
+    next: Mutex<Option<Instant>>,
+}
+
+impl RequestLimiter {
+    fn new(delay: Duration) -> Self {
+        Self {
+            delay,
+            next: Mutex::new(None),
+        }
+    }
+
+    async fn wait(&self) {
+        let mut next = self.next.lock().await;
+        let now = Instant::now();
+        if let Some(at) = *next
+            && at > now
+        {
+            sleep(at - now).await;
+        }
+        *next = Some(Instant::now() + self.delay);
+    }
 }
 
 impl HttpConfig {
     pub fn from_env() -> Self {
         Self {
-            github_token: env::var("GITHUB_TOKEN")
-                .ok()
-                .or_else(|| env::var("GH_TOKEN").ok()),
+            github_token: github_token(),
             gitlab_token: env::var("GITLAB_TOKEN").ok(),
+            limiter: Arc::new(RequestLimiter::new(Duration::from_millis(250))),
         }
+    }
+
+    async fn wait(&self) {
+        self.limiter.wait().await;
     }
 
     pub fn client(&self) -> Result<Client> {
@@ -35,6 +68,25 @@ impl HttpConfig {
             .build()
             .context("cannot create HTTP client")
     }
+}
+
+fn github_token() -> Option<String> {
+    env::var("GITHUB_TOKEN")
+        .ok()
+        .or_else(|| env::var("GH_TOKEN").ok())
+        .or_else(gh_auth_token)
+}
+
+fn gh_auth_token() -> Option<String> {
+    let output = std::process::Command::new("gh")
+        .args(["auth", "token"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let token = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if token.is_empty() { None } else { Some(token) }
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +161,7 @@ async fn github_latest_release(
     let request = github_request(client.get(&url), config)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");
+    config.wait().await;
     let response = request.send().await.context("GitHub request failed")?;
     if response.status() == StatusCode::NOT_FOUND {
         return Ok(None);
@@ -132,6 +185,7 @@ async fn gitlab_releases(
         .context("gitlab project missing")?;
     let encoded = utf8_percent_encode(project, NON_ALPHANUMERIC).to_string();
     let url = format!("https://{host}/api/v4/projects/{encoded}/releases?per_page=100");
+    config.wait().await;
     let response = gitlab_request(client.get(&url), config, host)
         .send()
         .await
@@ -158,6 +212,7 @@ async fn gitlab_repository_tags(
         .context("gitlab project missing")?;
     let encoded = utf8_percent_encode(project, NON_ALPHANUMERIC).to_string();
     let url = format!("https://{host}/api/v4/projects/{encoded}/repository/tags?per_page=100");
+    config.wait().await;
     let tags: Vec<GitlabTag> = parse_json(
         gitlab_request(client.get(&url), config, host)
             .send()

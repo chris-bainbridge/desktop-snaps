@@ -1,5 +1,7 @@
 use clap::{ArgGroup, Args, Parser, Subcommand};
 
+pub const MAX_JOBS: usize = 4;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "snap-repo",
@@ -25,7 +27,7 @@ pub enum Command {
 #[command(
     arg_required_else_help = true,
     override_usage = "snap-repo sync [OPTIONS] <PACKAGE>...\n       snap-repo sync --all [--dry-run]",
-    after_help = "Environment:\n  GITHUB_TOKEN or GH_TOKEN  GitHub API token (recommended for --all)\n  GITLAB_TOKEN              GitLab.com API token",
+    after_help = "Environment:\n  GITHUB_TOKEN or GH_TOKEN  GitHub API token; falls back to gh auth token\n  GITLAB_TOKEN              GitLab.com API token",
     group(
         ArgGroup::new("selection")
             .required(true)
@@ -50,7 +52,7 @@ pub struct SyncArgs {
     #[arg(long)]
     pub verbose: bool,
 
-    /// Package-level concurrency
+    /// Package-level concurrency (capped at 4)
     #[arg(short = 'j', long, default_value_t = 1, value_name = "N")]
     pub jobs: usize,
 }
