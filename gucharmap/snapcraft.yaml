@@ -1,0 +1,103 @@
+name: gucharmap
+adopt-info: gucharmap
+title: Character Map
+summary: Unicode character map
+description: |
+  GNOME Character Map is a Unicode character map program. It allows
+  characters to be displayed by Unicode block or script type, shows the
+  character's information, and lets you copy characters into other
+  applications.
+
+  Character Map is part of the GNOME desktop.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+license: GPL-3.0-or-later
+website: https://wiki.gnome.org/Apps/Gucharmap
+source-code: https://gitlab.gnome.org/GNOME/gucharmap
+issues: https://gitlab.gnome.org/GNOME/gucharmap/-/issues
+contact: https://gitlab.gnome.org/GNOME/gucharmap/-/issues
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  gucharmap:
+    interface: dbus
+    bus: session
+    name: org.gnome.Charmap
+
+apps:
+  gucharmap:
+    extensions: [gnome]
+    command: usr/bin/gucharmap
+    plugs:
+      - gsettings
+      # printing the character chart
+      - cups
+    desktop: usr/share/applications/gucharmap.desktop
+    common-id: gucharmap.desktop
+
+parts:
+  gucharmap:
+    source: https://gitlab.gnome.org/GNOME/gucharmap.git
+    source-type: git
+    source-tag: '18.0.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/gucharmap.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      # The API reference needs gtk-doc, and a help: URI would be resolved
+      # against the host's /usr/share/help anyway, so skip both.
+      - -Ddocs=false
+      # The app itself does not use the libgucharmap GIR or Vala bindings.
+      - -Dgir=false
+      - -Dvapi=false
+      # gucharmap 18.0.0 builds its Unicode tables at compile time and has
+      # no bundled copy of the Unicode Character Database. The UCD version
+      # is pinned by the upstream tag, so fetch it in override-pull and
+      # copy it into the build directory (see override-build).
+      - -Ducd_path=ucd
+    build-packages:
+      - libgtk-3-dev
+      - libpcre2-dev
+      - libfreetype-dev
+      - gettext
+      - desktop-file-utils
+      - curl
+      - unzip
+      - ca-certificates
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Unicode 18.0.0 UCD, matching the exact unicode_req_version in
+      # meson.build. UCD.zip has everything except the Unihan data.
+      mkdir -p ucd
+      curl -fsSL --retry 3 -o Unicode-18.0.0-UCD.zip \
+        https://www.unicode.org/Public/18.0.0/ucd/UCD.zip
+      echo "7b3e555514060b92290d154f53655c5eb0fa62b16eb04c03434ff72d1a66a0d8  Unicode-18.0.0-UCD.zip" | sha256sum -c -
+      unzip -oq Unicode-18.0.0-UCD.zip -d ucd
+      curl -fsSL --retry 3 -o Unicode-18.0.0-Unihan.zip \
+        https://www.unicode.org/Public/18.0.0/ucd/Unihan.zip
+      echo "4c93ea9c1f636451729a840978f1667a53886af37ba854fdcce109721c63d43e  Unicode-18.0.0-Unihan.zip" | sha256sum -c -
+      unzip -oq Unicode-18.0.0-Unihan.zip -d ucd
+    override-build: |
+      # meson-parameters are passed literally (no $CRAFT_* expansion), so
+      # expose the UCD files next to the build directory and point meson at
+      # the relative path.
+      mkdir -p ucd
+      cp -a $CRAFT_PART_SRC/ucd/. ucd/
+      craftctl default
+      # meson's gnome.post_install() is skipped when DESTDIR is set, so
+      # compile the schema here instead of at first launch.
+      glib-compile-schemas $CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas
+    prime:
+      # The app does not need the libgucharmap development files.
+      - -usr/include
+      - -usr/lib/*/pkgconfig
