@@ -11,7 +11,11 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   gnome-chess:
@@ -30,16 +34,22 @@ apps:
     plugs:
       - home # Needed for save game handling
     desktop: usr/share/applications/org.gnome.Chess.desktop
+    common-id: org.gnome.Chess.desktop
     environment:
       PATH: $SNAP/usr/games:$PATH
+      # gnome-core26's librsvg links libxml2.so.16, which the content snap
+      # (and core26) do not ship, so the libraries part below bundles it in
+      # usr/lib. The gnome extension only puts the platform on the library
+      # path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
 
 parts:
   gnome-chess:
     source: https://gitlab.gnome.org/GNOME/gnome-chess.git
     source-type: git
-    source-tag: '49.2'
+    source-tag: '50.1'
     source-depth: 1
-    parse-info: [usr/share/metainfo/org.gnome.Chess.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Chess.metainfo.xml]
     override-build: |
       sed -i.bak -e 's|Icon=org.gnome.Chess$|Icon=${SNAP}/meta/gui/org.gnome.Chess.svg|g' $CRAFT_PART_SRC/data/org.gnome.Chess.desktop.in
       craftctl default
@@ -59,14 +69,22 @@ parts:
     stage-packages:
       - gnuchess
 
-  # Find files provided by the base and platform snap and ensure they aren't
-  # duplicated in this snap
-  cleanup:
-    after: [gnome-chess, gnuchess]
+  libraries:
     plugin: nil
-    build-snaps: [core24, gtk-common-themes, gnome-46-2404]
-    override-prime: |
-      set -eux
-      for snap in "core24" "gtk-common-themes" "gnome-46-2404"; do
-        cd "/snap/$snap/current" && find . -type f,l -name *.so.* -exec rm -f "$CRAFT_PRIME/{}" \;
-      done
+    stage-packages:
+      # gnome-core26 ships librsvg, which links libxml2.so.16, but neither the
+      # content snap nor core26 provides libxml2. The mesa-2604 GPU provider
+      # happens to carry a copy, but the app should not rely on the GPU
+      # adjunct for a non-GPU library, so bundle it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
