@@ -94,8 +94,10 @@ apps:
 
 parts:
   cpu-x:
-    source: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X/archive/refs/tags/v5.4.1.tar.gz
-    source-checksum: sha256/40c34c0ac14eead0f9626518e0783fd9f365af84aa05761e39795c07086f3fef
+    source: https://github.com/TheTumultuousUnicornOfDarkness/CPU-X.git
+    source-type: git
+    source-tag: 'v5.4.1'
+    source-depth: 1
     plugin: cmake
     # The gnome extension points the build at the gnome-core26 SDK, but that
     # SDK only has the GTK4/gtkmm-4 stack with GLib 2.90 headers. CPU-X needs

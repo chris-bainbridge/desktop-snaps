@@ -5,4 +5,5 @@ redistribution: open-source
 upstream:
   provider: github
   project: hardinfo2/hardinfo2
+  tag-pattern: '^release-(\d+(?:\.\d+)*)$'
 imported: '2026-11-17'

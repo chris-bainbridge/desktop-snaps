@@ -142,11 +142,13 @@ parts:
 
   qutebrowser:
     # 3.7.0 is the latest stable upstream release (2026-04-03); the tag v3.7.0
-    # points at commit b0a7967f11c1c616d3914f3227113e121efb0fe8. The archive
-    # contains the HTML, JavaScript, icon and configuration data setuptools
-    # installs as package data; the checksum pins exactly the tag.
-    source: https://github.com/qutebrowser/qutebrowser/archive/refs/tags/v3.7.0.tar.gz
-    source-checksum: sha256/88a929b6c4677aa2a6135e046e434265e146c9de37036f7565c09bc73d36336c
+    # points at commit b0a7967f11c1c616d3914f3227113e121efb0fe8. The tag
+    # tree contains the HTML, JavaScript, icon and configuration data
+    # setuptools installs; the source-tag pins exactly the tag.
+    source: https://github.com/qutebrowser/qutebrowser.git
+    source-type: git
+    source-tag: 'v3.7.0'
+    source-depth: 1
     plugin: nil
     build-packages:
       # setup.py is still setuptools based and needs no compilation.

@@ -186,11 +186,13 @@ parts:
 
   input-leap:
     # v3.0.3 is the newest (and final) stable upstream release, 2025-06-13.
-    # The GitHub archive contains the release tree; both git submodules
+    # The release tag tree contains the sources. Both git submodules
     # (googletest, gulrak-filesystem) are unused because tests are disabled
     # and C++17 std::filesystem is used.
-    source: https://github.com/input-leap/input-leap/archive/refs/tags/v3.0.3.tar.gz
-    source-checksum: sha256/fbbf6e3f99abccfc3592939a039daf13f0e003dd33764c7c591d354b1a6c07eb
+    source: https://github.com/input-leap/input-leap.git
+    source-type: git
+    source-tag: 'v3.0.3'
+    source-depth: 1
     plugin: cmake
     override-pull: |
       craftctl default

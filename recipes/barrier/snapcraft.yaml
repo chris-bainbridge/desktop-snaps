@@ -189,10 +189,12 @@ parts:
 
   barrier:
     # v2.4.0 is the newest stable upstream release (2021-11-01); there has
-    # been no release since. The checksum pins exactly the tag; the
+    # been no release since. The source-tag pins exactly the tag; the
     # gulrak-filesystem submodule the tree uses comes from the part above.
-    source: https://github.com/debauchee/barrier/archive/refs/tags/v2.4.0.tar.gz
-    source-checksum: sha256/20046cae7a831d9bb3740b6f04feb9bded4c794c11586a70089080e94ae2fe77
+    source: https://github.com/debauchee/barrier.git
+    source-type: git
+    source-tag: 'v2.4.0'
+    source-depth: 1
     plugin: cmake
     after: [gulrak-filesystem]
     override-pull: |

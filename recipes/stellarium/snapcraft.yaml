@@ -174,11 +174,13 @@ parts:
   stellarium:
     # 26.3 is the latest stable upstream release (2026-09-28); the tag v26.3
     # points at commit 3f23cf3a1a59523a9c7b1ec4540c33bca77addfa. The GitHub
-    # archive contains all of upstream's data (star catalogues, nebulae, sky
-    # cultures, landscapes, textures, models) and the bundled helper sources;
-    # the checksum pins exactly the tag.
-    source: https://github.com/Stellarium/stellarium/archive/refs/tags/v26.3.tar.gz
-    source-checksum: sha256/979716e89df588eb0a7df33c414c22c0d3c0ead0a455bdfe87ae827cafd8e254
+    # tag tree contains all of upstream's data (star catalogues, nebulae,
+    # sky cultures, landscapes, textures, models) and bundled helper sources;
+    # the source-tag pins exactly the tag.
+    source: https://github.com/Stellarium/stellarium.git
+    source-type: git
+    source-tag: 'v26.3'
+    source-depth: 1
     plugin: cmake
     cmake-parameters:
       - -DCMAKE_INSTALL_PREFIX=/usr

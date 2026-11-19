@@ -105,8 +105,10 @@ apps:
 
 parts:
   hardinfo:
-    source: https://github.com/hardinfo2/hardinfo2/archive/refs/tags/release-2.3.1.tar.gz
-    source-checksum: sha256/59b30378127dde8e0af92de1a23ebcee706820a862581a603543a99c357bcecb
+    source: https://github.com/hardinfo2/hardinfo2.git
+    source-type: git
+    source-tag: 'release-2.3.1'
+    source-depth: 1
     plugin: cmake
     cmake-parameters:
       - -DCMAKE_BUILD_TYPE=Release

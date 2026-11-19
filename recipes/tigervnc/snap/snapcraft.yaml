@@ -56,8 +56,10 @@ apps:
 parts:
   tigervnc:
     # v1.16.2 is the newest stable upstream release (2026-03-26).
-    source: https://github.com/TigerVNC/tigervnc/archive/refs/tags/v1.16.2.tar.gz
-    source-checksum: sha256/b107c0c8b8a962594281690366c24186e95c2ea4a169acbc0076aa62ed01f467
+    source: https://github.com/TigerVNC/tigervnc.git
+    source-type: git
+    source-tag: 'v1.16.2'
+    source-depth: 1
     plugin: cmake
     cmake-parameters:
       - -DCMAKE_INSTALL_PREFIX=/usr

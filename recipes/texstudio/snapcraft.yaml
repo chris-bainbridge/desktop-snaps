@@ -164,11 +164,13 @@ parts:
 
   texstudio:
     # 4.9.9 is the latest stable upstream release (2026-10-23), tag commit
-    # d285921900394dc8aa151a12f5a12022bddbb351. The GitHub archive contains
+    # d285921900394dc8aa151a12f5a12022bddbb351. The release tag tree contains
     # the generated manual, the .qm translations and the bundled third-party
-    # sources; the checksum pins exactly the tag.
-    source: https://github.com/texstudio-org/texstudio/archive/refs/tags/4.9.9.tar.gz
-    source-checksum: sha256/3654ef4c7273cafda5209caae487453b7ea58a7cc5c9144cb5f8a441852eeafa
+    # sources; the source-tag pins exactly the tag.
+    source: https://github.com/texstudio-org/texstudio.git
+    source-type: git
+    source-tag: '4.9.9'
+    source-depth: 1
     plugin: cmake
     cmake-parameters:
       # TeXstudio compiles its data and documentation directory into the
