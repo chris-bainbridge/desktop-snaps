@@ -1,11 +1,16 @@
 # Build metadata for thunderbird (core26 migration, 2026-11).
+#
+# Flat-layout exception: this recipe is the core26 packaging from the
+# upstream 'beta' branch, but the version built here is current stable
+# 160.0. The upstream 'stable' branch is still core24, and the store's
+# latest/stable channel still ships core24.
 snap: thunderbird
 base: core26
 mode: vendored
 redistribution: open-source
-upstream: https://github.com/mozilla/releases-comm-central
+upstream: https://github.com/thunderbird/thunderbird-desktop (160.0)
 recipe: https://github.com/ubuntu/thunderbird (beta)
-recipe-commit: 179154b5948ebec0a7436f8ab4dfdc475403fd7b
+recipe-commit: d025ed45e7688ac5398582162bbf095e16cfe9cd
 merge-request: https://github.com/ubuntu/thunderbird/pull/70
 store:
   publisher: Canonical

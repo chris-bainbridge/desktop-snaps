@@ -238,6 +238,11 @@ All 42 are on `core26` now. Thirty-six needed a base migration on
 `ghostty`, `projectlibre`, `squirrelsql`, `sweethome3d-homedesign`) were
 already `core26`.
 
+`thunderbird` is the flat-layout exception: its recipe is the core26
+packaging from upstream's `beta` branch, but it builds the current stable
+160.0 release. The store's `latest/stable` is still a core24 build, and the
+upstream stable branch has not been migrated yet.
+
 ### New core26 GNOME apps (2026-11-19, 16)
 
 `papers`, `showtime`, `gnome-snapshot`, `gnome-music`, `gnome-maps`,
