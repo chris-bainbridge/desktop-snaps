@@ -1,0 +1,116 @@
+name: gnome-usage
+adopt-info: gnome-usage
+summary: Analyse your system's resource usage
+description: |
+  Usage helps with simple to understand ways to analyse how the system uses
+  its resources.
+
+  It gives easy access to which app uses what amount of processing power or
+  memory, which helps to find performance issues. The storage view provides
+  insight to simplify cleaning up unnecessary leftover files.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  gnome-usage:
+    interface: dbus
+    bus: session
+    name: org.gnome.Usage
+
+apps:
+  gnome-usage:
+    extensions: [gnome]
+    command: usr/bin/gnome-usage
+    environment:
+      # gnome-core26 doesn't ship libxml2 (used by libtinysparql) or libXau
+      # (used by libgtop), so the libraries part below bundles them in
+      # usr/lib. The gnome extension only puts the platform on the library
+      # path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      - gsettings
+      - hardware-observe
+      - mount-observe
+      - network-manager-observe
+      - process-control
+      - system-observe
+    desktop: usr/share/applications/org.gnome.Usage.desktop
+    common-id: org.gnome.Usage.desktop
+
+# Usage 48.0 is a GTK4 + libadwaita application written in Vala (meson
+# build). GTK 4, libadwaita, valac, libgee and json-glib are provided by the
+# gnome extension (gnome-core26 SDK/content snaps). libgtop, libnm and
+# tinysparql are not in the platform, so they are bundled by the libraries
+# part below.
+#
+# Strict confinement limitations: system-observe, hardware-observe,
+# mount-observe and process-control are not auto-connected; without them the
+# process list and CPU/memory graphs show only the snap's own view of the
+# system. The Storage view needs org.freedesktop.LocalSearch3 on the host
+# session bus (no snap interface grants it), and the Network view needs the
+# host vnstat daemon's database in /var/lib/vnstat; both tabs stay empty in
+# the snap.
+
+parts:
+  gnome-usage:
+    source: https://gitlab.gnome.org/GNOME/gnome-usage.git
+    source-type: git
+    source-tag: '48.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Usage.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    build-packages:
+      - libgtop2-dev
+      - libnm-dev
+      - libtinysparql-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    override-build: |
+      craftctl default
+      # Use the bundled icon rather than a themed one
+      sed -i 's|Icon=org.gnome.Usage$|Icon=${SNAP}/meta/gui/org.gnome.Usage.svg|g' \
+        $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.Usage.desktop
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Usage.svg \
+        $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    after: [gnome-usage]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 doesn't ship these, but gnome-usage links them directly
+      - libgtop-2.0-11
+      - libnm0
+      - libtinysparql-3.0-0
+      # libgtop links libXau directly
+      - libxau6
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 (a dependency of
+      # libtinysparql) and libXau (a dependency of libgtop) are in the SDK but
+      # not in the content snap, so move them out of the SDK's multiarch path;
+      # the app puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libxml2.so.16 libXau.so.6; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+           "$CRAFT_PART_INSTALL/usr/lib/" 2>/dev/null || true
+      done
+    prime:
+      - usr/lib/*/libgtop*
+      - usr/lib/*/libnm.so*
+      - usr/lib/*/libtinysparql*
+      - usr/lib/*/tinysparql-3.0/
+      - usr/lib/libXau.so.*
+      - usr/lib/libxml2.so.*

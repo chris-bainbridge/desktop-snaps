@@ -1,0 +1,156 @@
+name: showtime
+adopt-info: showtime
+summary: A modern video player for GNOME
+description: |
+  Video Player (Showtime) is the GNOME video player. It plays video files
+  without distraction: the playback controls fade out of the way while a video
+  is playing, and the player supports fullscreen, adjustable playback speed,
+  multiple audio and subtitle tracks, screenshots and MPRIS controls.
+
+  Video is decoded with GStreamer. The GNOME platform provides the royalty-free
+  codecs and the GTK 4 video sink; this snap adds the H.264/HEVC parsers and
+  the libav decoders needed for the common MP4, MKV and AVI files.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration and D-Bus activation
+  # (data/org.gnome.Showtime.service.in)
+  showtime:
+    interface: dbus
+    bus: session
+    name: org.gnome.Showtime
+
+plugs:
+  desktop:
+    desktop-file-ids:
+      - org.gnome.Showtime
+
+apps:
+  showtime:
+    extensions: [gnome]
+    # core26 has no /usr/bin/python3; the launcher runs Showtime with the
+    # interpreter from the GNOME platform snap (see snap/local/showtime).
+    command: bin/showtime
+    desktop: usr/share/applications/org.gnome.Showtime.desktop
+    common-id: org.gnome.Showtime.desktop
+    environment:
+      # Showtime is a Python application. The gnome-core26 content snap
+      # provides the interpreter, PyGObject and the GStreamer typelibs, but
+      # not the showtime module itself.
+      PYTHONPATH: $SNAP/usr/lib/python3/dist-packages
+      # libavformat links libxml2, which gnome-core26 does not ship; the
+      # libraries part below keeps it out of the SDK's multiarch path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib
+    plugs:
+      - gsettings
+      - home
+      - network
+      - audio-playback
+      - removable-media
+      # Showtime calls Gtk.Application.inhibit() while a video is playing so
+      # the screen does not blank mid-movie.
+      - screen-inhibit-control
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      showtime: bin/showtime
+
+  showtime:
+    source: https://gitlab.gnome.org/GNOME/showtime.git
+    source-type: git
+    source-tag: '50.0'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.Showtime.metainfo.xml]
+    meson-parameters:
+      # Install into the path the snap is mounted at, so the interpreter and
+      # data directories compiled into the launcher are valid at run time.
+      - --prefix=/snap/showtime/current/usr
+      - --buildtype=release
+      # The default is the full path of the build-time interpreter, which
+      # does not exist outside the build environment. The launcher uses the
+      # platform interpreter explicitly; this shebang keeps direct invocation
+      # inside the snap working too.
+      - -Dpython_exec=/usr/bin/env python3
+    organize:
+      snap/showtime/current/usr: usr
+    override-pull: |
+      craftctl default
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i.bak -e 's|^Icon=@APP_ID@$|Icon=${SNAP}/meta/gui/org.gnome.Showtime.svg|' \
+          data/org.gnome.Showtime.desktop.in
+    override-build: |
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so it never
+      # compiles the GSettings schema. Without gschemas.compiled, Showtime
+      # aborts on start-up when it creates its Gio.Settings objects.
+      glib-compile-schemas \
+          $CRAFT_PART_INSTALL/snap/showtime/current/usr/share/glib-2.0/schemas
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Showtime.svg \
+          $CRAFT_PART_INSTALL/meta/gui/
+
+  # gnome-core26 ships GStreamer core, base, good, extra, GL and the GTK 4
+  # sink, but no bad, ugly or libav plugins. Without the parsers and the libav
+  # decoders, decodebin cannot play H.264/HEVC MP4 and MKV files. Stage the
+  # libav plugin with its dependencies and only the plugins a video player
+  # needs from the other packages: the full gstreamer1.0-plugins-bad pulls in
+  # the ONNX/TensorFlow/OpenCV stack, and gstreamer1.0-x adds X11 sinks that
+  # the GTK 4 sink makes redundant. libgstpango.so provides textrender, which
+  # subtitleoverlay (in the platform's playback plugin) needs to draw subtitles.
+  gst-extras:
+    plugin: nil
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_BUILD"
+      apt-get download gstreamer1.0-plugins-bad gstreamer1.0-x
+      for package in ./*.deb; do
+        dpkg-deb -x "$package" "$CRAFT_PART_INSTALL"
+      done
+    stage:
+      - usr/lib/*/gstreamer-1.0/libgstvideoparsersbad.so
+      - usr/lib/*/gstreamer-1.0/libgstpango.so
+
+  libraries:
+    after: [showtime]
+    plugin: nil
+    stage-packages:
+      - gstreamer1.0-libav
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the gnome-core26 content snap, so move it out of the SDK's multiarch
+      # path; the app's LD_LIBRARY_PATH includes $SNAP/usr/lib.
+      mkdir -p $CRAFT_PART_INSTALL/usr/lib
+      mv $CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libxml2.so.16* \
+          $CRAFT_PART_INSTALL/usr/lib/
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/lib/*/*.la
+      - -usr/share/doc
+      # libav's dependencies also stage these libraries, but the platform
+      # already ships (newer) copies and the snap's LD_LIBRARY_PATH puts the
+      # platform first. Drop the duplicates so only one version of each is
+      # present.
+      - -usr/lib/*/libcairo.so.*
+      - -usr/lib/*/libcairo-gobject.so.*
+      - -usr/lib/*/libfontconfig.so.*
+      - -usr/lib/*/libgdk_pixbuf-2.0.so.*
+      - -usr/lib/*/libharfbuzz.so.*
+      - -usr/lib/*/libpango-1.0.so.*
+      - -usr/lib/*/libpangocairo-1.0.so.*
+      - -usr/lib/*/libpangoft2-1.0.so.*
+      - -usr/lib/*/librsvg-2.so.*

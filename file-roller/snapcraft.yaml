@@ -1,0 +1,152 @@
+name: file-roller
+adopt-info: file-roller
+summary: Create and modify archive files
+description: |
+  File Roller is an archive manager for the GNOME desktop. It can view,
+  create, modify and extract archive files, including tar archives
+  (optionally compressed with gzip, bzip2, xz or zstd), zip archives,
+  7z archives, Java archives, cpio archives, deb and rpm packages, ISO
+  images, squashfs images and single files compressed with gzip, bzip2,
+  xz, zstd, brotli, lzop or bzip3.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration (application-id in fr-application.c)
+  file-roller:
+    interface: dbus
+    bus: session
+    name: org.gnome.FileRoller
+  # Nautilus integration: the file manager's "Extract Here" and "Compress"
+  # actions talk to the running application through this name (upstream's
+  # data/org.gnome.ArchiveManager1.service.in).  The name must be in a slot,
+  # otherwise the confined application cannot own it on the session bus.
+  archive-manager:
+    interface: dbus
+    bus: session
+    name: org.gnome.ArchiveManager1
+
+apps:
+  file-roller:
+    extensions: [gnome]
+    command: usr/bin/file-roller
+    desktop: usr/share/applications/org.gnome.FileRoller.desktop
+    common-id: org.gnome.FileRoller.desktop
+    plugs:
+      - gsettings
+      - home
+      - network
+      - removable-media
+
+parts:
+  file-roller:
+    source: https://gitlab.gnome.org/GNOME/file-roller.git
+    source-type: git
+    # Latest stable upstream release (2026-11-15); the 26.04 archive still
+    # carries 44.6.
+    source-tag: '44.8'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.FileRoller.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+      # The Nautilus extension is a shared module that the host's Nautilus
+      # would have to load from its own extension directory; a confined snap
+      # cannot install there.  The D-Bus name above provides the integration
+      # with the running snap instead.
+      - -Dnautilus-actions=disabled
+      # The package installer uses PackageKit to install missing archive
+      # tools on the host, which a confined snap is not allowed to do.
+      - -Dpackagekit=false
+      # libarchive in gnome-core26 handles the common formats natively and is
+      # also used for zip/tar creation, so require it instead of auto.
+      - -Dlibarchive=enabled
+    build-packages:
+      - libarchive-dev
+      - libjson-glib-dev
+    override-pull: |
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+      # Do not install the help media as symlinks: they would point at the
+      # build location rather than at the files in the snap.
+      sed -i.bak -e "s|  'file-roller',|  'file-roller',\n  symlink_media: false,|" \
+          help/meson.build
+    override-build: |
+      craftctl default
+      # use the icon bundled in the snap so it shows up in the launcher
+      sed -i -e 's|^Icon=org.gnome.FileRoller$|Icon=${SNAP}/meta/gui/org.gnome.FileRoller.svg|' \
+          $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.FileRoller.desktop
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.FileRoller.svg \
+          $CRAFT_PART_INSTALL/meta/gui/
+      # Upstream's D-Bus service files exec a host-absolute /usr/bin/file-roller
+      # with --service.  snapd writes the activation service from the slots
+      # above, so do not ship these; they cannot be used from the snap.
+      rm -f $CRAFT_PART_INSTALL/usr/share/dbus-1/services/org.gnome.FileRoller.service
+      rm -f $CRAFT_PART_INSTALL/usr/share/dbus-1/services/org.gnome.ArchiveManager1.service
+
+  # File Roller is a front-end: most formats other than those libarchive
+  # handles natively need the matching command-line tool on PATH.  core26
+  # already provides tar, gzip, bzip2 and unsquashfs; stage the rest from the
+  # 26.04 archive (roughly what the Debian package Depends/Suggests).
+  archive-tools:
+    after: [file-roller]
+    plugin: nil
+    stage-packages:
+      - 7zip        # 7z and rar listing/extraction
+      - zip         # password-protected zip archives
+      - unzip
+      - cpio        # cpio archives, and the RPM helper's output
+      - xz-utils    # bare .xz and .tar.xz
+      - zstd        # bare .zst and .tar.zst
+      - brotli      # bare .br and .tar.br
+      - bzip3       # bare .bz3 and .tar.bz3
+      - lzop        # bare .lzo and .tar.lzo
+    override-build: |
+      craftctl default
+      # Debian's /usr/bin/7z, 7za, 7zr and p7zip are shell scripts that exec
+      # /usr/lib/7zip/...; inside the snap that absolute path is the base
+      # snap's /usr/lib, not $SNAP/usr/lib.  File Roller checks 7zz first, so
+      # provide launchers that resolve the real 7-Zip binaries inside the
+      # snap.  The real binary locates its own 7z.so next to itself.
+      rm -f $CRAFT_PART_INSTALL/usr/bin/7z \
+            $CRAFT_PART_INSTALL/usr/bin/7za \
+            $CRAFT_PART_INSTALL/usr/bin/7zr \
+            $CRAFT_PART_INSTALL/usr/bin/p7zip
+      printf '#!/bin/sh\nexec "$SNAP/usr/lib/7zip/7z" "$@"\n' \
+          > $CRAFT_PART_INSTALL/usr/bin/7zz
+      printf '#!/bin/sh\nexec "$SNAP/usr/lib/7zip/7za" "$@"\n' \
+          > $CRAFT_PART_INSTALL/usr/bin/7za
+      printf '#!/bin/sh\nexec "$SNAP/usr/lib/7zip/7zr" "$@"\n' \
+          > $CRAFT_PART_INSTALL/usr/bin/7zr
+      chmod 0755 $CRAFT_PART_INSTALL/usr/bin/7zz \
+                 $CRAFT_PART_INSTALL/usr/bin/7za \
+                 $CRAFT_PART_INSTALL/usr/bin/7zr
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+      - -usr/share/lintian
+
+  libraries:
+    after: [file-roller]
+    plugin: nil
+    stage-packages:
+      # file-roller links libarchive from gnome-core26, and that libarchive
+      # links libxml2, which is in the SDK but not in the gnome-core26
+      # content snap.  Bundle it, outside the SDK's multiarch path so that
+      # gnome/cleanup keeps it; $SNAP/usr/lib is on LD_LIBRARY_PATH.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*

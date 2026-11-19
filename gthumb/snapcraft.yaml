@@ -1,0 +1,101 @@
+name: gthumb
+adopt-info: gthumb
+summary: An image viewer and browser utility for the GNOME environment
+description: |
+  Thumbnails is an image viewer and browser for the GNOME Desktop. It also
+  includes an importer tool for transferring photos from cameras.
+license: GPL-2.0+
+contact: https://gitlab.gnome.org/GNOME/gthumb/-/issues
+grade: stable
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  dbus-gthumb:
+    interface: dbus
+    bus: session
+    name: org.gnome.gthumb
+
+# Legacy 3.x paths carried over from the imported recipe. gthumb 4.0 builds
+# its extensions into the binary and no longer installs data below
+# /usr/share/gthumb or help files, so these symlinks are currently inert;
+# they are kept to preserve the imported recipe's layout.
+layout:
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gthumb/extensions:
+    symlink: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gthumb/extensions
+  /usr/share/gthumb:
+    symlink: $SNAP/usr/share/gthumb
+  /usr/share/help:
+    symlink: $SNAP/usr/share/help
+
+apps:
+  gthumb:
+    command: usr/bin/gthumb
+    desktop: usr/share/applications/org.gnome.gthumb.desktop
+    common-id: org.gnome.gthumb.desktop
+    extensions: [gnome]
+    slots: [dbus-gthumb]
+    plugs:
+      - gsettings
+      - home
+      - removable-media
+      - network
+    environment:
+      # Carried over from the imported recipe, which tested 4.0 under X11.
+      # GIO_MODULE_DIR is overridden by the gnome-core26 command chain, so
+      # it is kept only for parity with the recipe the snap was imported
+      # from.
+      DISABLE_WAYLAND: '1'
+      GIO_MODULE_DIR: ""
+
+parts:
+  gthumb:
+    source: https://download.gnome.org/sources/gthumb/4.0/gthumb-4.0.3.tar.xz
+    source-checksum: sha256/37d17c8eab0010b001d7a6cda776d81c73fb169abc28f9a930e0afc57ac8978d
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.gthumb.metainfo.xml]
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    override-build: |
+      craftctl default
+      sed -i 's|Icon=org.gnome.gthumb$|Icon=${SNAP}/meta/gui/org.gnome.gthumb.svg|' \
+        $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.gthumb.desktop
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.gthumb.svg \
+        $CRAFT_PART_INSTALL/meta/gui/
+    stage-packages:
+      - gsettings-desktop-schemas
+      # gnome-core26 does not ship libexiv2 or libgif, so stage the runtime
+      # libraries from the 26.04 archive (built against the same versions).
+      - libexiv2-28
+      - libgif7
+    build-packages:
+      - libexiv2-dev
+      - libgif-dev
+      # extra image format support not provided by the gnome-core26 SDK
+      - libheif-dev
+      - libjxl-dev
+      # 26.04 ships libraw 0.21.5b, but gthumb 4.0 requires >= 0.22, so RAW
+      # support stays disabled (meson summary: libraw: false).
+      - libraw-dev
+      - librsvg2-dev
+      - liblcms2-dev
+      - libcolord-dev
+      - libportal-dev
+      - libportal-gtk4-dev
+      - libwebp-dev
+      - libtiff-dev
+      - libpng-dev
+      # libjpeg-turbo8-dev (not libjpeg9-dev, which conflicts with it and has
+      # a different, ABI-incompatible SONAME): gnome-platform already ships
+      # the runtime libjpeg-turbo8 (libjpeg.so.8), so build against the same
+      # version instead of bundling a second, colliding libjpeg at runtime.
+      - libjpeg-turbo8-dev
+      - gettext
+      - itstool

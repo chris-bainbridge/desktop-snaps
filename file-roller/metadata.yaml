@@ -1,0 +1,7 @@
+# Build metadata for file-roller (new core26 recipe, 2026-11).
+snap: file-roller
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.gnome.org/GNOME/file-roller (44.8)
+imported: '2026-11-18'
