@@ -12,7 +12,11 @@ description: |
 
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -31,7 +35,20 @@ apps:
     extensions: [ gnome ]
     common-id: org.gnome.Hitori
     desktop: usr/share/applications/org.gnome.Hitori.desktop
+    plugs:
+      # the gnome extension only adds this one for core24 and older
+      - gsettings
+    environment:
+      # gnome-core26's librsvg links libxml2.so.16, which the content snap
+      # (and core26) do not ship, so the libraries part below bundles it in
+      # usr/lib. The gnome extension only puts the platform on the library
+      # path.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
 
+# 44.0 (2023-03-03) is the latest stable upstream release: hitori left the
+# GNOME release sets with that version and master only gets translation
+# updates. It is a GTK3 application, which the gnome extension still supports
+# on core26 (the content snap ships GTK3, librsvg and the icon themes).
 parts:
   gnome-hitori:
     source: https://gitlab.gnome.org/GNOME/hitori.git
@@ -46,8 +63,34 @@ parts:
     parse-info: [usr/share/metainfo/org.gnome.Hitori.appdata.xml]
     meson-parameters:
       - --prefix=/usr
+      - --buildtype=release
+    build-packages:
+      # gnome.yelp needs yelp-build; gnome-core26-sdk only ships itstool
+      - yelp-tools
     override-build: |
       sed -i.bak -e 's|=org.gnome.Hitori$|=${SNAP}/meta/gui/org.gnome.Hitori.svg|g' $CRAFT_PART_SRC/data/org.gnome.Hitori.desktop.in
       craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. hitori reads org.gnome.hitori at start-up;
+      # make sure gschemas.compiled is in the snap.
+      glib-compile-schemas $CRAFT_PART_INSTALL/usr/share/glib-2.0/schemas
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/scalable/org.gnome.Hitori.svg $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships librsvg (GTK's SVG icon loader), which links
+      # libxml2.so.16 directly, but the content snap does not ship libxml2.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome/cleanup part deletes every primed library whose path also
+      # exists in the gnome-core26 SDK. libxml2 is in the SDK but not in the
+      # content snap, so move it out of the SDK's multiarch path; $SNAP/usr/lib
+      # is on the default LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
