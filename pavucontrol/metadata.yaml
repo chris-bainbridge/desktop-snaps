@@ -1,0 +1,7 @@
+# Build metadata for pavucontrol (new core26 recipe, 2026-11).
+snap: pavucontrol
+base: core26
+mode: vendored
+redistribution: open-source
+upstream: https://gitlab.freedesktop.org/pulseaudio/pavucontrol (6.2)
+imported: '2026-11-19'

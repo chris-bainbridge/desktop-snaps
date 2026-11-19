@@ -1,0 +1,105 @@
+name: pavucontrol
+adopt-info: pavucontrol
+summary: Volume control for PulseAudio and PipeWire
+description: |
+  PulseAudio Volume Control (pavucontrol) is a volume control tool ("mixer")
+  for the PulseAudio sound server and for PipeWire's PulseAudio-compatible
+  server. In contrast to classic mixer tools, it lets you control both the
+  volume of hardware devices and of each playback stream separately.
+
+  It also provides per-application routing, per-device profile selection
+  (including Bluetooth codecs) and input/output device configuration.
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+source-code: https://gitlab.freedesktop.org/pulseaudio/pavucontrol
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  pavucontrol:
+    interface: dbus
+    bus: session
+    name: org.pulseaudio.pavucontrol
+
+apps:
+  pavucontrol:
+    extensions: [gnome]
+    command: usr/bin/pavucontrol
+    environment:
+      # The gtkmm stack in gnome-core26 is missing libglibmm/libgiomm, which
+      # the libraries part below bundles in $SNAP/usr/lib/pavucontrol (kept
+      # out of the path the gnome extension's cleanup walks and the SDK
+      # populates).
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib/pavucontrol:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # Connects to the PipeWire snap's pulseaudio slot (pipewire-pulse).
+      - pulseaudio
+    desktop: usr/share/applications/org.pulseaudio.pavucontrol.desktop
+    common-id: org.pulseaudio.pavucontrol.desktop
+
+parts:
+  pavucontrol:
+    # v6.2 is the newest upstream release; the 26.04 archive still ships
+    # 6.1.  Since 6.0 the build is Meson-based and uses GTK 4 via gtkmm-4.0.
+    source: https://gitlab.freedesktop.org/pulseaudio/pavucontrol.git
+    source-type: git
+    source-tag: 'v6.2'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.pulseaudio.pavucontrol.metainfo.xml]
+    meson-parameters:
+      # The runtime mount path, not /usr: LOCALEDIR is compiled into the
+      # binary, and a /usr prefix would resolve translations to the core26
+      # base instead of the snap. organize moves the tree back under usr/.
+      - --prefix=/snap/pavucontrol/current/usr
+      - --buildtype=release
+    organize:
+      snap/pavucontrol/current/usr: usr
+    build-packages:
+      - gettext
+      - libcanberra-dev
+      - libgtkmm-4.0-dev
+      - libjson-glib-dev
+      - libpulse-dev
+      - libsigc++-3.0-dev
+    override-pull: |
+      craftctl default
+      # The metainfo file still advertises 6.1 as the newest release.
+      craftctl set version=$(git describe --tags --abbrev=10 | sed -e 's/^v//')
+      # gtk-common-themes has no pavucontrol icon, so ship the upstream icon
+      # in meta/gui and point the desktop entry at it.
+      sed -i -e 's|^Icon=org.pulseaudio.pavucontrol$|Icon=${SNAP}/meta/gui/org.pulseaudio.pavucontrol.svg|' \
+        $CRAFT_PART_SRC/src/org.pulseaudio.pavucontrol.desktop.in
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/meta/gui/
+      cp $CRAFT_PART_SRC/src/org.pulseaudio.pavucontrol.svg \
+        $CRAFT_PART_INSTALL/meta/gui/
+
+  libraries:
+    after: [pavucontrol]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 ships gtkmm-4.0, libsigc-3.0, libcairomm and libpangomm
+      # but not their libglibmm/libgiomm dependency. The gtkmm library in the
+      # content snap has a DT_NEEDED on libglibmm-2.68.so.1, so bundle it.
+      - libglibmm-2.68-1t64
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every primed *.so whose path also exists in the
+      # gnome-core26 SDK. The SDK carries these libraries at /usr/lib, so
+      # keep the copies the content snap is missing in a private subdirectory;
+      # $SNAP/usr/lib/pavucontrol is on the app's LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib/pavucontrol"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libglibmm-2.68.so.1* \
+         "$CRAFT_PART_INSTALL/usr/lib/pavucontrol/"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libgiomm-2.68.so.1* \
+         "$CRAFT_PART_INSTALL/usr/lib/pavucontrol/"
+    prime:
+      - usr/lib/pavucontrol/*
