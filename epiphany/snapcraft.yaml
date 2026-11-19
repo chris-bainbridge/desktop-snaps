@@ -11,7 +11,12 @@ description: |
 
 grade: stable
 confinement: strict
-base: core24
+base: core26
+contact: https://gitlab.gnome.org/GNOME/epiphany/-/issues
+
+platforms:
+  amd64:
+  arm64:
 
 # Launchpad doesn't recognize these fields yet
 passthrough:
@@ -27,8 +32,16 @@ slots:
 layout:
   /usr/share/epiphany:
     bind: $SNAP/usr/share/epiphany
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0:
-    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0
+  # Epiphany compiles the web-process extension directory as
+  # /usr/lib/<triplet>/epiphany/web-process-extensions. In a snap /usr comes
+  # from the base, so bind the staged directory there to let WebKitWebProcess
+  # load the extension (password autofill and secure password generation).
+  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/epiphany/web-process-extensions:
+    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/epiphany/web-process-extensions
+  # WebKitGTK 6.0 comes from the gnome-core26 content snap: the gnome
+  # extension maps /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/webkitgtk-6.0
+  # (WebKitWebProcess, the injected bundle and friends) to it, and carries
+  # libwebkitgtk-6.0.so.4. Staging the archive copy would duplicate it.
 
 apps:
   epiphany:
@@ -55,7 +68,7 @@ apps:
     environment:
       GSETTINGS_SCHEMA_DIR: $SNAP/usr/share/glib-2.0/schemas
       GIO_MODULE_DIR: $SNAP/gnome-platform/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/gio/modules/
-      LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/epiphany:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/blas:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/lapack
+      LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/epiphany:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/blas:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/lapack
 
 parts:
   snapbuildtools:
@@ -65,10 +78,15 @@ parts:
     source: https://github.com/sergio-costas/snap-build-tools.git
     source-depth: 1
     plugin: nil
-    build-snaps: [core24, gtk-common-themes, gnome-46-2404]
-    override-pull: |
+    build-snaps: [core26, gtk-common-themes, gnome-core26]
+    override-build: |
       craftctl default
-      $CRAFT_PART_SRC/install
+      # Keep the helper in the part install so the next part can use it from
+      # the stage directory (a project-root copy does not survive rebuilding
+      # with cached part state).
+      mkdir -p "$CRAFT_PART_INSTALL/snapbuildtools"
+      cp "$CRAFT_PART_SRC/remove_common/remove_common.py" \
+         "$CRAFT_PART_INSTALL/snapbuildtools/"
 
   packages:
     after: [snapbuildtools]
@@ -76,7 +94,14 @@ parts:
     plugin: nil
     override-build: |
       craftctl default
-      /usr/bin/python3 $CRAFT_PROJECT_DIR/snapbuildtools/remove_common.py
+      /usr/bin/python3 $CRAFT_STAGE/snapbuildtools/remove_common.py
+      # The gnome extension's cleanup part deletes every primed library whose
+      # path also exists in gnome-core26-sdk. libxml2 is in the SDK but not in
+      # the content snap, so move it out of the SDK's multiarch path; the app
+      # puts $SNAP/usr/lib on LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
     build-packages:
       - python3-yaml
     stage-packages:
@@ -84,8 +109,11 @@ parts:
       - gstreamer1.0-plugins-base
       - gstreamer1.0-plugins-good
       - gstreamer1.0-plugins-bad
+      # gnome-core26 ships gcr-3 but not gcr-4 (epiphany 51 uses gcr-4) and
+      # does not ship libxml2, which epiphany itself and the WebKitGTK copy
+      # in the content snap link. libpwquality is already in the core26 base.
       - libgcr-4-4
-      - libwebkitgtk-6.0-4
+      - libxml2-16
     stage:
       - -usr/bin/[a-df-z]*
       - -usr/include
@@ -121,6 +149,9 @@ parts:
     plugin: cmake
     cmake-parameters:
       - -DCMAKE_INSTALL_PREFIX=
+      # snapcraft-preload still declares cmake_minimum_required(3.2); CMake 4
+      # (26.04) refuses policies older than 3.5 unless told otherwise.
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     build-packages:
       - on amd64:
           - gcc-multilib
@@ -130,31 +161,33 @@ parts:
     after: [snapcraft-preload]
     source: https://gitlab.gnome.org/GNOME/epiphany.git
     source-type: git
-    source-tag: '48.5'
+    source-tag: '51.2'
     source-depth: 1
 # ext:updatesnap
 #   version-format:
-#     lower-than: '48.99'
+#     lower-than: '51.99'
 #     no-9x-revisions: true
     plugin: meson
-    parse-info: [usr/share/metainfo/org.gnome.Epiphany.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Epiphany.metainfo.xml]
     meson-parameters:
       - --prefix=/usr
 
     override-pull: |
       craftctl default
       sed -i "s|r.stdout().strip()|'Snap Store'|g" $CRAFT_PART_SRC/meson.build
-      sed -i 's|Icon=org.gnome.Epiphany|Icon=${SNAP}/meta/gui/org.gnome.Epiphany.svg|g' $CRAFT_PART_SRC/data/org.gnome.Epiphany.desktop.in.in
 
     override-build: |
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/apps/org.gnome.Epiphany.svg $CRAFT_PART_INSTALL/meta/gui/
+
     build-packages:
       - libarchive-dev
+      - libgck-2-dev
       - libgcr-4-dev
-      - libgstreamer1.0-dev
-      - libwebkitgtk-6.0-dev
+      - libpwquality-dev
+      # libgstreamer1.0-dev, libwebkitgtk-6.0-dev and libxml2-dev come
+      # from the gnome-core26-sdk content of the gnome extension.
 
   cleanup:
     after: [epiphany]
