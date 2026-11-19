@@ -1,18 +1,63 @@
 name: widelands
 adopt-info: widelands
-base: core22
-architectures:
-- amd64
-confinement: strict
-grade: stable
+summary: A real-time build-up strategy game
+description: |
+  Widelands is a real-time strategy game in the spirit of Settlers II: start
+  with a small clan, build roads and buildings, manage resources and workers,
+  explore the map and fight the other tribes. It offers single-player
+  campaigns, AI skirmishes and multiplayer games over the internet or a LAN.
 
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Settings and savegames live in the snap's private per-user area
+    (~/snap/widelands/current/.config/widelands and
+    ~/snap/widelands/current/.local/share/widelands) instead of ~/.config and
+    ~/.local/share, and are not shared with a distribution-packaged
+    Widelands. The in-game file browser only sees paths the snap can read, so
+    a savegame or map stored elsewhere in the home directory cannot be opened
+    in place.
+  - Add-ons are downloaded from the official add-on server into the snap's
+    private data directory. They work normally but cannot be shared with a
+    distribution installation.
+  - Multiplayer works through the network interface: games hosted by another
+    player, including ones listed by the official metaserver, can be joined.
+    The snap does not declare network-bind, so it cannot host a game itself.
+  - Rendering goes through the mesa-2604 content snap, which the GNOME
+    extension connects through the opengl interface; no GPU drivers are
+    bundled.
+  - The fonts for all supported scripts (DejaVu, Amiri, Nakula, WenQuanYi
+    Micro Hei and Culmus) are part of the snap and used directly by the
+    game. Fonts installed only on the host are not visible.
+
+# Strict confinement is a hard requirement: these snaps target Core Desktop,
+# which has no classic snaps. Widelands 1.3.1 is staged unmodified from the
+# 26.04 archive, where it is the current upstream release.
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+license: GPL-2.0-or-later
+website: https://www.widelands.org/
+source-code: https://github.com/widelands/widelands
+issues: https://github.com/widelands/widelands/issues
+contact: https://www.widelands.org/forum/
+
+platforms:
+  amd64:
+  arm64:
+
+# The binary has the Debian install prefix compiled in and looks for its data
+# under /usr/share/games/widelands, which does not exist in core26 or the
+# platform.
 layout:
   /usr/share/games/widelands:
     bind: $SNAP/usr/share/games/widelands
-
-package-repositories:
-  - type: apt
-    ppa: widelands-dev/widelands
+  # The 26.04 widelands-data package replaces the font directories under
+  # data/i18n/fonts with relative symlinks into /usr/share/fonts. The game
+  # opens those paths directly (it does not use fontconfig), so the staged
+  # font packages have to be visible at their canonical location as well.
+  /usr/share/fonts:
+    bind: $SNAP/usr/share/fonts
 
 apps:
   widelands:
@@ -27,34 +72,66 @@ apps:
 parts:
   widelands:
     plugin: nil
-    parse-info: [usr/share/metainfo/org.widelands.Widelands.appdata.xml]
-    build-packages:
-      - dpkg-dev
+    parse-info: [usr/share/metainfo/widelands.metainfo.xml]
     stage-packages:
+      # widelands-data is pulled in as a dependency and carries the fonts
+      # package dependencies too.
       - widelands
     override-build: |
       craftctl default
-      # Set the snap version from the .deb package version
-      craftctl set version=$(dpkg-parsechangelog -l $CRAFT_PART_INSTALL/usr/share/doc/widelands/changelog.gz -S Version | sed -e s/2://g)
       # Copy over the icon
       mkdir -p $CRAFT_PART_INSTALL/meta/gui
       cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/128x128/apps/org.widelands.Widelands.png $CRAFT_PART_INSTALL/meta/gui/icon.png
       # Install the desktop file, with the icon field munged
       sed -i 's|Icon=org.widelands.Widelands|Icon=${SNAP}/meta/gui/icon.png|g' $CRAFT_PART_INSTALL/usr/share/applications/org.widelands.Widelands.desktop
     prime:
-      - usr/share/fonts/*/culmus-fancy
       - usr/games/widelands
       - usr/share/games/widelands
       - usr/share/applications/org.widelands.Widelands.desktop
       - usr/share/metainfo
+      - usr/share/fonts
+      # fonts-freefont-ttf is an unconditional dependency of widelands-data,
+      # but no font set in data/i18n/fonts.lua uses it.
+      - -usr/share/fonts/truetype/freefont
       - meta/gui
-      - usr/lib/*/libGLEW*
-      - usr/lib/*/libSDL*
-      - usr/lib/*/libminizip*
-      - usr/lib/*/libXss*
-      - usr/lib/*/libdecor*
-      - usr/lib/*/libfluidsynth*
-      - usr/lib/*/libmodplug*
-      - usr/lib/*/libopus*
-      - usr/lib/libopus*
-      - usr/lib/*/libinstpatch*
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26 has libpng, ICU, freetype, HarfBuzz and the SDL2 codecs
+      # (libjpeg, libtiff, libwebp, Vorbis, FLAC, mpg123, opus, OpenSSL) but
+      # none of the libraries below. libGLX/libOpenGL come from mesa-2604
+      # through the opengl plug that the gnome extension declares.
+      # libsdl2-2.0-0 is now a metapackage: the library itself lives in
+      # libsdl2-classic and the metapackage carries the /usr/lib symlinks
+      # that make it loadable under its soname.
+      - libsdl2-2.0-0
+      - libsdl2-image-2.0-0
+      - libsdl2-mixer-2.0-0
+      - libsdl2-ttf-2.0-0
+      - libglew2.2
+      - libminizip1t64
+      # SDL2 links libdecor, libsamplerate and libXss for Wayland/X11 window
+      # management, audio resampling and screensaver inhibition.
+      - libdecor-0-0
+      - libsamplerate0
+      - libxss1
+      # SDL2_mixer's MOD and Opus decoders. libFLAC, libmpg123, Vorbis and
+      # Opus are already in the platform.
+      - libxmp4
+      - libopusfile0
+    prime:
+      - usr/lib/*/libSDL2-2.0.so.0*
+      # Debian ships the SDL2 classic library in a private subdirectory; the
+      # symlinks above point into it.
+      - usr/lib/*/sdl2-classic/libSDL2-2.0.so.0*
+      - usr/lib/*/libSDL2_image-2.0.so.0*
+      - usr/lib/*/libSDL2_mixer-2.0.so.0*
+      - usr/lib/*/libSDL2_ttf-2.0.so.0*
+      - usr/lib/*/libGLEW.so.2.2*
+      - usr/lib/*/libminizip.so.1*
+      - usr/lib/*/libdecor-0.so.0*
+      - usr/lib/*/libsamplerate.so.0*
+      - usr/lib/*/libXss.so.1*
+      - usr/lib/*/libxmp.so.4*
+      - usr/lib/*/libopusfile.so.0*
