@@ -5,6 +5,8 @@ mod list;
 mod metadata;
 mod package;
 mod sync;
+mod upstream;
+mod version;
 
 use std::path::{Path, PathBuf};
 
@@ -17,12 +19,13 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
     let root = repo_root();
     match cli.command {
         cli::Command::List => list::run(&root),
-        cli::Command::Sync(args) => sync::run(&root, &args),
+        cli::Command::Sync(args) => sync::run(&root, &args).await,
         cli::Command::Build(args) => build_cmd::run(&root, &args),
     }
 }

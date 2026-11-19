@@ -25,6 +25,7 @@ pub enum Command {
 #[command(
     arg_required_else_help = true,
     override_usage = "snap-repo sync [OPTIONS] <PACKAGE>...\n       snap-repo sync --all [--dry-run]",
+    after_help = "Environment:\n  GITHUB_TOKEN or GH_TOKEN  GitHub API token (recommended for --all)\n  GITLAB_TOKEN              GitLab.com API token",
     group(
         ArgGroup::new("selection")
             .required(true)
@@ -49,7 +50,7 @@ pub struct SyncArgs {
     #[arg(long)]
     pub verbose: bool,
 
-    /// Package-level concurrency (accepted now; used by the fetcher later)
+    /// Package-level concurrency
     #[arg(short = 'j', long, default_value_t = 1, value_name = "N")]
     pub jobs: usize,
 }

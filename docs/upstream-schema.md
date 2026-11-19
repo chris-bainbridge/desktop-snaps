@@ -60,6 +60,11 @@ It accepts `1.2.3` and `v1.2.3`. Projects that decorate tags set a
 | `glabels` | `glabels-3_4_1` | `^glabels-(\d+(?:_\d+)*)$` |
 | `glade` | `GLADE_3_40_0` | `^GLADE_(\d+(?:_\d+)*)$` |
 | `quodlibet` | `release-4.7.1` | `^release-(\d+(?:\.\d+)*)$` |
+| `wesnoth` | `1.18.8` | `^(1\.(?:[0-9]*[02468])\.\d+)$` |
+
+Wesnoth uses even minor versions for stable releases, so the pattern excludes
+development tags such as `1.19.29` while still accepting future stable series
+like `1.20.x`.
 
 The captured group is used for version-aware ordering and, when a recipe has
 a literal `version:`, for the new version string. For `glabels` and `glade`

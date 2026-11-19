@@ -5,4 +5,6 @@ redistribution: open-source
 upstream:
   provider: github
   project: wesnoth/wesnoth
+  # 1.x stable series use even minor versions; 1.19.x is development.
+  tag-pattern: '^(1\.(?:[0-9]*[02468])\.\d+)$'
 imported: '2026-11-17'

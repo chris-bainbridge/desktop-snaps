@@ -81,12 +81,33 @@ impl Package {
         }
 
         let tracks = load_tracks(dir, &name)?;
-        Ok(Self {
+        let package = Self {
             name,
             dir: dir.to_path_buf(),
             metadata,
             tracks,
-        })
+        };
+        package.validate_tags()?;
+        Ok(package)
+    }
+
+    fn validate_tags(&self) -> Result<()> {
+        let pattern = Regex::new(self.metadata.upstream.tag_pattern())
+            .with_context(|| format!("{}: invalid tag-pattern", self.name))?;
+        for track in &self.tracks {
+            let Some(tag) = &track.source_tag else {
+                continue;
+            };
+            if !pattern.is_match(tag) {
+                bail!(
+                    "{}: current tag {:?} does not match tag-pattern {:?}",
+                    self.name,
+                    tag,
+                    self.metadata.upstream.tag_pattern()
+                );
+            }
+        }
+        Ok(())
     }
 }
 
