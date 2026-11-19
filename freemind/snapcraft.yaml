@@ -1,5 +1,6 @@
-base: core18
 name: freemind
+base: core26
+title: FreeMind
 summary: A premier mind-mapping software written in Java
 description: |
   A mind mapper, and at the same time an easy-to-operate hierarchical editor
@@ -7,71 +8,124 @@ description: |
   things, just two different descriptions of a single application. Often used
   for knowledge and content management.
 
-  Homepage: http://freemind.sourceforge.net
+  Homepage: https://freemind.sourceforge.net
 
 confinement: strict
 grade: stable
-icon: data/gui/freemind.png
+license: GPL-2.0-or-later
 adopt-info: freemind
+icon: data/gui/freemind.png
+contact: mailto:jean-baptiste@ubuntu.com
+website: https://freemind.sourceforge.net
+source-code: https://sourceforge.net/p/freemind/code/ci/1.1.0/tree/
+issues: https://sourceforge.net/p/freemind/bugs/
+
+# The JVM loads its native libraries with System.loadLibrary/dlopen, which
+# static analysis cannot see, so silence the linter for the JRE tree.
+lint:
+  ignore:
+    - unused-library: [usr/lib/jvm/**]
+
+platforms:
+  amd64:
+  arm64:
 
 apps:
   freemind:
-    command: desktop-launch $SNAP/freemind/freemind.sh
-    plugs: 
+    command: freemind/freemind.sh
+    extensions: [gnome]
+    plugs:
       - cups-control
-      - desktop
-      - desktop-legacy
       - home
       - network
-      - x11
     environment:
-      _JAVA_OPTIONS: -Duser.home=$SNAP_USER_DATA
+      # FreeMind 1.1.0 installs a SecurityManager at startup. Java 18+ only
+      # permits that with -Djava.security.manager=allow; this is why the
+      # snap stages OpenJDK 21 and not a newer (24/25) runtime, where JEP 486
+      # has removed the SecurityManager API completely.
+      _JAVA_OPTIONS: >-
+        -Djava.security.manager=allow
+        -Duser.home=$SNAP_USER_DATA
+        -Dawt.useSystemAAFontSettings=on
+        -Dswing.aatext=true
       JAVA_HOME: $SNAP/usr/lib/jvm/default-java
-      PATH: $SNAP/usr/lib/jvm/default-java/bin:$SNAP/usr/lib/jvm/default-java/jre/bin:$PATH
+      PATH: $SNAP/usr/lib/jvm/default-java/bin:$PATH
 
 parts:
-  desktop-glib-only:
-    source: https://github.com/ubuntu/snapcraft-desktop-helpers.git
-    source-subdir: glib-only
-    plugin: make
-    build-packages:
-      - libglib2.0-dev
-    stage-packages:
-      - adwaita-icon-theme
-      - dmz-cursor-theme
-      - gnome-themes-standard
-      - libgdk-pixbuf2.0-0
-      - libglib2.0-bin
-      - libxkbcommon0
-      - light-themes
-      - locales-all
-      - shared-mime-info
-      - ttf-ubuntu-font-family
-      - xdg-user-dirs
-
-  jdk:
-    plugin: nil
-    stage-packages:
-        -  default-jre
-    filesets:
-        jdk-bits: [-usr/lib/jvm/default-java/bin,
-                   -usr/lib/jvm/default-java/include,
-                   -usr/lib/jvm/default-java/lib,
-                   -usr/share/doc]
-    stage:
-        - $jdk-bits
+  desktop-files:
+    plugin: dump
+    source: data/gui
+    organize:
+      freemind.desktop: meta/gui/freemind.desktop
+      freemind.png: meta/gui/freemind.png
+    prime:
+      - meta/gui/freemind.desktop
+      - meta/gui/freemind.png
 
   freemind:
-    after: [desktop-glib-only, jdk]
     plugin: nil
-    source: .
-    override-build: |
-      mkdir -p $SNAPCRAFT_PART_INSTALL/freemind $SNAPCRAFT_PART_INSTALL/meta/gui
-      unzip -o freemind*.zip -d $SNAPCRAFT_PART_INSTALL/freemind
-      chmod +x $SNAPCRAFT_PART_INSTALL/freemind/freemind.sh
-      cp ./data/gui/* $SNAPCRAFT_PART_INSTALL/meta/gui/
-      snapcraftctl set-version "$(ls freemind-*.zip|sed 's/.*-\([^-]\+\).zip/\1/'|tr -s '_' '-')"
-
+    # 1.1.0 is the upstream development branch and the current FreeMind code
+    # line; the last published binary is 1.1.0_Beta_2 from 2015. The branch
+    # head is newer (high-DPI map fixes, jmapviewer 2.17) so the snap builds
+    # the application from source instead of repacking an old binary ZIP.
+    source: https://git.code.sf.net/p/freemind/code
+    source-type: git
+    source-commit: d8c8fe2c8d1890124897d18e27efa4d5f0a36f46
+    source-depth: 1
     build-packages:
-      - default-jre
-      - unzip
+      - ant
+      - ca-certificates-java
+      - openjdk-21-jdk-headless
+    stage-packages:
+      - ca-certificates-java
+      - fonts-dejavu-core
+      - fonts-ubuntu
+      - openjdk-21-jre
+    override-build: |
+      set -eu
+      cd "$CRAFT_PART_SRC/freemind"
+      ant dist
+
+      install -d "$CRAFT_PART_INSTALL/freemind"
+      cp -a "$CRAFT_PART_SRC/bin/dist/." "$CRAFT_PART_INSTALL/freemind/"
+      # The Windows launchers and the applet build are not used on Linux.
+      rm -f "$CRAFT_PART_INSTALL/freemind/FreeMind.exe" \
+            "$CRAFT_PART_INSTALL/freemind/FreeMind64.exe"
+      rm -rf "$CRAFT_PART_INSTALL/freemind/browser"
+      chmod 755 "$CRAFT_PART_INSTALL/freemind/freemind.sh"
+
+      # JAVA_HOME cannot hardcode the architecture: point default-java at the
+      # JVM staged for the build architecture so the same recipe works on
+      # amd64 and arm64.
+      arch="${CRAFT_ARCH_BUILD_FOR:-$(dpkg --print-architecture)}"
+      jdk_dir="java-21-openjdk-$arch"
+      test -d "$CRAFT_PART_INSTALL/usr/lib/jvm/$jdk_dir"
+      ln -sfn "$jdk_dir" "$CRAFT_PART_INSTALL/usr/lib/jvm/default-java"
+
+      # The JDK ships lib/security/cacerts as an absolute symlink into /etc,
+      # which is the base snap at runtime, not the snap's own /etc. Replace
+      # it with the real trust store so HTTPS works.
+      if [ -f /etc/ssl/certs/java/cacerts ]; then
+        rm -f "$CRAFT_PART_INSTALL/usr/lib/jvm/$jdk_dir/lib/security/cacerts"
+        cp /etc/ssl/certs/java/cacerts \
+          "$CRAFT_PART_INSTALL/usr/lib/jvm/$jdk_dir/lib/security/cacerts"
+      fi
+
+      craftctl set version="1.1.0"
+    prime:
+      - -usr/share/doc
+      - -usr/share/man
+      # openjdk-21-jre pulls GTK3 and its archive dependency chain, while the
+      # gnome extension supplies GTK3 from gnome-core26. The extension's
+      # cleanup part removes the duplicate SONAME links, but version skew
+      # leaves these versioned files behind with no link and no user.
+      - -usr/lib/*-linux-gnu/libatk-1.0.so.*
+      - -usr/lib/*-linux-gnu/libcairo.so.*
+      - -usr/lib/*-linux-gnu/libcairo-gobject.so.*
+      - -usr/lib/*-linux-gnu/libfontconfig.so.*
+      - -usr/lib/*-linux-gnu/libgdk_pixbuf-2.0.so.*
+      - -usr/lib/*-linux-gnu/libharfbuzz.so.*
+      - -usr/lib/*-linux-gnu/libpango-1.0.so.*
+      - -usr/lib/*-linux-gnu/libpangocairo-1.0.so.*
+      - -usr/lib/*-linux-gnu/libpangoft2-1.0.so.*
+      - -usr/lib/*-linux-gnu/librsvg-2.so.*

@@ -1,6 +1,6 @@
-# Build metadata for freemind (imported 2026-11-17; core26 migration pending).
+# Build metadata for freemind (imported 2026-11-17).
 snap: freemind
-base: core18
+base: core26
 mode: vendored
 redistribution: open-source
 upstream: https://sourceforge.net/p/freemind/code/ci/1.1.0/tree/
