@@ -1,18 +1,24 @@
 name: thrive
+title: Thrive
 version: 1.7.0
 summary: An evolution simulation game
-description: 
+description: |
   An evolution simulation game. Take control of your species in the environment and edit your species as a whole to compete with other evolving species
   From the lowly tidepools of your home planet, you will rise to cosmic dominance. At every step, powerful creation tools and deep simulation mechanics will aid your species’ development. Revolutionary Games is the open-source team of dedicated volunteers aiming to make Thrive a reality.
 
-base: core24
+base: core26
 platforms:
+  # Upstream's Linux release is a self-contained x86-64 build (the .NET
+  # runtime and libthrive_native.so are both x86-64); it publishes no arm64
+  # Linux asset, so the snap is amd64 only.
   amd64:
 confinement: strict
 grade: stable
+license: GPL-3.0+
 issues: https://github.com/kenvandine/thrive-snap/issues
 contact: https://github.com/kenvandine/thrive-snap/issues
 website: https://revolutionarygamesstudio.com/
+source-code: https://github.com/Revolutionary-Games/Thrive
 icon: icon.png
 
 apps:
@@ -24,8 +30,15 @@ apps:
       - audio-playback
       - network
     environment:
+      # Kept from the original recipe: upstream's Linux export is the
+      # Godot "Linux/X11" preset, tested on X11.
       DISABLE_WAYLAND: 1
       HOME: $SNAP_USER_COMMON
+      # The bundled .NET runtime looks up ICU at run time, and neither
+      # core26 nor gnome-core26 ships it. The libraries part below puts it
+      # in $SNAP/usr/lib so the GNOME extension's cleanup part, which
+      # deletes anything gnome-core26-sdk also carries, leaves it alone.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
 
 parts:
   thrive:
@@ -36,4 +49,36 @@ parts:
     override-pull: |
       craftctl default
       mv Thrive_$SNAPCRAFT_PROJECT_VERSION*_linux_x11/* $CRAFT_PART_INSTALL/
-      rm -rf Thrive_$SNAPCRAFT_PROJECT_VERSION_linux_x11
+      rm -rf Thrive_$SNAPCRAFT_PROJECT_VERSION.0_linux_x11
+    override-build: |
+      craftctl default
+      # The bundled .NET EventPipe/LTTng provider links liblttng-ust.so.0,
+      # which 26.04 no longer ships (LTTng-UST 2.14 moved to .so.1). It is
+      # only loaded when .NET diagnostic tracing is requested, which the game
+      # never does, so drop it instead of shipping a library that cannot load.
+      rm -f "$CRAFT_PART_INSTALL"/data_Thrive_linuxbsd_x86_64/libcoreclrtraceptprovider.so
+
+  libraries:
+    after: [thrive]
+    plugin: nil
+    stage-packages:
+      # The game is a Godot .NET build; its bundled .NET 10 runtime aborts at
+      # startup with "Couldn't find a valid ICU package" when ICU is missing,
+      # and none of core26, gnome-core26 or mesa-2604 provides it.
+      - libicu78
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every primed library whose path gnome-core26-sdk
+      # also has. The SDK ships ICU under the multiarch directory, so move it
+      # to $SNAP/usr/lib (on the app's LD_LIBRARY_PATH) where cleanup does not
+      # match it. Only the data, i18n and common libraries are needed by
+      # CoreCLR; drop the ICU tools/test libraries.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libicudata libicui18n libicuuc; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib".so.78* \
+          "$CRAFT_PART_INSTALL/usr/lib/"
+      done
+    prime:
+      - usr/lib/libicudata.so.*
+      - usr/lib/libicui18n.so.*
+      - usr/lib/libicuuc.so.*
