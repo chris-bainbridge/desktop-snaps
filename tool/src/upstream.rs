@@ -50,6 +50,12 @@ impl RequestLimiter {
                     if remaining > MAX_COOLDOWN {
                         bail!("rate limited for another {}s", remaining.as_secs());
                     }
+                    if remaining > Duration::from_secs(1) {
+                        eprintln!(
+                            "snap-repo: rate limited; waiting {}s before the next request",
+                            remaining.as_secs()
+                        );
+                    }
                     sleep(remaining).await;
                 }
                 *blocked = None;
