@@ -33,21 +33,23 @@ the Sweet Home 3D version.
 Requirements: Snapcraft 9 and a working `snapcraft` installation. The build
 uses Snapcraft's managed build environment for the `core26` base.
 
-1. Download a Sweet Home 3D **tarball** from the
-   [upstream downloads](https://sourceforge.net/projects/sweethome3d/files/SweetHome3D/).
-2. Place the original, versioned archive in `download/`, for example
-   `SweetHome3D-7.5-linux-x64.tgz`. Archive files there are ignored by Git.
-3. From the repository root, run:
+The build downloads the pinned official Linux tarball from the
+[upstream downloads](https://sourceforge.net/projects/sweethome3d/files/SweetHome3D/)
+and verifies it against a SHA-256 checksum recorded in `snapcraft.yaml`, so
+there is no manual download step. Upstream 7.6.1 has no Linux build yet, so
+the recipe pins 7.5. To move to a new upstream release, update `version` and
+`checksum` in the `override-pull` of the `sweethome3d-homedesign` part.
 
-   ```sh
-   snapcraft pack
-   ```
+From the repository root, run:
+
+```sh
+snapcraft pack
+```
 
 The generated `.snap` can be installed locally for a trial with
 `sudo snap install --dangerous ./<generated-snap-file>.snap`.
 
-If multiple tarballs are present, the build selects the highest version. It
-sets the Snap version from the selected archive name.
+The Snap version is taken from the archive name.
 
 ## Optional content snap: extra furniture and texture libraries
 

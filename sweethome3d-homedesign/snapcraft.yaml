@@ -68,13 +68,34 @@ parts:
   sweethome3d-homedesign:
     plugin: nil
     source: .
+    # The Linux distribution is an official upstream tarball. Pin it and fetch
+    # it at build time, so a clean checkout builds without a manual download.
+    # Upstream 7.6.1 has no Linux build yet; 7.5 is the newest one.
+    override-pull: |
+      set -eu
+
+      version=7.5
+      archive="SweetHome3D-$version-linux-x64.tgz"
+      checksum=53487eed09650d5cd4310733e3ec80434633ed9df372793acd6fab2c319c2322
+      url="https://downloads.sourceforge.net/project/sweethome3d/SweetHome3D/SweetHome3D-$version/$archive"
+
+      cd "$CRAFT_PART_SRC"
+      mkdir -p download
+      # A stale tarball from an earlier manual build must not outrank the
+      # pinned one in override-build's version sort.
+      rm -f download/SweetHome3D-*.tgz
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "download/$archive" "$url"
+
+      printf '%s  %s\n' "$checksum" "download/$archive" | sha256sum --check --strict -
+    build-packages:
+      - curl
     override-build: |
       set -eu
-      # Pick the highest-versioned tarball, whether it sits next to
-      # snapcraft.yaml or in the download/ directory.
+      # override-pull fetches the pinned tarball into download/.
       TARBALL="$(find . download -maxdepth 2 -name 'SweetHome3D-*.tgz' 2>/dev/null | sort -V | tail -n1)"
       if [ -z "$TARBALL" ]; then
-        echo "ERROR: no SweetHome3D-*.tgz found (see README for how to download it)" >&2
+        echo "ERROR: no SweetHome3D-*.tgz found; override-pull should have fetched it" >&2
         exit 1
       fi
       echo "Building from tarball: $TARBALL"
@@ -92,8 +113,8 @@ parts:
       # system OpenJDK instead, so drop it.
       rm -rf "$SNAPCRAFT_PART_INSTALL/sweethome3d/runtime"
 
-      install -m 755 snap/local/sweethome3d "$SNAPCRAFT_PART_INSTALL/bin/sweethome3d"
-      cp ./data/gui/* "$SNAPCRAFT_PART_INSTALL/meta/gui/"
+      install -m 755 $SNAPCRAFT_PROJECT_DIR/snap/local/sweethome3d "$SNAPCRAFT_PART_INSTALL/bin/sweethome3d"
+      cp "$SNAPCRAFT_PROJECT_DIR"/data/gui/* "$SNAPCRAFT_PART_INSTALL/meta/gui/"
     stage-packages:
       - fonts-ubuntu
   jre:
