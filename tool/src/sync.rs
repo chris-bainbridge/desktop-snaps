@@ -1,14 +1,15 @@
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
-use futures::StreamExt;
 use regex::Regex;
 
-use crate::cli::{MAX_JOBS, SyncArgs};
+use crate::cli::SyncArgs;
 use crate::discover;
 use crate::package::{BumpMode, Package};
+use crate::quota::{QuotaCache, now_epoch};
 use crate::upstream::{self, HttpConfig};
 use crate::version;
 
@@ -39,18 +40,12 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
     if !args.dry_run {
         bail!("writes are not implemented yet; run with --dry-run");
     }
-    if args.jobs == 0 {
-        bail!("--jobs must be at least 1");
-    }
-    if args.jobs > MAX_JOBS {
-        eprintln!("snap-repo: --jobs capped at {MAX_JOBS}");
-    }
-
     let packages = discover::discover(root)?;
     let selected = select(packages, args)?;
     let config = HttpConfig::from_env();
+    check_auth(&config, &selected)?;
+    check_quota_cache(&selected)?;
     let client = config.client()?;
-    let jobs = args.jobs.min(MAX_JOBS);
     let total = selected.len();
     let name_width = selected
         .iter()
@@ -58,16 +53,11 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
         .max()
         .unwrap_or(0);
 
-    let futures = selected.into_iter().map(|package| {
-        let client = client.clone();
-        let config = config.clone();
-        async move { resolve_package(&client, &config, package).await }
-    });
-    let mut stream = futures::stream::iter(futures).buffer_unordered(jobs);
     let mut results = Vec::with_capacity(total);
     let mut skipped = Vec::new();
     let mut completed = 0;
-    while let Some(result) = stream.next().await {
+    for package in selected {
+        let result = resolve_package(&client, &config, package).await;
         if result.skipped {
             skipped.push(result);
             continue;
@@ -139,6 +129,8 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
         count(&rows, "error"),
     );
 
+    save_rate_limit_cache(&results)?;
+
     let errors = results
         .iter()
         .filter(|result| result.error.is_some())
@@ -150,16 +142,124 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Default)]
+struct AuthRequirements {
+    github: bool,
+    required_gitlab: BTreeSet<String>,
+    optional_gitlab: BTreeMap<String, usize>,
+}
+
+fn auth_requirements(packages: &[Package]) -> AuthRequirements {
+    let mut requirements = AuthRequirements::default();
+    for package in packages {
+        if !needs_fetch(package) {
+            continue;
+        }
+        match package.metadata.upstream.provider {
+            crate::metadata::Provider::Github => requirements.github = true,
+            crate::metadata::Provider::Gitlab => {
+                if let Some(host) = package.metadata.upstream.host() {
+                    if host == "gitlab.gnome.org" {
+                        requirements.required_gitlab.insert(host.to_string());
+                    } else {
+                        *requirements
+                            .optional_gitlab
+                            .entry(host.to_string())
+                            .or_default() += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    requirements
+}
+
+fn check_auth(config: &HttpConfig, packages: &[Package]) -> Result<()> {
+    let requirements = auth_requirements(packages);
+    let mut missing = Vec::new();
+    if requirements.github && !config.has_github_token() {
+        missing.push("GitHub: run `gh auth login`".to_string());
+    }
+    for host in &requirements.required_gitlab {
+        if !config.has_gitlab_token(host) {
+            missing.push(format!("{host}: run `glab auth login --hostname {host}`"));
+        }
+    }
+    if !missing.is_empty() {
+        eprintln!("snap-repo: authentication required:");
+        for line in missing {
+            eprintln!("  {line}");
+        }
+        bail!("refusing to run unauthenticated");
+    }
+    for (host, count) in &requirements.optional_gitlab {
+        if !config.has_gitlab_token(host) {
+            eprintln!(
+                "snap-repo: warning: no token for {host}; {count} package(s) will use unauthenticated access"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn needs_fetch(package: &Package) -> bool {
+    !package.metadata.upstream.provider.is_manual()
+        && package
+            .tracks
+            .iter()
+            .any(|track| track.mode == BumpMode::Tag)
+}
+
+fn quota_key(package: &Package) -> Option<String> {
+    match package.metadata.upstream.provider {
+        crate::metadata::Provider::Github => Some("github".to_string()),
+        crate::metadata::Provider::Gitlab => package.metadata.upstream.host().map(str::to_string),
+        _ => None,
+    }
+}
+
+fn check_quota_cache(packages: &[Package]) -> Result<()> {
+    let cache = QuotaCache::load();
+    for package in packages {
+        if !needs_fetch(package) {
+            continue;
+        }
+        let Some(key) = quota_key(package) else {
+            continue;
+        };
+        if let Some(until) = cache.blocked(&key) {
+            let remaining = until.saturating_sub(now_epoch());
+            eprintln!(
+                "snap-repo: {key} rate limited; retry in {}",
+                upstream::format_duration(Duration::from_secs(remaining))
+            );
+            bail!("refusing to run while rate limited");
+        }
+    }
+    Ok(())
+}
+
+fn save_rate_limit_cache(results: &[PackageResult]) -> Result<()> {
+    let mut cache = QuotaCache::load();
+    for result in results {
+        let Some(limit) = &result.rate_limited else {
+            continue;
+        };
+        let Some(key) = quota_key(&result.package) else {
+            continue;
+        };
+        cache.record_blocked(&key, now_epoch() + limit.remaining.as_secs());
+    }
+    cache.save()
+}
+
 async fn resolve_package(
     client: &reqwest::Client,
     config: &HttpConfig,
     package: Package,
 ) -> PackageResult {
-    let needs_fetch = !package.metadata.upstream.provider.is_manual()
-        && package
-            .tracks
-            .iter()
-            .any(|track| track.mode == BumpMode::Tag);
+    let needs_fetch = needs_fetch(&package);
     if needs_fetch && let Some(limit) = config.blocked(package.metadata.upstream.provider).await {
         return PackageResult {
             package,

@@ -1,7 +1,5 @@
 use clap::{ArgGroup, Args, Parser, Subcommand};
 
-pub const MAX_JOBS: usize = 4;
-
 #[derive(Debug, Parser)]
 #[command(
     name = "snap-repo",
@@ -19,6 +17,8 @@ pub enum Command {
     List,
     /// Check upstream releases and (later) bump recipes
     Sync(SyncArgs),
+    /// Show API quota and reset times
+    RateLimit(RateLimitArgs),
     /// Delegate to ./build until the native build implementation lands
     Build(BuildArgs),
 }
@@ -27,7 +27,7 @@ pub enum Command {
 #[command(
     arg_required_else_help = true,
     override_usage = "snap-repo sync [OPTIONS] <PACKAGE>...\n       snap-repo sync --all [--dry-run]",
-    after_help = "Environment:\n  GITHUB_TOKEN or GH_TOKEN  GitHub API token; falls back to gh auth token\n  GITLAB_TOKEN              GitLab.com API token",
+    after_help = "Environment:\n  GITHUB_TOKEN or GH_TOKEN  GitHub API token; falls back to gh auth token\n  GITLAB_TOKEN_<HOST>       per-host GitLab token; falls back to glab config\n  GITLAB_TOKEN              GitLab.com token (also accepted for gitlab.com)",
     group(
         ArgGroup::new("selection")
             .required(true)
@@ -51,10 +51,13 @@ pub struct SyncArgs {
     /// Show the resolved recipe and app part for each track
     #[arg(long)]
     pub verbose: bool,
+}
 
-    /// Package-level concurrency (capped at 4)
-    #[arg(short = 'j', long, default_value_t = 1, value_name = "N")]
-    pub jobs: usize,
+#[derive(Debug, Args)]
+pub struct RateLimitArgs {
+    /// Ignore cached quota and query every host
+    #[arg(long)]
+    pub refresh: bool,
 }
 
 #[derive(Debug, Args)]

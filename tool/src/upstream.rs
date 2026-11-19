@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::env;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -17,7 +18,7 @@ use tokio::time::sleep;
 use crate::metadata::{Provider, Upstream};
 use crate::version;
 
-const REQUEST_INTERVAL: Duration = Duration::from_secs(2);
+const REQUEST_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_COOLDOWN: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
@@ -53,10 +54,68 @@ pub fn format_duration(duration: Duration) -> String {
 #[derive(Debug, Clone)]
 pub struct HttpConfig {
     github_token: Option<String>,
-    gitlab_token: Option<String>,
+    gitlab_tokens: GitlabTokens,
     pacer: Arc<RequestPacer>,
     github_blocked: Arc<BlockedState>,
     gitlab_blocked: Arc<BlockedState>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GitlabTokens {
+    cache: Arc<StdMutex<HashMap<String, Option<String>>>>,
+}
+
+impl GitlabTokens {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn get(&self, host: &str) -> Option<String> {
+        if let Some(value) = self.cache.lock().unwrap().get(host) {
+            return value.clone();
+        }
+        let token = resolve_gitlab_token(host);
+        self.cache
+            .lock()
+            .unwrap()
+            .insert(host.to_string(), token.clone());
+        token
+    }
+}
+
+fn resolve_gitlab_token(host: &str) -> Option<String> {
+    let env_key = format!(
+        "GITLAB_TOKEN_{}",
+        host.to_uppercase()
+            .chars()
+            .map(|character| if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '_'
+            })
+            .collect::<String>()
+    );
+    if let Ok(token) = env::var(&env_key)
+        && !token.trim().is_empty()
+    {
+        return Some(token.trim().to_string());
+    }
+    if host == "gitlab.com"
+        && let Ok(token) = env::var("GITLAB_TOKEN")
+        && !token.trim().is_empty()
+    {
+        return Some(token.trim().to_string());
+    }
+
+    let output = std::process::Command::new("glab")
+        .args(["config", "get", "token", "--host", host, "--global"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let token = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if token.is_empty() { None } else { Some(token) }
 }
 
 #[derive(Debug)]
@@ -145,11 +204,27 @@ impl HttpConfig {
     pub fn from_env() -> Self {
         Self {
             github_token: github_token(),
-            gitlab_token: env::var("GITLAB_TOKEN").ok(),
+            gitlab_tokens: GitlabTokens::new(),
             pacer: Arc::new(RequestPacer::new(REQUEST_INTERVAL)),
             github_blocked: Arc::new(BlockedState::new()),
             gitlab_blocked: Arc::new(BlockedState::new()),
         }
+    }
+
+    pub fn has_github_token(&self) -> bool {
+        self.github_token.is_some()
+    }
+
+    pub fn github_token(&self) -> Option<&str> {
+        self.github_token.as_deref()
+    }
+
+    pub fn gitlab_token(&self, host: &str) -> Option<String> {
+        self.gitlab_tokens.get(host)
+    }
+
+    pub fn has_gitlab_token(&self, host: &str) -> bool {
+        self.gitlab_token(host).is_some()
     }
 
     async fn wait_github(&self) -> Result<()> {
@@ -420,9 +495,7 @@ fn github_request(request: RequestBuilder, config: &HttpConfig) -> RequestBuilde
 }
 
 fn gitlab_request(request: RequestBuilder, config: &HttpConfig, host: &str) -> RequestBuilder {
-    if host == "gitlab.com"
-        && let Some(token) = &config.gitlab_token
-    {
+    if let Some(token) = config.gitlab_token(host) {
         request.header("PRIVATE-TOKEN", token)
     } else {
         request
@@ -500,7 +573,7 @@ mod tests {
     async fn provider_rate_limits_are_independent() {
         let config = HttpConfig {
             github_token: None,
-            gitlab_token: None,
+            gitlab_tokens: super::GitlabTokens::new(),
             pacer: Arc::new(super::RequestPacer::new(Duration::from_secs(2))),
             github_blocked: Arc::new(super::BlockedState::new()),
             gitlab_blocked: Arc::new(super::BlockedState::new()),

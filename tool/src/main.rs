@@ -4,6 +4,8 @@ mod discover;
 mod list;
 mod metadata;
 mod package;
+mod quota;
+mod rate_limit;
 mod sync;
 mod upstream;
 mod version;
@@ -26,6 +28,10 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         cli::Command::List => list::run(&root),
         cli::Command::Sync(args) => sync::run(&root, &args).await,
+        cli::Command::RateLimit(args) => {
+            let config = upstream::HttpConfig::from_env();
+            rate_limit::run(&config, args.refresh).await
+        }
         cli::Command::Build(args) => build_cmd::run(&root, &args),
     }
 }
