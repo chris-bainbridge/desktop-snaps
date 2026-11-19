@@ -5,17 +5,17 @@ upstream project, stored in a single repository using the Gentoo/Nixpkgs
 "one directory per package" model.
 
 This is a local investigation (2026-11-15) into replacing the current
-one-repository-per-snap setup. It contains 120 repackage snaps: the 13
-migrated to `core26` in the 2026-11 migration, 28 packaging recipes imported
-from other `~desktop-snappers` repositories on 2026-11-17, 14 from the
-personal packaging repositories of Canonical staff, one infrastructure
-recipe imported from Canonical's pipewire-snap repository on 2026-11-18,
-and 64 new recipes written on 2026-11-17.
+one-repository-per-snap setup. It contains 138 repackage snaps: the 13
+migrated to `core26` in the 2026-11 migration, 42 packaging recipes imported
+from `~desktop-snappers` and the personal packaging repositories of
+Canonical staff on 2026-11-17, one infrastructure recipe imported from
+Canonical's pipewire-snap repository on 2026-11-18, 64 new recipes written
+on 2026-11-17, and 18 GNOME apps added on 2026-11-19.
 
 All are published by Canonical or by Canonical desktop-team members, except
-the sixty-four new recipes, which are not in the store yet. Bases: 84
-`core26`, 29 `core24`, 4 `core22`, 2 `core20`, 1 `core18`. The non-`core26`
-packages have not been migrated.
+the eighty-two packages added on 2026-11-17/19, which are not in the store
+yet. Every package is on `core26`; the 36 legacy imports were migrated
+during the 2026-11-19 refresh.
 
 Projects that develop their own source code and keep their snap recipe in
 the same repository (app-center, authd, firmware-updater, the
@@ -202,7 +202,7 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
-## Snaps in scope (120)
+## Snaps in scope (138)
 
 ### Migrated to core26 (13)
 
@@ -232,6 +232,29 @@ From personal packaging repositories of Canonical staff (14):
 `geforcenow`, `ghostty`, `godot-4`, `lunar-client`, `projectlibre`,
 `squirrelsql`, `sweethome3d-homedesign`, `thrive`, `tigervnc`, `widelands`.
 
+All 42 are on `core26` now. Thirty-six needed a base migration on
+2026-11-19; the other six (`epic-games-launcher`, `freeplane-mindmapping`,
+`ghostty`, `projectlibre`, `squirrelsql`, `sweethome3d-homedesign`) were
+already `core26`.
+
+### New core26 GNOME apps (2026-11-19, 16)
+
+`papers`, `showtime`, `gnome-snapshot`, `gnome-music`, `gnome-maps`,
+`file-roller`, `gnome-connections`, `gnome-usage`, `ghex`, `gitg`, `gnote`,
+`polari`, `gucharmap`, `aisleriot`, `four-in-a-row`, `atomix`.
+
+These fill the gaps in the GNOME 50/51 desktop app set: the new document,
+video and camera apps, the music and maps apps, the archive manager, the
+remote-desktop client and resource monitor, plus a set of small utilities
+and games. All are strict and built from upstream source; archive libraries
+are used where they work.
+
+### Imported 2026-11-19 (2)
+
+`gthumb` (from `nbuechner/gthumb-snap`) and `quadrapassel` (from Canonical's
+`ubuntu/quadrapassel`), both refreshed to the current upstream release and
+migrated to `core26`.
+
 ### Imported 2026-11-18 (1)
 
 Infrastructure provider, from Canonical's
@@ -253,7 +276,7 @@ from upstream source; the 26.04 archive still has 1.6.2/0.5.13. WirePlumber
 snap-access policy, so there is no interactive snapd prompt for
 `audio-record`.
 
-### New core26 recipes (64)
+### New core26 recipes written 2026-11-17 (64)
 
 `terminator`, `meld`, `gnome-tweaks`, `dconf-editor`, `baobab`,
 `gnome-disk-utility`, `homebank`, `bleachbit`, `gnumeric`, `dia`,
@@ -344,13 +367,35 @@ keeps the Flask backend but replaces the Electron window with a QtWebEngine
 shell; `librewolf` packages the official Firefox-based tarball with Gecko's
 user-namespace sandbox unavailable and no DRM.
 
+The 2026-11-19 GNOME apps have these strict-confinement limits: `papers`
+cannot register its thumbnailer with the host or reach the host keyring;
+`showtime` has no software AV1, HLS/DASH or DVD support; `gnome-snapshot`
+records through the camera portal and falls back to VP8/WebM without a
+hardware encoder; `gnome-music` uses a private LocalSearch index (MP3 only
+by default); `gnome-maps` needs `location-observe` and
+`password-manager-service` connected; `file-roller` has no Nautilus
+extension and no remote gvfs; `gnome-connections` is VNC/RDP only, with
+SPICE absent and FUSE file transfer blocked; `gnome-usage` cannot see host
+Storage/Network data; `gthumb` has RAW support disabled (26.04 ships
+libraw 0.21, gthumb 4 needs 0.22); `quadrapassel` aborts when no audio
+device is available; `polari` bundles the legacy Telepathy stack; `gnote`
+keeps notes in its private data directory; `aisleriot` carries a 48 MB
+Guile compiled-module cache.
+
+Among the migrated imports, `gnome-boxes` runs a private session
+libvirt/QEMU and cannot use the host's system libvirt; `shotwell` has no
+network plug or gvfs, so publishing uploads and remote browsing are
+unavailable and face detection is not built; `gnome-terminal` still needs
+the `dot-files` personal-files connection for `~/.bashrc` and friends;
+`tigervnc` is built from upstream 1.16.2 with H.264 disabled.
+
 The last group repackages distinct upstream projects; only the recipes are
 checked in. snapcraft fetches upstream sources, and for the proprietary
 launchers the vendor artifacts, at build time - no vendor binaries are
 tracked in this repository. `element-desktop` is not included: it has no
 public recipe.
 
-All 55 repackage another upstream project. Nearly all are GNOME
+All 138 repackage another upstream project. Nearly all are GNOME
 applications whose source lives at gitlab.gnome.org; the others include
 Mozilla (thunderbird), Matrix (fractal), Element (not imported), Epic,
 NVIDIA, Lunar Client, Godot, Ghostty, TigerVNC, Widelands, Thrive,
@@ -382,8 +427,5 @@ in this repository.
   tags/commits, but thunderbird's `override-pull` downloads a source tarball
   with `wget` and no hash; a manifest would have to cover that class of
   download.
-- `core26` migration of the 36 imported packages still on older bases; 84 of
-  the 120 are on `core26` (13 migrated, 7 imported and 64 new), and `freemind`
-  is still on `core18`.
 - No history rewrite or migration of the per-snap repositories; this
   repository is additive.
