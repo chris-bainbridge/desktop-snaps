@@ -119,6 +119,26 @@ parts:
     after: [desktop-glib, jdk]
     plugin: nil
     source: .
+    # The recipe has no top-level version: the ZIP name is the single source of
+    # truth, and override-build derives the snap version from it. Pin the
+    # version and the checksum of the official GitHub release asset here.
+    override-pull: |
+      set -eu
+
+      version=1.13.5
+      archive="freeplane_bin-$version.zip"
+      checksum=394d8cd35d5f338decaac9941365f393795e8d3113529ed34e4bc38f1ae52539
+      url="https://github.com/freeplane/freeplane/releases/download/release-$version/$archive"
+
+      cd "$CRAFT_PART_SRC"
+      mkdir -p download
+      # A stale archive from an earlier manual build must not outrank the
+      # pinned one in override-build's version sort.
+      find download -maxdepth 1 -type f -name 'freeplane_bin-*.zip' -delete
+      curl --fail --location --retry 5 --retry-delay 5 --retry-connrefused \
+        --output "download/$archive" "$url"
+
+      printf '%s  %s\n' "$checksum" "download/$archive" | sha256sum --check --strict -
     override-build: |
       mkdir -p "$SNAPCRAFT_PART_INSTALL/meta/gui"
       archive=$(find download -maxdepth 1 -type f -name 'freeplane_bin-*.zip' -printf '%f\n' | sort -V | tail -n 1)
@@ -144,7 +164,8 @@ parts:
       }
       mv "$SNAPCRAFT_PART_INSTALL/$archive_root" "$SNAPCRAFT_PART_INSTALL/freeplane"
       chmod +x "$SNAPCRAFT_PART_INSTALL/freeplane/freeplane.sh"
-      cp ./data/gui/* "$SNAPCRAFT_PART_INSTALL/meta/gui/"
+      cp "$CRAFT_PROJECT_DIR"/data/gui/* "$SNAPCRAFT_PART_INSTALL/meta/gui/"
       craftctl set version="$version"
     build-packages:
+      - curl
       - unzip

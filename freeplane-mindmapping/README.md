@@ -39,19 +39,22 @@ the steps or command that reproduce the problem.
 Requirements: Snapcraft 9 and a working `snapcraft` installation. The build
 uses Snapcraft's managed build environment for the `core26` base.
 
-1. Download the official Freeplane ZIP distribution
-   (`freeplane_bin-<version>.zip`) from
-   [SourceForge](https://sourceforge.net/projects/freeplane/files/).
-2. Place the archive in `download/`. Files there are ignored by Git.
-3. From the repository root, run:
+From the repository root, run:
 
-   ```sh
-   snapcraft pack
-   ```
+```sh
+snapcraft pack
+```
 
-If multiple ZIP archives are present, the build selects the highest version
-and sets the Snap version from the selected archive name, so
-`freeplane_bin-1.13.3.zip` produces `freeplane-mindmapping_1.13.3_amd64.snap`.
+The build downloads the official Freeplane ZIP distribution
+(`freeplane_bin-<version>.zip`) from the upstream
+[GitHub releases](https://github.com/freeplane/freeplane/releases) and
+verifies it against a pinned SHA-256 before unpacking it; no manual download
+is needed. Both the version and the checksum are pinned in the
+`freeplane-mindmapping` part of `snapcraft.yaml` and must be updated together
+when moving to a new release.
+
+The part sets the Snap version from the ZIP name, so the 1.13.5 archive
+produces `freeplane-mindmapping_1.13.5_amd64.snap`.
 The package currently targets amd64 only; the bundled Java runtime paths and
 Freeplane launcher are configured for that architecture.
 
