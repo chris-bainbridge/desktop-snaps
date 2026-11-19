@@ -2,7 +2,22 @@ name: gnome-taquin
 adopt-info: gnome-taquin
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+license: GPL-3.0+
+contact: https://gitlab.gnome.org/GNOME/gnome-taquin/issues
+source-code: https://gitlab.gnome.org/GNOME/gnome-taquin
+
+platforms:
+  amd64:
+  arm64:
+
+# gnome-taquin 3.38.1 (2020-10-03) is the latest stable upstream release; the
+# project left the GNOME release sets and only receives translation updates on
+# master. It is a GTK3 + Vala application, which the gnome extension still
+# supports on core26 (the content snap ships GTK3, gsound and librsvg).
+#
+# The content snap's librsvg is built against libxml2, which gnome-core26 does
+# not ship; the libraries part below bundles the archive's libxml2-16.
 
 slots:
   # for GtkApplication registration
@@ -19,8 +34,11 @@ apps:
   gnome-taquin:
     extensions: [ gnome ]
     command: usr/bin/gnome-taquin
+    common-id: org.gnome.Taquin.desktop
     plugs:
       - audio-playback
+      # the gnome extension no longer adds it on core26
+      - gsettings
     desktop: usr/share/applications/org.gnome.Taquin.desktop
 
 parts:
@@ -31,14 +49,42 @@ parts:
     source-tag: '3.38.1'
     source-depth: 1
     parse-info: [usr/share/metainfo/org.gnome.Taquin.appdata.xml]
+    plugin: meson
+    meson-parameters:
+      - --prefix=/usr
+      - --buildtype=release
+    build-packages:
+      # gnome.yelp needs yelp-build; gnome-core26-sdk only ships itstool
+      - yelp-tools
     override-pull: |
       craftctl default
       patch -p1 < $CRAFT_PROJECT_DIR/patches/patch1.diff
     override-build: |
-      sed -i.bak -e 's|=gnome-taquin$|=${SNAP}/meta/gui/org.gnome.Taquin.svg|g' $CRAFT_PART_SRC/data/org.gnome.Taquin.desktop.in
+      # The help media symlinks would dangle in the snap.
+      sed -i.bak -e 's|symlink_media: true|symlink_media: false|' $CRAFT_PART_SRC/help/meson.build
       craftctl default
+      # gtk-common-themes does not carry the application icon, so ship the
+      # upstream icon in meta/gui and point the desktop file at it.
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
-      cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.Taquin.svg $CRAFT_PART_INSTALL/meta/gui/
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
+      cp $CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/org.gnome.Taquin.svg \
+         $CRAFT_PART_INSTALL/meta/gui/
+      sed -i.bak -e 's|^Icon=org.gnome.Taquin$|Icon=${SNAP}/meta/gui/org.gnome.Taquin.svg|' \
+         $CRAFT_PART_INSTALL/usr/share/applications/org.gnome.Taquin.desktop
+
+  libraries:
+    plugin: nil
+    stage-packages:
+      # gnome-core26's librsvg links libxml2 directly, but the content snap
+      # does not ship libxml2. The game loads its SVG themes through it.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # The gnome/cleanup part deletes every primed library whose path also
+      # exists in the gnome-core26 SDK. libxml2 is in the SDK but not in the
+      # content snap, so move it out of the SDK's multiarch path; $SNAP/usr/lib
+      # is on the default LD_LIBRARY_PATH.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - usr/lib/libxml2.so.*
