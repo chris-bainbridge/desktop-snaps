@@ -5,6 +5,6 @@ Comment=Multi-platform 2D and 3D game engine with a feature rich editor
 Exec=Godot %f
 Terminal=false
 Type=Application
-Icon=meta/gui/icon.svg
+Icon=${SNAP}/meta/gui/icon.svg
 StartupNotify=true
 Categories=Development;IDE;Games;

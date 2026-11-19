@@ -1,12 +1,55 @@
 name: godot-4
-base: core24
+base: core26
 version: 4.7.2
 summary: The game engine you've been waiting for.
 description: |
-  The Godot Engine is a free, all-in-one, cross-platform game engine that makes it easy for you to create 2D and 3D games.
+  The Godot Engine is a free, all-in-one, cross-platform game engine that
+  makes it easy for you to create 2D and 3D games.
+
+  This is the .NET-enabled editor build. It is compiled from the upstream
+  4.7.2 source release; no prebuilt engine binaries are embedded. The .NET 10
+  SDK from the 26.04 archive is shipped so that the editor can build C#
+  projects without a host toolchain.
+
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences:
+
+  - Projects and imported assets can be opened from non-hidden directories in
+    the real home directory and, after "snap connect godot-4:removable-media",
+    from removable drives. Hidden top-level directories such as ~/.config are
+    not visible. The editor configuration, the asset library cache and the
+    user-installed export templates live in the snap's private per-user area
+    (~/snap/godot-4/common), not in ~/.config/godot or ~/.local/share/godot.
+  - Export templates are not bundled: the editor downloads them on request
+    (network interface). The editor cannot use a platform's native export
+    template packages.
+  - C# projects are built with the bundled .NET 10 SDK. Godot 4.7 generates
+    projects targeting net8.0; the 8.0 targeting pack is restored from NuGet
+    on first build, so that build needs network access unless the project is
+    retargeted to net10.0. The .NET runtime is executed with
+    DOTNET_ROLL_FORWARD=LatestMajor because only the 10.0 runtime exists in
+    the 26.04 archive.
+  - GDExtension C++ modules cannot be compiled from inside the snap: the host
+    compiler and development headers are outside the sandbox. GDExtension
+    libraries built elsewhere can be loaded if they are placed in the project
+    and only depend on the libraries shipped here or in the platform snaps.
+  - Rendering uses the GPU drivers and Vulkan/OpenGL loaders from the
+    mesa-2604 content snap through the gpu-2604 interface. The X11 and
+    Wayland display servers, audio through PipeWire/PulseAudio, gamepads,
+    speech synthesis and the editor's Git integration are available; ALSA
+    hardware access is not, because /dev/snd is outside the sandbox.
+  - The editor's "Open in File Manager" and external-script-editor features
+    depend on the host desktop (desktop interface); they work when the host
+    has the corresponding programs registered.
 
 grade: stable
 confinement: strict
+license: MIT
+website: https://godotengine.org/
+source-code: https://github.com/godotengine/godot
+issues: https://github.com/godotengine/godot/issues
+
+icon: desktop-file/icon.svg
 
 platforms:
   amd64:
@@ -15,18 +58,16 @@ platforms:
 compression: lzo
 
 layout:
-  /usr/lib/dotnet:
-    bind: $SNAP/usr/lib/dotnet
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/dri:
-    bind: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/dri
+  # Godot's Vulkan renderer enumerates ICDs in the loader's default directory,
+  # /usr/share/vulkan/icd.d. That tree belongs to the mesa-2604 content snap,
+  # not to the base, so bind the provider's tree there. The gpu-2604 wrapper
+  # supplies libvulkan itself and the library paths named by the JSON files.
   /usr/share/vulkan:
-    bind: $SNAP/usr/share/vulkan
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvulkan_intel.so:
-    bind-file: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvulkan_intel.so
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvulkan_lvp.so:
-    bind-file: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvulkan_lvp.so
-  /usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvulkan_radeon.so:
-    bind-file: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libvulkan_radeon.so
+    bind: $SNAP/gpu-2604/mesa-2604/usr/share/vulkan
+  # Git is staged by the git part, and its compiled-in exec-path and template
+  # directory are /usr/lib/git-core and /usr/share/git-core. Bind the snap's
+  # copies over those paths, and provide the /etc/gitconfig that git's system
+  # configuration lookup expects to be able to open.
   /usr/lib/git-core:
     bind: $SNAP/usr/lib/git-core
   /usr/share/git-core:
@@ -34,64 +75,184 @@ layout:
   /etc/gitconfig:
     bind-file: $SNAP/etc/gitconfig
 
+apps:
+  godot-4:
+    extensions: [gnome]
+    command: godot-4
+    desktop: meta/gui/godot-4.desktop
+    plugs:
+      - home            # projects and assets in the user's home directory
+      - network         # asset library, export templates, C# NuGet restores
+      - audio-playback  # editor and project audio through the sound server
+      - audio-record    # microphone input from games and tools
+      - removable-media # projects and assets on USB drives (manual connect)
+      - joystick        # game controllers (manual connect)
+      - hardware-observe # GPU/PCI information for the renderer settings
+    environment:
+      # Keep the editor's configuration, asset-library cache and downloaded
+      # export templates out of the revision-specific SNAP_USER_DATA, which
+      # snapd copies on every refresh.
+      HOME: $SNAP_USER_COMMON
+      # The GNOME command chain puts the platform on LD_LIBRARY_PATH. Add the
+      # snap's own directories: usr/lib holds the relocated speech-dispatcher
+      # and libdecor libraries, usr/lib/<triplet> the staged libraries whose
+      # layout the platform does not provide.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+      # The bundled .NET SDK lives in usr/lib/dotnet, which is not one of
+      # hostfxr's default install locations. Point Godot and the dotnet CLI at
+      # it explicitly.
+      DOTNET_ROOT: $SNAP/usr/lib/dotnet
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      # Only the .NET 10 runtime exists on core26, while Godot 4.7 still emits
+      # net8.0 assemblies. Allow hostfxr to roll a net8.0 request forward to
+      # the installed 10.0 runtime.
+      DOTNET_ROLL_FORWARD: LatestMajor
+      # .NET 10's write-xor-execute mode aborts randomly during `dotnet msbuild`
+      # startup in a confined environment with "Internal CLR error". The
+      # editor runs MSBuild when it builds a C# project, so disable it here as
+      # well (see the godot-4 part).
+      DOTNET_EnableWriteXorExecute: "0"
+      # libdecor's GTK plugin is staged in usr/lib/libdecor (moved there by the
+      # runtime-deps part, outside the gnome cleanup's multiarch path).
+      LIBDECOR_PLUGIN_DIR: $SNAP/usr/lib/libdecor/plugins-1
+
 parts:
+  godot-4:
+    # Godot 4.7.2 is the latest stable 4.x release (tagged 2026-08-18). The
+    # tarball is the upstream source release; building the editor from source
+    # replaces the prebuilt mono zip that this recipe used to download.
+    source: https://github.com/godotengine/godot/archive/refs/tags/4.7.2-stable.tar.gz
+    source-checksum: sha256/e954996374cbd1cb5d72e0e3781cc537408e6ce73b010b12c6c2f308a820690a
+    plugin: nil
+    build-packages:
+      - build-essential
+      - scons
+      - pkg-config
+      - python3          # scons and build_assemblies.py
+      - ca-certificates  # NuGet restore over HTTPS
+      - libwayland-dev   # wayland-scanner, used to generate the protocol code
+      - wayland-protocols
+      # The .NET SDK is needed at build time to generate and build the managed
+      # glue assemblies. Godot requires .NET 8 or later.
+      - dotnet-sdk-10.0
+    override-build: |
+      set -eux
+      cd "$CRAFT_PART_SRC"
+
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64) godot_arch=x86_64 ;;
+        arm64) godot_arch=arm64 ;;
+        *) echo "unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2; exit 1 ;;
+      esac
+
+      jobs="${CRAFT_PARALLEL_BUILD_COUNT:-$(nproc)}"
+
+      # production=yes selects the release flags (optimisation, LTO,
+      # debug_symbols=no, static libstdc++/libgcc). accesskit is disabled
+      # because its SDK is a separate prebuilt download; the driver is
+      # optional. Everything else uses Godot's defaults, which rely on the
+      # libraries from the platform (use_sowrap defaults to yes, so X11,
+      # Wayland, PulseAudio, D-Bus, udev, fontconfig and speech-dispatcher are
+      # loaded from the runtime instead of being linked at build time).
+      scons \
+        platform=linuxbsd \
+        target=editor \
+        arch="$godot_arch" \
+        production=yes \
+        module_mono_enabled=yes \
+        accesskit=no \
+        -j"$jobs"
+
+      # Generate the C# bindings from the freshly built editor. This has to be
+      # the .mono editor binary; a build without the .NET module cannot do it.
+      ./bin/godot.linuxbsd.editor."$godot_arch".mono \
+        --headless --generate-mono-glue modules/mono/glue
+
+      # Build the managed API and editor assemblies (Debug and Release), the
+      # GodotTools assemblies and the local NuGet packages into bin/GodotSharp.
+      # .NET's write-xor-execute mode aborts randomly with "Internal CLR error"
+      # in the confined build instance (reproduced with plain `dotnet msbuild`
+      # in an LXD container), so it is disabled for the build. The retry loop
+      # covers the same abort if it still happens; the individual solution
+      # builds are incremental, so a retry is cheap.
+      export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+      export DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1
+      export DOTNET_EnableWriteXorExecute=0
+      for attempt in 1 2 3 4 5; do
+        if python3 ./modules/mono/build_scripts/build_assemblies.py \
+             --godot-output-dir=./bin \
+             --godot-platform=linuxbsd; then
+          break
+        fi
+        if [ "$attempt" -eq 5 ]; then
+          echo "managed assembly build failed after $attempt attempts" >&2
+          exit 1
+        fi
+        echo "managed assembly build failed (attempt $attempt), retrying" >&2
+      done
+
+      # The editor resolves its data directory as <directory of the executable>
+      # /GodotSharp, so install the binary and the data directory together at
+      # the snap root.
+      install -D -m755 ./bin/godot.linuxbsd.editor."$godot_arch".mono \
+        "$CRAFT_PART_INSTALL/godot-4"
+      cp -a ./bin/GodotSharp "$CRAFT_PART_INSTALL/GodotSharp"
+    prime:
+      # build_assemblies.py leaves intermediate build output and the extracted
+      # NuGet fallback tree behind; only these are needed at run time.
+      - godot-4
+      - GodotSharp
+      - -GodotSharp/Tools/nupkgs/*.symbols.nupkg
+
+  runtime-deps:
+    # gnome-core26 provides GLib, GTK3, fontconfig, freetype, harfbuzz, X11
+    # (except libX11/libXext, which come from mesa-2604), PulseAudio, ALSA,
+    # D-Bus, udev, Wayland and the Mesa/Vulkan stack through gpu-2604. These
+    # are the libraries Godot loads but the platform does not ship.
+    plugin: nil
+    stage-packages:
+      - libspeechd2    # text-to-speech (SPEECHD_ENABLED)
+      - libdecor-0-0   # client-side decorations for the Wayland display server
+      # Debian splits libdecor's plugins into their own packages; the GTK one
+      # draws the window decorations on GNOME. Its GTK3 dependency is removed
+      # again by the gnome cleanup part, since the platform provides it.
+      - libdecor-0-plugin-1-gtk
+    override-build: |
+      set -eux
+      craftctl default
+      # The gnome extension's cleanup part removes staged libraries whose path
+      # also exists in gnome-core26-sdk, assuming the content snap provides
+      # them. Move these two out of the SDK's multiarch path; usr/lib is on
+      # the app's LD_LIBRARY_PATH (see apps.godot-4.environment).
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      for lib in libspeechd.so.2 libdecor-0.so.0; do
+        mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/$lib"* \
+           "$CRAFT_PART_INSTALL/usr/lib/" 2>/dev/null || true
+      done
+      # Same for libdecor's plugin directory; LIBDECOR_PLUGIN_DIR in the app
+      # environment points at its new location.
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdecor" \
+         "$CRAFT_PART_INSTALL/usr/lib/" 2>/dev/null || true
+    prime:
+      - usr/lib/libspeechd.so.*
+      - usr/lib/libdecor-0.so.*
+      # libdecor loads this plugin at run time; it needs GTK3, which the
+      # platform provides.
+      - usr/lib/libdecor
+
   dotnet:
     plugin: nil
     stage-packages:
-      - dotnet-sdk-8.0
-      - dotnet-runtime-8.0
-      - dotnet8
-      - dotnet-host
-
+      - dotnet-sdk-10.0
+    # Only the .NET installation and the native libraries that the runtime
+    # loads dynamically are needed. The SDK's dependency closure also stages
+    # data packages (CA certificates, man pages, ...) that would shadow the
+    # base and the platform.
     prime:
       - usr/bin/dotnet
       - usr/lib/dotnet
-      - usr/lib/*/liblttng-ust*
-      - usr/lib/*/libnuma*
-
-  libs:
-    plugin: nil
-    stage-packages:
-      - libspeechd2
-      - mesa-va-drivers
-      - mesa-vulkan-drivers
-      - vulkan-tools
-    prime:
-      - usr/lib/*/libspeech*
-      - usr/lib/*/dri
-      - usr/lib/*/libVk*
-      - usr/lib/*/libvulkan*
-      - usr/lib/*/libxcb-randr*
-      - usr/share/vulkan
-      - usr/bin/vk*
-
-  godot-4:
-    plugin: nil
-    build-packages:
-      - curl
-      - unzip
-    override-build: |
-      set -ex
-      case "$CRAFT_ARCH_BUILD_FOR" in
-        amd64)  arch=x86_64    ;;
-        arm64)  arch=arm64  ;;
-        *)      arch=""     ;;
-      esac
-
-      rm -rf $CRAFT_PART_INSTALL/*
-
-      if [[ -n $arch ]]; then
-        curl -LO --retry-connrefused --retry 10 https://github.com/godotengine/godot/releases/download/$SNAPCRAFT_PROJECT_VERSION-stable/Godot_v$SNAPCRAFT_PROJECT_VERSION-stable_mono_linux_$arch.zip
-      else
-        echo "Unsupported arch"
-        exit 1
-      fi
-
-      unzip *zip
-      rm -f *zip
-      mkdir tmp
-      mv Godot*/* $CRAFT_PART_INSTALL/
-      mv $CRAFT_PART_INSTALL/Godot_v$SNAPCRAFT_PROJECT_VERSION-stable_mono_linux.* $CRAFT_PART_INSTALL/godot-4
+      - usr/lib/*/*.so*
 
   git:
     plugin: nil
@@ -99,41 +260,20 @@ parts:
       - git
     override-build: |
       craftctl default
-      mkdir -p $CRAFT_PART_INSTALL/etc
-      touch $CRAFT_PART_INSTALL/etc/gitconfig
+      # git's system configuration path is /etc/gitconfig; the layout
+      # bind-file requires the file to exist.
+      mkdir -p "$CRAFT_PART_INSTALL/etc"
+      touch "$CRAFT_PART_INSTALL/etc/gitconfig"
     prime:
       - -usr/share/doc
+      - -usr/share/man
       - -etc/bash*
 
   desktop-file:
     plugin: dump
     source: desktop-file
-    override-build: |
-      mkdir -p $CRAFT_PART_INSTALL/meta/gui
-      cp * $CRAFT_PART_INSTALL/meta/gui
-
-  cleanup:
-    after: [ godot-4 ]
-    plugin: nil
-    build-snaps: [ gnome-46-2404 ]
-    override-prime: |
-        set -eux
-        cd /snap/gnome-46-2404/current
-        find . -type f,l -exec rm -f $SNAPCRAFT_PRIME/{} \;
-
-apps:
-  godot-4:
-    extensions: [gnome]
-    command: godot-4
-    desktop: meta/gui/godot-4.desktop
-    plugs:
-      - home
-      - network
-      - audio-playback
-      - audio-record
-      - removable-media
-      - joystick
-      - hardware-observe
-    environment:
-      HOME: $SNAP_USER_COMMON
-      VK_ICD_FILENAMESr: /var/lib/snapd/lib/vulkan/icd.d/nvidia_icd.json:$SNAP/usr/share/vulkan/icd.d/radeon_icd.x86_64.json:$SNAP/usr/share/vulkan/icd.d/intel_icd.x86_64.json
+    organize:
+      godot-4.desktop: meta/gui/godot-4.desktop
+    # icon.svg is installed as meta/gui/icon.svg by the top-level icon key.
+    prime:
+      - meta/gui/godot-4.desktop
