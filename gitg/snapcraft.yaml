@@ -1,0 +1,165 @@
+name: gitg
+adopt-info: gitg
+summary: Git repository viewer for GNOME
+description: |
+  gitg is a graphical user interface for git. It aims at being a small, fast
+  and convenient tool to visualize the history of git repositories. Besides
+  visualization, gitg also provides several utilities to manage your
+  repository and commit your work.
+
+  Goals:
+   * Browse local git repositories
+   * Clone local and remote git repositories
+   * View and commit changes
+   * Browse the history of a repository
+
+grade: stable # must be 'stable' to release into candidate/stable channels
+confinement: strict
+base: core26
+
+platforms:
+  amd64:
+  arm64:
+
+slots:
+  # for GtkApplication registration
+  gitg:
+    interface: dbus
+    bus: session
+    name: org.gnome.gitg
+
+apps:
+  gitg:
+    extensions: [gnome]
+    command: usr/bin/gitg
+    common-id: org.gnome.gitg.desktop
+    desktop: usr/share/applications/org.gnome.gitg.desktop
+    environment:
+      # gnome-core26 does not ship libxml2, but gitg and GtkSourceView 4 link
+      # it. The libraries part keeps it in $SNAP/usr/lib; make sure the
+      # dynamic linker finds it there.
+      LD_LIBRARY_PATH: ${SNAP_LIBRARY_PATH}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}:$SNAP/usr/lib:$SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR
+    plugs:
+      # the snap's org.gnome.gitg GSettings schema
+      - gsettings
+      # browse and commit repositories under $HOME
+      - home
+      # clone, fetch and push over ssh:// and https://
+      - network
+
+# gitg is a GTK3/libhandy/Vala application. The parts below cover the
+# libraries it links that the gnome-core26 content snap does not provide.
+#
+# The prefix is the runtime mount path, not /usr: libgitg returns the
+# compiled-in GITG_DATADIR/GITG_LIBDIR (style search path and libpeas plugin
+# directory), and a /usr prefix would resolve those into the core26 base.
+# organize moves the installed tree back under usr/.
+parts:
+  gitg:
+    source: https://gitlab.gnome.org/GNOME/gitg.git
+    source-type: git
+    source-tag: 'v50'
+    source-depth: 1
+    plugin: meson
+    parse-info: [usr/share/metainfo/org.gnome.gitg.metainfo.xml]
+    meson-parameters:
+      - --prefix=/snap/gitg/current/usr
+      - --buildtype=release
+      # no Glade catalog, and no PyGObject override for libgitg
+      - -Dglade_catalog=false
+      - -Dpython=false
+    organize:
+      snap/gitg/current/usr: usr
+    build-packages:
+      # gnome-core26 ships GtkSourceView 5; gitg still uses the 4.x API
+      - libgtksourceview-4-dev
+      # libgit2-glib is in the content snap at run time but not in the SDK
+      - libgit2-glib-1.0-dev
+      # GNOME 49 moved to libpeas 2; gitg still uses the 1.x API
+      - libpeas-dev
+      - libgpgme-dev
+    override-build: |
+      # Ubuntu's libpeas 1.38 headers are built against gobject-introspection
+      # 2.0 (glib's girepository/), and Vala emits the legacy 1.0
+      # <girepository.h> for the Introspection namespace. The two define the
+      # GI*Info types incompatibly, so gitg only compiles if it stops using
+      # the legacy API. We build with -Dpython=false, so the Python plugin
+      # loader (the only reason gitg touches Introspection) is unusable
+      # anyway; drop it and the matching Vala dependency. Keep this
+      # idempotent: snapcraft reuses the pulled source tree between builds.
+      python3 - "$CRAFT_PART_SRC" <<'PY'
+      import pathlib
+      import re
+      import sys
+
+      src = pathlib.Path(sys.argv[1])
+
+      meson = src / "gitg" / "meson.build"
+      lines = meson.read_text().splitlines(keepends=True)
+      kept = [line for line in lines if line.strip() != "gobject_introspection_dep,"]
+      if len(kept) != len(lines):
+          meson.write_text("".join(kept))
+
+      engine = src / "gitg" / "gitg-plugins-engine.vala"
+      text = engine.read_text()
+      text, count = re.subn(
+          r'\n\t\tenable_loader\("python"\);.*?(?=\t\tadd_search_path)',
+          "",
+          text,
+          count=1,
+          flags=re.S,
+      )
+      if count:
+          engine.write_text(text)
+      PY
+      craftctl default
+      # meson skips gnome.post_install() when DESTDIR is set, so the GSettings
+      # schema is never compiled. gitg creates its Gio.Settings at start-up;
+      # without gschemas.compiled it aborts before the window is shown.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/gitg/current/usr/share/glib-2.0/schemas"
+      # Use the bundled icon rather than the themed one so the launcher works
+      # without an icon theme that carries org.gnome.gitg.
+      mkdir -p "$CRAFT_PART_INSTALL/meta/gui"
+      cp "$CRAFT_PART_SRC/data/icons/org.gnome.gitg.svg" \
+        "$CRAFT_PART_INSTALL/meta/gui/"
+      sed -i 's|Icon=org.gnome.gitg$|Icon=${SNAP}/meta/gui/org.gnome.gitg.svg|' \
+        "$CRAFT_PART_INSTALL/snap/gitg/current/usr/share/applications/org.gnome.gitg.desktop"
+    prime:
+      # don't include files needed to develop against libgitg/libgitg-ext
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/gir-1.0
+      - -usr/share/vala
+      - -usr/share/gtk-doc
+      - -usr/share/doc
+      - -usr/share/man
+
+  libraries:
+    after: [gitg]
+    plugin: nil
+    stage-packages:
+      # gnome-core26 provides GTK 3, libhandy, gspell, libgit2-glib,
+      # libgit2, libsecret, json-glib, libgee and gpgme, but not
+      # GtkSourceView 4, libpeas 1.x or libxml2.
+      - libgtksourceview-4-0
+      - libgtksourceview-4-common
+      # libpeas 1.x (the content snap has neither 1.x nor 2.x). The C
+      # loader is what gitg's bundled plugins use.
+      - libpeas-1.0-1
+      # GtkSourceView 4 and gitg both link libxml2 directly.
+      - libxml2-16
+    override-build: |
+      craftctl default
+      # gnome/cleanup removes every *.so that also exists in the
+      # gnome-core26 SDK, and the content snap does not ship libxml2. Keep
+      # it outside the SDK's path layout; $SNAP/usr/lib is on the
+      # LD_LIBRARY_PATH set in the app above.
+      mkdir -p "$CRAFT_PART_INSTALL/usr/lib"
+      mv "$CRAFT_PART_INSTALL/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"/libxml2.so.16* \
+         "$CRAFT_PART_INSTALL/usr/lib/"
+    prime:
+      - -usr/include
+      - -usr/lib/*/pkgconfig
+      - -usr/share/doc
+      - -usr/share/man
