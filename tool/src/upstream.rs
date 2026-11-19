@@ -329,6 +329,10 @@ pub async fn latest_tag(
 ) -> Result<Latest> {
     let pattern = Regex::new(upstream.tag_pattern())
         .with_context(|| format!("invalid tag-pattern {:?}", upstream.tag_pattern()))?;
+    // A custom pattern is an explicit stable-tag filter, so prefer tags.
+    // The default pattern includes numeric development tags, so releases
+    // are the safer source first.
+    let prefer_releases = upstream.tag_pattern.is_none();
 
     match upstream.provider {
         Provider::Github => {
@@ -336,7 +340,8 @@ pub async fn latest_tag(
                 .project
                 .as_deref()
                 .context("github project missing")?;
-            if let Some(tag) = github_latest_release(client, config, project).await?
+            if prefer_releases
+                && let Some(tag) = github_latest_release(client, config, project).await?
                 && let Some(latest) = select_latest(vec![tag], &pattern)
             {
                 return Ok(latest);
@@ -346,9 +351,11 @@ pub async fn latest_tag(
                 .with_context(|| format!("no tag matches {:?}", upstream.tag_pattern()))
         }
         Provider::Gitlab => {
-            let releases = gitlab_releases(client, config, upstream).await?;
-            if let Some(latest) = select_latest(releases, &pattern) {
-                return Ok(latest);
+            if prefer_releases {
+                let releases = gitlab_releases(client, config, upstream).await?;
+                if let Some(latest) = select_latest(releases, &pattern) {
+                    return Ok(latest);
+                }
             }
             let tags = gitlab_repository_tags(client, config, upstream).await?;
             select_latest(tags, &pattern)
