@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# snap-repo - run the Rust tool from the tool/ crate.
+#
+# The release binary is rebuilt when Cargo.toml or a source file is newer.
+
+set -euo pipefail
+
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+manifest="$root/tool/Cargo.toml"
+binary="$root/tool/target/release/snap-repo"
+
+needs_build=0
+if [[ ! -x "$binary" ]] || [[ "$manifest" -nt "$binary" ]]; then
+    needs_build=1
+elif [[ -n "$(find "$root/tool/src" -type f -newer "$binary" -print -quit)" ]]; then
+    needs_build=1
+fi
+
+if ((needs_build)); then
+    cargo build --quiet --release --manifest-path "$manifest"
+fi
+
+exec "$binary" "$@"
