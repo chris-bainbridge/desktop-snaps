@@ -6,7 +6,13 @@ adopt-info: iagno
 summary: Dominate the board in a classic reversi game or play the reversed variant
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core24
+base: core26
+license: GPL-3.0+
+contact: https://gitlab.gnome.org/GNOME/iagno/-/issues
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -14,10 +20,6 @@ slots:
     interface: dbus
     bus: session
     name: org.gnome.Reversi
-
-layout:
- /usr/share/iagno:
-   symlink: $SNAP/usr/share/iagno
 
 apps:
   iagno:
@@ -27,23 +29,49 @@ apps:
     desktop: usr/share/applications/org.gnome.Reversi.desktop
     plugs:
       - audio-playback
+      - gsettings
 
+# iagno 50.0 is the GTK4 + libadwaita rewrite (the 3.38 series was GTK3/Clutter).
+# GTK 4.24, libadwaita, glycin 2, valac and GStreamer (GtkMediaFile for the
+# sound effects) come from the gnome-core26 SDK/content snaps.
+#
+# The prefix is the runtime mount path, not /usr: DATA_DIRECTORY,
+# SOUND_DIRECTORY and LOCALEDIR are compiled into the binary, and a /usr
+# prefix would resolve them to the core26 base instead of the snap. organize
+# moves the installed tree back under usr/.
 parts:
   iagno:
 # ext:updatesnap
     source: https://gitlab.gnome.org/GNOME/iagno.git
     source-type: git
-    source-tag: '3.38.1'
+    source-tag: '50.0'
     source-depth: 1
-    parse-info: [usr/share/metainfo/org.gnome.Reversi.appdata.xml]
+    parse-info: [usr/share/metainfo/org.gnome.Reversi.metainfo.xml]
     plugin: meson
     meson-parameters:
-      - --prefix=/usr
+      - --prefix=/snap/iagno/current/usr
+      - --buildtype=release
+    organize:
+      snap/iagno/current/usr: usr
+    build-packages:
+      # gnome.yelp needs yelp-build; gnome-core26-sdk only ships itstool
+      - itstool
+      - yelp-tools
     override-pull: |
       craftctl default
-      patch -p1 < $CRAFT_PROJECT_DIR/patches/patch1.diff
+      # Symlinked help media would dangle inside the snap
+      sed -i.bak -e 's|symlink_media: true|symlink_media: false|g' $CRAFT_PART_SRC/help/meson.build
     override-build: |
-      sed -i.bak -e 's|=org.gnome.Reversi$|=${SNAP}/meta/gui/iagno.svg|g' $CRAFT_PART_SRC/data/org.gnome.Reversi.desktop.in
+      sed -i.bak -e 's|^Icon=@app_id@$|Icon=${SNAP}/meta/gui/iagno.svg|g' $CRAFT_PART_SRC/data/org.gnome.Reversi.desktop.in
       craftctl default
       mkdir -p $CRAFT_PART_INSTALL/meta/gui/
       cp $CRAFT_PART_SRC/data/icons/hicolor/scalable/org.gnome.Reversi.svg $CRAFT_PART_INSTALL/meta/gui/iagno.svg
+      # meson's gnome.post_install() is skipped when DESTDIR is set, which is
+      # how snapcraft installs. Compile the schema here so GSettings can
+      # resolve org.gnome.Reversi on first run.
+      glib-compile-schemas \
+        "$CRAFT_PART_INSTALL/snap/iagno/current/usr/share/glib-2.0/schemas"
+      # D-Bus activation is provided by the dbus slot above (snapd writes a
+      # service file that runs "snap run"). Upstream's service file has a
+      # build-time absolute Exec that the host bus would not use.
+      rm -f "$CRAFT_PART_INSTALL/snap/iagno/current/usr/share/dbus-1/services/org.gnome.Reversi.service"
