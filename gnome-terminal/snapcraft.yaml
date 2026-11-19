@@ -6,9 +6,29 @@ description: |
 
   It supports several profiles, multiple tabs and implements several keyboard shortcuts.
 
+  The snap is strictly confined, as required on Core Desktop, which has no
+  classic snaps. That has visible consequences for a terminal emulator:
+
+  - Commands started in a terminal run inside the snap. They see the core26
+    base and the GNOME platform, not the host's /usr, /etc or system tools;
+    host commands such as python, gcc or docker are not on PATH.
+  - HOME points at the real home directory, so the shell starts in the usual
+    place and the home interface grants access to non-hidden files there.
+    Hidden entries such as ~/.config and ~/.ssh are not readable; ~/.bashrc,
+    ~/.bash_aliases and ~/.bash_history are the exception, through the
+    declared personal-files interface.
+  - Profiles and preferences are stored in the snap's private dconf database
+    and are not shared with a distribution-packaged GNOME Terminal.
+  - The Nautilus "Open in Terminal" extension and the GNOME Shell search
+    provider are not shipped: a Nautilus or Shell running on the host cannot
+    load them from inside the snap.
 grade: stable # must be 'stable' to release into candidate/stable channels
 confinement: strict
-base: core20
+base: core26
+
+platforms:
+  amd64:
+  arm64:
 
 slots:
   # for GtkApplication registration
@@ -32,7 +52,7 @@ plugs:
 apps:
   gnome-terminal:
     command: usr/bin/gnome-terminal
-    extensions: [gnome-3-38]
+    extensions: [gnome]
     plugs:
       - gsettings
       - network
@@ -48,13 +68,17 @@ apps:
     common-id: org.gnome.Terminal.desktop
     environment:
       HOME: $SNAP_REAL_HOME
+
+  # The client is a thin D-Bus client; the windows and the shells live in the
+  # server. snapd generates a session-bus service file for the org.gnome.Terminal
+  # slot that starts this app, so the client's proxy call activates the server
+  # the same way the upstream systemd/D-Bus units would on a classic system.
   gnome-terminal-service:
-    extensions: [gnome-3-38]
     command: usr/libexec/gnome-terminal-server
-    daemon: simple
-    passthrough:
-      activates-on: [gnome-terminal]
-      daemon-scope: user
+    extensions: [gnome]
+    daemon: dbus
+    daemon-scope: user
+    activates-on: [gnome-terminal]
     plugs:
       - gsettings
       - network
@@ -69,51 +93,52 @@ apps:
     environment:
       HOME: $SNAP_REAL_HOME
 
+# gnome-terminal 3.60.0 is the current stable release (GNOME 50, March 2026);
+# the VTE it requires (0.84.0, GTK3 build) is the one shipped by gnome-core26,
+# so nothing from the old core20 recipe needs to be built from source:
+#   * VTE and p11-kit were previously built here because the gnome-3-38
+#     platform did not carry them. gnome-core26 ships libvte-2.91 0.84.0 and
+#     p11-kit, so the separate parts are gone.
+#   * libhandy-1, GTK 3, GLib, pcre2 and libuuid are in gnome-core26 and its
+#     SDK; libX11 comes from the gpu-2604 content snap at run time.
+#   * The Nautilus extension and the Shell search provider are disabled: they
+#     can only be used from a host Nautilus/Shell, which cannot load code from
+#     inside a snap.
 parts:
-  vte:
-    after: [ p11-kit ]
-    source: https://gitlab.gnome.org/GNOME/vte.git
-    source-branch: vte-0-62
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
-    organize:
-      snap/gnome-terminal/current/usr: usr
-    build-packages:
-      - libsystemd-dev
-      - libgnutls28-dev
-
-  p11-kit:
-    source: https://github.com/p11-glue/p11-kit.git
-    source-tag: 0.23.22
-    plugin: meson
-    meson-parameters:
-      - --prefix=/usr
-      - -Dhash_impl=internal
-      - -Dtrust_paths=/etc/ssl/certs/ca-certificates.crt
-    build-packages:
-      - libtasn1-6-dev
-
   gnome-terminal:
-    after: [ vte ]
     source: https://gitlab.gnome.org/GNOME/gnome-terminal.git
-    source-branch: gnome-3-38
-    plugin: autotools
-    autotools-configure-parameters:
-      - --prefix=/usr
-      - --disable-search-provider
-      - --without-nautilus-extension
-    parse-info: [usr/share/metainfo/org.gnome.Terminal.appdata.xml]
+    source-type: git
+    source-tag: '3.60.0'
+    source-depth: 1
+    plugin: meson
+    meson-parameters:
+      # The prefix is the runtime path inside the snap, not /usr: the binaries
+      # bake it in and use it for gettext (TERM_LOCALEDIR) and for the
+      # gnome-terminal-preferences helper in TERM_LIBEXECDIR, neither of which
+      # exists at /usr under strict confinement.
+      - --prefix=/snap/gnome-terminal/current/usr
+      - -Dnautilus_extension=false
+      - -Dsearch_provider=false
     organize:
       snap/gnome-terminal/current/usr: usr
-    build-environment:
-    - LD_LIBRARY_PATH: $SNAPCRAFT_STAGE/usr/lib/$SNAPCRAFT_ARCH_TRIPLET:$SNAPCRAFT_STAGE/usr/lib:/snap/gnome-3-38-2004-sdk/current/lib/$SNAPCRAFT_ARCH_TRIPLET:/snap/gnome-3-38-2004-sdk/current/usr/lib/$SNAPCRAFT_ARCH_TRIPLET:/snap/gnome-3-38-2004-sdk/current/usr/lib:/snap/gnome-3-38-2004-sdk/current/usr/lib/vala-current
     build-packages:
-      - libdconf-dev
+      # gnome-core26-sdk has GTK 3, libhandy, GLib and gsettings-desktop-schemas,
+      # but neither VTE headers nor an X11 or libuuid .pc file. The archive's
+      # libvte-2.91-dev is 0.84.0, the exact version in the content snap.
+      - libvte-2.91-dev
+      - libx11-dev
       - uuid-dev
+      # Help pages and the man page are generated at build time.
+      - gettext
+      - itstool
       - yelp-tools
       - docbook-xsl
-      - git
+      - xsltproc
     override-pull: |
-      snapcraftctl pull
-      snapcraftctl set-version $(git describe --tags --abbrev=10)
+      craftctl default
+      craftctl set version=$(git describe --tags --abbrev=10)
+    prime:
+      # snapd generates the session-bus activation file from the daemon app
+      # and the slot; the upstream files point at absolute host paths.
+      - -usr/share/dbus-1/services/org.gnome.Terminal.service
+      - -usr/lib/systemd/user/gnome-terminal-server.service
