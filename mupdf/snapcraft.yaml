@@ -89,9 +89,10 @@ apps:
 
 parts:
   mupdf:
-    # Release tarball from https://mupdf.com/releases; the gzip source tarball
-    # contains the pinned third-party sources that the Makefile builds.
-    source: https://mupdf.com/downloads/archive/mupdf-1.28.6-source.tar.gz
+    # Release tarball from the ArtifexSoftware/mupdf-downloads GitHub release;
+    # the gzip source tarball contains the pinned third-party sources that the
+    # Makefile builds.
+    source: https://github.com/ArtifexSoftware/mupdf-downloads/releases/download/1.28.6/mupdf-1.28.6-source.tar.gz
     source-checksum: sha256/dc85000640a45d90ca9b77b061f6ca67cce0c4d4fbecf8819647baf573eef101
     plugin: nil
     build-packages:
