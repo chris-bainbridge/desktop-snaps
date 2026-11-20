@@ -45,7 +45,7 @@ pub struct SyncArgs {
     pub all: bool,
 
     /// Report only; do not write recipes
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub dry_run: bool,
 
     /// Show the resolved recipe and app part for each track
@@ -72,7 +72,7 @@ pub struct BuildArgs {
     pub all: bool,
 
     /// Show the resolved build plan
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub dry_run: bool,
 
     /// Keep the build workspace and the LXD build container

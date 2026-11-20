@@ -100,7 +100,7 @@ track, and is never copied into a build workspace.
 ```console
 ./snap-repo list                     # name, track, base and publisher
 ./snap-repo build gnome-logs         # flat package, implicit stable
-./snap-repo build gnome-calculator --dry-run  # show what would happen
+./snap-repo build gnome-calculator -n         # show what would happen
 ./snap-repo build gnome-calculator --keep     # keep the workspace
 ./snap-repo build -j3 abiword barrier crossword-editor  # three in parallel
 ./snap-repo build gnome-calculator -- --build-for=arm64  # args to snapcraft
@@ -149,7 +149,8 @@ that the application can move ahead of the distribution.
 `--all`) and rewrites the app part's `source-tag` and the literal top-level
 `version:`, if present. Comments and quoting style are preserved. Only
 tag-mode packages are updated; URL, script, manual and other report-only
-packages are left alone. Use `--dry-run` to inspect the actions first.
+packages are left alone. Use `-n` (or `--dry-run`) to inspect the actions
+first.
 
 GitHub and `gitlab.gnome.org` require authentication: a GitHub token from
 `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`, and a GitLab token from
