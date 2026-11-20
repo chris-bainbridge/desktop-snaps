@@ -11,6 +11,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RECIPES="$ROOT/recipes"
+SNAPS_OUT="$ROOT/snaps"
 DEFAULT_WORKSPACE="${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}"
 
 die() {
@@ -27,7 +28,7 @@ usage() {
 Usage: ./build [options] <snap>[:<track>]
 
 Build a snap from recipes/<snap> (e.g. gnome-logs). Builds run out of tree
-in a temporary workspace.
+in a temporary workspace; the packed snap is moved to snaps/.
 
 A package with a single recipe is flat and implicitly builds the stable
 track. A package with more than one track keeps its recipes under stable/,
@@ -333,6 +334,7 @@ if ((dry_run)); then
     printf 'base:       %s\n' "$base"
     printf 'mode:       %s\n' "$mode"
     printf 'workspace:  %s\n' "$ws"
+    printf 'output:     %s\n' "$SNAPS_OUT"
     if [[ "$mode" == overlay ]]; then
         printf 'overlay:    %s at %s -> %s/\n' \
             "$overlay_repo" "${overlay_commit:-default branch}" "$overlay_to"
@@ -422,14 +424,11 @@ while IFS= read -r candidate; do
 done < <(find "$ws" -maxdepth 1 -type f -name '*.snap' -printf '%T@ %p\n' | sort -n | cut -d' ' -f2-)
 
 if [[ -n "$artifact" ]]; then
-    if ((!keep)); then
-        # The workspace is removed on success; keep the artifact outside it.
-        mkdir -p -- "$workspace/artifacts"
-        final="$workspace/artifacts/$(basename -- "$artifact")"
-        mv -f -- "$artifact" "$final"
-    else
-        final="$artifact"
-    fi
+    # Built snaps live in the repository's snaps/ directory, which is
+    # git-ignored. Move the artifact before the workspace is cleaned.
+    mkdir -p -- "$SNAPS_OUT"
+    final="$SNAPS_OUT/$(basename -- "$artifact")"
+    mv -f -- "$artifact" "$final"
     info "built $final ($(du -h -- "$final" | cut -f1))"
     printf '%s\n' "$final"
 else

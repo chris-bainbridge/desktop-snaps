@@ -44,8 +44,8 @@ permission. `metadata.yaml` records the basis in `redistribution:`
 
 Every package lives in a directory under `recipes/`, named after its **snap
 name** (the store identity). The top level holds the repository README, the
-`build` driver, `excluded-projects.yaml`, the `docs/` directory and the
-`recipes/` tree:
+`build` driver, `excluded-projects.yaml`, the `docs/` and `snaps/` directories
+and the `recipes/` tree:
 
 ```
 recipes/
@@ -112,11 +112,11 @@ track.
 Builds happen **out of tree**, in
 `${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>` for a flat or
 `<snap>-<track>` for a nested package, so the repository never accumulates
-`parts/`, `stage/`, `prime/` or `*.snap`. The built `.snap` is moved to
-`<workspace>/artifacts/`. After packing, `snapcraft clean --use-lxd` deletes
-the per-build LXD container; the workspace is then removed on success and kept
-on failure. `--keep` retains both the workspace and the container. The build
-runs `snapcraft pack --use-lxd`.
+`parts/`, `stage/`, `prime/` or `*.snap`. The built `.snap` is moved to the
+top-level `snaps/` directory, which is ignored by git. After packing,
+`snapcraft clean --use-lxd` deletes the per-build LXD container; the workspace
+is then removed on success and kept on failure. `--keep` retains both the
+workspace and the container. The build runs `snapcraft pack --use-lxd`.
 
 Requirements: `bash`, `git`, `rsync`, `python3` with PyYAML, `snapcraft`,
 and a working LXD.

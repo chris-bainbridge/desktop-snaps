@@ -1,5 +1,5 @@
-# snapcraft build artifacts (builds normally happen outside the repo;
-# these are ignored in case someone builds in place)
+# snapcraft build artifacts. Builds happen outside the repo, but packed
+# snaps are moved into snaps/ and must never be committed.
 parts/
 stage/
 prime/
