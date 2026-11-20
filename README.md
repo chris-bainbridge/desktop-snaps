@@ -140,6 +140,17 @@ that the application can move ahead of the distribution.
   Use the upstream's own terminology when deciding which track a release
   belongs to.
 
+`./snap-repo sync` checks the selected packages (or every package with
+`--all`) and rewrites the app part's `source-tag` and the literal top-level
+`version:`, if present. Comments and quoting style are preserved. Only
+tag-mode packages are updated; URL, script, manual and other report-only
+packages are left alone. Use `--dry-run` to inspect the actions first.
+
+GitHub and `gitlab.gnome.org` require authentication: a GitHub token from
+`GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`, and a GitLab token from
+`GITLAB_TOKEN_<HOST>` or `glab config`. Small GitLab hosts may fall back to
+unauthenticated access with a warning.
+
 ## Two build modes
 
 `metadata.yaml` declares one of two modes.

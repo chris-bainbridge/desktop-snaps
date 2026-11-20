@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -10,6 +10,7 @@ use crate::cli::SyncArgs;
 use crate::discover;
 use crate::package::{BumpMode, Package};
 use crate::quota::{QuotaCache, now_epoch};
+use crate::recipe_edit;
 use crate::upstream::{self, HttpConfig};
 use crate::version;
 
@@ -25,6 +26,10 @@ struct Row {
     latest_version: String,
     mode: &'static str,
     action: &'static str,
+    recipe: PathBuf,
+    app_part: String,
+    current_tag: Option<String>,
+    declared_version: Option<String>,
 }
 
 #[derive(Debug)]
@@ -37,9 +42,6 @@ struct PackageResult {
 }
 
 pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
-    if !args.dry_run {
-        bail!("writes are not implemented yet; run with --dry-run");
-    }
     let packages = discover::discover(root)?;
     let selected = select(packages, args)?;
     let config = HttpConfig::from_env();
@@ -67,6 +69,12 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
         results.push(result);
     }
     results.sort_by(|left, right| left.package.name.cmp(&right.package.name));
+
+    let written = if args.dry_run {
+        0
+    } else {
+        apply_writes(&mut results)
+    };
 
     if let Some(first) = skipped.first() {
         match &first.rate_limited {
@@ -121,13 +129,16 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
     );
     println!(
         "actions: {} bump, {} up-to-date, {} ahead, {} report-only, {} manual, {} error",
-        count(&rows, "bump"),
+        count(&rows, "bump") + count(&rows, "bumped"),
         count(&rows, "up-to-date"),
         count(&rows, "ahead"),
         count(&rows, "report-only"),
         count(&rows, "manual"),
         count(&rows, "error"),
     );
+    if !args.dry_run {
+        println!("wrote {written} recipe(s)");
+    }
 
     save_rate_limit_cache(&results)?;
 
@@ -140,6 +151,49 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
         bail!("{errors} package(s) failed or skipped");
     }
     Ok(())
+}
+
+fn apply_writes(results: &mut [PackageResult]) -> usize {
+    let mut written = 0;
+    for result in results {
+        for row in &mut result.rows {
+            if row.action != "bump" {
+                continue;
+            }
+            let Some(current_tag) = row.current_tag.as_deref() else {
+                row.action = "error";
+                result.error = Some(format!("{}: no source-tag to update", row.package));
+                continue;
+            };
+            if row.latest == "-" {
+                row.action = "error";
+                result.error = Some(format!("{}: no upstream tag to write", row.package));
+                continue;
+            }
+            match recipe_edit::apply(
+                &row.recipe,
+                &row.app_part,
+                current_tag,
+                row.declared_version.as_deref(),
+                &row.latest,
+                &row.latest_version,
+            ) {
+                Ok(()) => {
+                    row.action = "bumped";
+                    written += 1;
+                }
+                Err(error) => {
+                    row.action = "error";
+                    result.error = Some(format!(
+                        "{}: cannot update {}: {error:#}",
+                        row.package,
+                        row.recipe.display()
+                    ));
+                }
+            }
+        }
+    }
+    written
 }
 
 #[derive(Debug, Default)]
@@ -339,6 +393,10 @@ async fn resolve_package(
             latest_version,
             mode: track.mode.as_str(),
             action,
+            recipe: track.path.clone(),
+            app_part: track.app_part.clone(),
+            current_tag: track.source_tag.clone(),
+            declared_version: track.version.clone(),
         });
     }
     result
@@ -438,6 +496,10 @@ mod tests {
             latest_version: latest.to_string(),
             mode: "tag",
             action,
+            recipe: Default::default(),
+            app_part: "test".to_string(),
+            current_tag: Some(version.to_string()),
+            declared_version: Some(version.to_string()),
         }
     }
 

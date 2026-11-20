@@ -6,6 +6,7 @@ mod metadata;
 mod package;
 mod quota;
 mod rate_limit;
+mod recipe_edit;
 mod sync;
 mod upstream;
 mod version;
