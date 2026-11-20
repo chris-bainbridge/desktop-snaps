@@ -13,7 +13,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 name: thunderbird
-version: "160.0-1"
+version: "160.0"
 summary: Mozilla Thunderbird email application
 description: Thunderbird is a free email application that’s easy to set up and customize - and it’s loaded with great features!
 confinement: strict
@@ -98,42 +98,6 @@ parts:
     prime:
       - usr/share/hunspell
 
-  # For thunderbird beta, the dump-syms git informations is pulled from the
-  # mozilla-beta trees, because there seems to be no mozilla/ in the beta tree,
-  dump-syms:
-    plugin: nil
-    build-packages:
-      - cargo-1.97
-      - curl
-      - git
-      - jq
-      - python3-yaml
-    override-pull: |
-      if [ $CRAFT_ARCH_BUILD_FOR = "amd64" ] || [ $CRAFT_ARCH_BUILD_FOR = "arm64" ]; then
-        VERSION=$(craftctl get version | cut -d- -f1)
-        BUILD=$(craftctl get version | cut -d- -f2)
-        TBINFO=$(curl -s https://ftp.mozilla.org/pub/thunderbird/candidates/$VERSION-candidates/build$BUILD/linux-x86_64/en-US/thunderbird-$VERSION.json)
-        TB_SOURCE_REPO=$(echo $TBINFO | jq -r .moz_source_repo)
-        TB_SOURCE_STAMP=$(echo $TBINFO | jq -r .moz_source_stamp)
-        GECKO_REV=$TB_SOURCE_REPO/raw-file/${TB_SOURCE_STAMP}/.gecko_rev.yml
-        GECKO_REVS=$(curl -sSL "${GECKO_REV}" | grep -v "#")
-        MOZ_SOURCE_REPO=$(echo "$GECKO_REVS" | grep GECKO_HEAD_REPOSITORY | sed -e 's/GECKO_HEAD_REPOSITORY: //g')
-        MOZ_SOURCE_STAMP=$(echo "$GECKO_REVS" | grep GECKO_HEAD_REV | sed -e 's/GECKO_HEAD_REV: //g')
-        FETCHES=$MOZ_SOURCE_REPO/raw-file/$MOZ_SOURCE_STAMP/taskcluster/kinds/fetch/toolchains.yml
-        TOOLCHAINS=$(curl -sSL "${FETCHES}")
-        unset PYTHONPATH
-        REPO=$(echo "${TOOLCHAINS}" | /usr/bin/python3 -c 'import yaml, sys; fetches = yaml.safe_load(sys.stdin); print("{}".format(fetches["dump-syms"]["fetch"]["repo"]))')
-        SHA1=$(echo "${TOOLCHAINS}" | /usr/bin/python3 -c 'import yaml, sys; fetches = yaml.safe_load(sys.stdin); print("{}".format(fetches["dump-syms"]["fetch"]["revision"]))')
-        git clone "${REPO}" . && git checkout "${SHA1}"
-      fi
-    override-build: |
-      craftctl default
-      if [ $CRAFT_ARCH_BUILD_FOR = "amd64" ] || [ $CRAFT_ARCH_BUILD_FOR = "arm64" ]; then
-        cargo-1.97 build --release
-        mkdir -p $CRAFT_STAGE/usr/bin/
-        cp target/release/dump_syms $CRAFT_STAGE/usr/bin/
-      fi
-
   cbindgen:
     plugin: nil
     build-packages:
@@ -160,7 +124,6 @@ parts:
     after:
       - cbindgen
       - distribution
-      - dump-syms
       - mozconfig
       - thunderbird-langpacks
     build-packages:
@@ -170,6 +133,7 @@ parts:
       - coreutils
       - file
       - git
+      - jq
       - libasound2-dev
       - libclang-20-dev
       - libdbus-glib-1-dev
@@ -185,19 +149,17 @@ parts:
       - quilt
       - rustc-1.97
       - unzip
-      - wget
       - xvfb
       - zip
     build-environment:
       - RUST_BACKTRACE: "full"
       - CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
+    # Released tarball and checksum from the signed SHA256SUMS in the same
+    # directory. Keep this version in sync with the top-level version.
+    source: https://archive.mozilla.org/pub/thunderbird/releases/160.0/source/thunderbird-160.0.source.tar.xz
+    source-checksum: sha256/0eee5fd3ad212b19d355498dc490d8c672f0dcd3697e242ed9b2fa9519efa4d3
     override-pull: |
-      VERSION=$(craftctl get version | cut -d- -f1)
-      BUILD=$(craftctl get version | cut -d- -f2)
-      ROOT=https://ftp.mozilla.org/pub/thunderbird/candidates/$VERSION-candidates/build$BUILD
-      wget -O - $ROOT/source/thunderbird-$VERSION.source.tar.xz | tar -x --xz --strip-components=1
-      mkdir -p $CRAFT_STAGE/debug-symbols
-      cp toolkit/crashreporter/tools/upload_symbols.py $CRAFT_STAGE/debug-symbols/
+      craftctl default
       # Remove .gitmodules from Cargo checksums.
       # https://bugzilla.mozilla.org/show_bug.cgi?id=2006630
       find . -name '.cargo-checksum.json' -exec sh -c '
@@ -215,7 +177,7 @@ parts:
       ln  -sf /usr/bin/rust-1.97-llvm-dwp  /usr/bin/rust-llvm-dwp
       ln  -sf /usr/bin/cargo-1.97          /usr/bin/cargo
 
-      export PATH=$CRAFT_STAGE/usr/bin:/usr/lib/llvm-20/bin/:$PATH
+      export PATH=/usr/lib/llvm-20/bin/:$PATH
       export MOZCONFIG="$CRAFT_STAGE/mozconfig"
       QUILT_PATCHES=$CRAFT_PROJECT_DIR/patches quilt push -a
       GNOME_SDK_SNAP=/snap/gnome-core26-sdk/current
@@ -231,18 +193,10 @@ parts:
       else
         export TARGET_TRIPLET=$(clang-20 -dumpmachine)
       fi
-      # Remove "false &&" when bug is fixed:
-      # https://bugzilla.mozilla.org/show_bug.cgi?id=2025767
-      if false && [ $CRAFT_ARCH_BUILD_FOR != "riscv64" ]; then
-        BUILD_DBGSYMS=true
-        echo "ac_add_options --enable-crashreporter" >> $MOZCONFIG
-        echo "ac_add_options --enable-debug-symbols" >> $MOZCONFIG
-      else
-        # Crash reporter does not build in Risc-V:
-        # https://bugzilla.mozilla.org/show_bug.cgi?id=1980339
-        BUILD_DBGSYMS=false
-        echo "ac_add_options --disable-debug-symbols" >> $MOZCONFIG
-      fi
+      # Debug symbols are not built: the crash reporter does not build on
+      # Risc-V either.
+      # https://bugzilla.mozilla.org/show_bug.cgi?id=1980339
+      echo "ac_add_options --disable-debug-symbols" >> $MOZCONFIG
       export LDFLAGS="-Wl,-rpath-link=$GNOME_SDK_SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_ON -Wl,-rpath-link=$GNOME_SDK_SNAP/usr/lib"
       export LDFLAGS="-Wl,-rpath-link=$CRAFT_PART_BUILD/obj-$TARGET_TRIPLET/dist/bin${LDFLAGS:+ $LDFLAGS}"
       export LD_LIBRARY_PATH="$CRAFT_PART_BUILD/obj-$TARGET_TRIPLET/dist/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -265,10 +219,6 @@ parts:
       cp -p $CRAFT_PROJECT_DIR/gpg-shim $CRAFT_PART_INSTALL/bin/
       cp -p $CRAFT_PROJECT_DIR/tmpdir $CRAFT_PART_INSTALL/bin/
       cp -pr $CRAFT_PART_SRC/* $CRAFT_PART_INSTALL
-      if [ $BUILD_DBGSYMS = "true" ]; then
-        DUMP_SYMS=$CRAFT_STAGE/usr/bin/dump_syms $MACH buildsymbols
-        cp obj-*/dist/thunderbird-*.crashreporter-symbols.zip $CRAFT_STAGE/debug-symbols/
-      fi
     override-stage: |
       # Workaround for LP: #2016358: create mount points for the gnome
       # content interface, while a proper fix is implemented in snapd.
@@ -295,13 +245,27 @@ parts:
       - sed
       - wget
     override-pull: |
-      VERSION=$(craftctl get version | cut -d- -f1)
-      BUILD=$(craftctl get version | cut -d- -f2)
-      SERVER=https://ftp.mozilla.org
-      ROOT=$SERVER/pub/thunderbird/candidates/$VERSION-candidates/build$BUILD
+      set -eu
+      VERSION=$(craftctl get version)
+      SERVER=https://archive.mozilla.org
+      ROOT=$SERVER/pub/thunderbird/releases/$VERSION
       XPIS=$(wget -O - $ROOT/linux-x86_64/xpi/ | sed -n 's/.* href="\(.*\.xpi\)".*/\1/p')
+      if [ -z "$XPIS" ]; then
+        echo "no langpacks found at $ROOT/linux-x86_64/xpi/" >&2
+        exit 1
+      fi
       for XPI in $XPIS; do
         wget $SERVER$XPI
+      done
+      # Check the downloaded langpacks against the release's SHA256SUMS.
+      wget -O SHA256SUMS $ROOT/SHA256SUMS
+      for XPI in *.xpi; do
+        EXPECTED=$(awk -v f="linux-x86_64/xpi/$XPI" '$2 == f {print $1}' SHA256SUMS)
+        ACTUAL=$(sha256sum "$XPI" | cut -d' ' -f1)
+        if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
+          echo "langpack checksum mismatch: $XPI" >&2
+          exit 1
+        fi
       done
     override-prime: |
       INSTALLDIR=$CRAFT_PRIME/usr/lib/thunderbird/distribution/extensions
@@ -350,19 +314,6 @@ parts:
       - -usr/lib/*/libgio*
       - -usr/lib/*/libglib*
       - -usr/lib/*/libgm*
-
-  debug-symbols:
-    plugin: nil
-    build-packages:
-      - python3
-      - python3-virtualenv
-    after:
-      - thunderbird
-    override-build: |
-      export SYMBOLS_ARCHIVE=$(find $CRAFT_STAGE/debug-symbols/ -type f -name "thunderbird-*.crashreporter-symbols.zip")
-      if [ -f "$SYMBOLS_ARCHIVE" ]; then
-        cp $SYMBOLS_ARCHIVE $CRAFT_PROJECT_DIR/$CRAFT_PROJECT_NAME_$(craftctl get version)_$CRAFT_ARCH_BUILD_FOR.debug
-      fi
 
   launcher:
     plugin: nil
