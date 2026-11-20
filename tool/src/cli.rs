@@ -19,7 +19,7 @@ pub enum Command {
     Sync(SyncArgs),
     /// Show API quota and reset times
     RateLimit(RateLimitArgs),
-    /// Delegate to ./build until the native build implementation lands
+    /// Build a snap from a recipe in this repository
     Build(BuildArgs),
 }
 

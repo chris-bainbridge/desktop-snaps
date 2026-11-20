@@ -1,6 +1,6 @@
 # Upstream projects that develop their own source code and keep their snap
 # recipe in the same repository. Their recipe belongs with the source, so they
-# are excluded from this monorepo's package tree and from ./build.
+# are excluded from this monorepo's package tree and from ./snap-repo build.
 #
 # They are listed here so there is still one inventory of every desktop snap:
 # what the project is, where it lives, which branch carries the core26 work,

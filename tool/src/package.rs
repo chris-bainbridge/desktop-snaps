@@ -54,6 +54,7 @@ pub struct Package {
 #[derive(Debug)]
 pub struct Recipe {
     pub path: PathBuf,
+    pub project_dir: PathBuf,
     pub track: String,
     pub app_part: String,
     pub app_part_source: AppPartSource,
@@ -112,7 +113,7 @@ impl Package {
 }
 
 impl Recipe {
-    pub fn load(path: &Path, track: &str, expected_snap: &str) -> Result<Self> {
+    pub fn load(path: &Path, project_dir: &Path, track: &str, expected_snap: &str) -> Result<Self> {
         let text =
             fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
         let doc: Value = serde_yaml::from_str(&text)
@@ -187,6 +188,7 @@ impl Recipe {
 
         Ok(Self {
             path: path.to_path_buf(),
+            project_dir: project_dir.to_path_buf(),
             track: track.to_string(),
             app_part,
             app_part_source: if adopt_info.is_some() {
@@ -223,7 +225,7 @@ fn load_tracks(dir: &Path, snap: &str) -> Result<Vec<Recipe>> {
                 );
             }
         }
-        return Ok(vec![Recipe::load(&path, "stable", snap)?]);
+        return Ok(vec![Recipe::load(&path, dir, "stable", snap)?]);
     }
 
     if find_recipe(&dir.join("stable")).is_none() {
@@ -234,7 +236,7 @@ fn load_tracks(dir: &Path, snap: &str) -> Result<Vec<Recipe>> {
     for track in ["stable", "candidate", "beta", "edge"] {
         let track_dir = dir.join(track);
         if let Some(path) = find_recipe(&track_dir) {
-            tracks.push(Recipe::load(&path, track, snap)?);
+            tracks.push(Recipe::load(&path, &track_dir, track, snap)?);
         }
     }
     if tracks.is_empty() {

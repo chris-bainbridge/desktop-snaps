@@ -93,7 +93,7 @@ following limitations are inherent to that choice:
 ## Building
 
 ```
-./build geary
+./snap-repo build geary
 ```
 
 The recipe builds Geary with the conventional `--prefix=/usr` and

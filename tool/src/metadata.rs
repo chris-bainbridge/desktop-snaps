@@ -10,11 +10,36 @@ pub const DEFAULT_TAG_PATTERN: &str = r"^v?(\d+(?:\.\d+)*)$";
 #[derive(Debug, Deserialize)]
 pub struct Metadata {
     pub snap: String,
+    pub mode: BuildMode,
     #[serde(default)]
     pub base: Option<String>,
     #[serde(default)]
     pub store: Option<Store>,
+    #[serde(default)]
+    pub prepare: Option<String>,
+    #[serde(default, rename = "overlay-repo")]
+    pub overlay_repo: Option<String>,
+    #[serde(default, rename = "overlay-commit")]
+    pub overlay_commit: Option<String>,
+    #[serde(default, rename = "overlay-to")]
+    pub overlay_to: Option<String>,
     pub upstream: Upstream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildMode {
+    Vendored,
+    Overlay,
+}
+
+impl BuildMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Vendored => "vendored",
+            Self::Overlay => "overlay",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

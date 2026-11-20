@@ -96,7 +96,7 @@ auto-connected.
 
     python3 -c "import yaml; yaml.safe_load(open('hardinfo/snapcraft.yaml'))"
     python3 -c "import yaml; yaml.safe_load(open('hardinfo/metadata.yaml'))"
-    ./build hardinfo --dry-run
+    ./snap-repo build hardinfo --dry-run
 
 The recipe was not built with snapcraft/LXD here. A native CMake build of
 upstream 2.3.1 with the same options (`HARDINFO2_SERVICE=0`,

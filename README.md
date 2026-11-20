@@ -44,8 +44,8 @@ permission. `metadata.yaml` records the basis in `redistribution:`
 
 Every package lives in a directory under `recipes/`, named after its **snap
 name** (the store identity). The top level holds the repository README, the
-`build` driver, `excluded-projects.yaml`, the `docs/` and `snaps/` directories
-and the `recipes/` tree:
+`snap-repo` wrapper, `excluded-projects.yaml`, the `docs/` and `snaps/`
+directories and the `recipes/` tree:
 
 ```
 recipes/
@@ -98,28 +98,26 @@ track, and is never copied into a build workspace.
 ## Building
 
 ```console
-./build --list                     # name, track, base and publisher
-./build gnome-logs                 # flat package, implicit stable
-./build gnome-calculator --dry-run # show what would happen
-./build gnome-calculator --keep    # keep the workspace for inspection
-./build gnome-calculator -- --build-for=arm64   # extra args go to snapcraft
+./snap-repo list                     # name, track, base and publisher
+./snap-repo build gnome-logs         # flat package, implicit stable
+./snap-repo build gnome-calculator --dry-run  # show what would happen
+./snap-repo build gnome-calculator --keep     # keep the workspace
+./snap-repo build gnome-calculator -- --build-for=arm64  # args to snapcraft
 ```
 
-For a nested package, `./build <name>` builds its stable track. Use
-`--track edge`, `./build <name>/edge`, or `./build <name>:edge` for another
-track.
+For a nested package, `./snap-repo build <name>` builds its stable track. Use
+`--track edge`, `<name>/edge`, or `<name>:edge` for another track.
 
-Builds happen **out of tree**, in
-`${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>` for a flat or
-`<snap>-<track>` for a nested package, so the repository never accumulates
-`parts/`, `stage/`, `prime/` or `*.snap`. The built `.snap` is moved to the
-top-level `snaps/` directory, which is ignored by git. After packing,
-`snapcraft clean --use-lxd` deletes the per-build LXD container; the workspace
-is then removed on success and kept on failure. `--keep` retains both the
-workspace and the container. The build runs `snapcraft pack --use-lxd`.
+Builds happen **out of tree**, in a `tempfile` directory under `/tmp`, so the
+repository never accumulates `parts/`, `stage/`, `prime/` or `*.snap`. The
+built `.snap` is moved to the top-level `snaps/` directory, which is ignored
+by git. After packing, `snapcraft clean --use-lxd` deletes the per-build LXD
+container, and the temporary workspace is removed. `--keep` retains both the
+workspace and the container for inspection. On failure the temporary
+workspace is also removed unless `--keep` is given.
 
-Requirements: `bash`, `git`, `rsync`, `python3` with PyYAML, `snapcraft`,
-and a working LXD.
+Requirements: a Rust toolchain (the `snap-repo` wrapper builds the binary on
+demand), `rsync`, `snapcraft`, and a working LXD.
 
 ## Upstream versions and tracks
 
@@ -478,7 +476,7 @@ snaps and are included.
 source and carries its own recipe. It records the snap, repository, target
 branch, local working copy and pending merge request for each, so bulk
 changes can target them along with the packages here. They are not built by
-`./build`.
+`./snap-repo build`.
 
 Firefox is not in that list either: it is a repackage, but Mozilla publishes
 it.
