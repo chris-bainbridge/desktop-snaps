@@ -7,9 +7,12 @@
 # and where the local working copy is. Bulk changes can target these entries
 # the same way they target the packaging-only packages in this repository.
 #
+# This file is documentation: no tool reads it, and these projects are not
+# built by ./snap-repo build.
+#
 # Not listed here:
 #   - snaps that only repackage another upstream: those are the packages in
-#     this repository (see README.md)
+#     the recipes/ tree (see ../README.md)
 #   - firefox: also a repackage, excluded because Mozilla publishes it
 #
 # local-commit records the working copy at the time of writing; the
