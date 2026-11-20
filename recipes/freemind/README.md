@@ -1,23 +1,12 @@
-# Freemind Snap
+# freemind
 
-This is the `snapcraft.yaml` file to build the snap package of Freemind.
+The recipe builds FreeMind from the SourceForge git repository at the commit
+pinned by `source-commit` in `snapcraft.yaml`, rather than from an upstream
+release archive, so a clean checkout needs no manual download.
 
-## How to build the package
-Download freemind zip file from
-[Sourceforge](https://sourceforge.net/projects/freemind/files/)
-in the same directory than the file `snapcraft.yaml`.
+Printing is disabled: Java printing does not work under strict confinement.
 
-Then run the command:
-```
-$ snapcraft
-```
-
-## Known Issues
-Printing from a java app is not working and printing is disabled.
-
-## Contact Information
-If you have a problem with the packaging as a snap don't hesitate to contact
-me. If it's an issue with the software itselft please contact the upstream
-developer.
-
-Thanks.
+OpenJDK 21 is staged deliberately. FreeMind 1.1.0 installs a `SecurityManager`
+at startup, which Java 18+ only permits with
+`-Djava.security.manager=allow`; Java 24 and later (JEP 486) removed the API
+entirely, so the runtime cannot be bumped further.

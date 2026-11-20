@@ -1,15 +1,10 @@
-# About
+# lunar-client
 
-Unofficial Snap package of Lunar Client
+Unofficial Snap package of Lunar Client. This project and its contributors are
+not affiliated with Moonsworth or the Lunar Client project.
 
-## Disclaimer
-
-This project and its contributors are not affiliated with Moonsworth or the Lunar Client project.
-
-# Installation
-
-[![Get it from the Snap Store](https://raw.githubusercontent.com/snapcore/snap-store-badges/master/EN/%5BEN%5D-snap-store-white.png)](https://snapcraft.io/lunar-client)
-
-[![lunar-client](https://snapcraft.io/lunar-client/badge.svg)](https://snapcraft.io/lunar-client)
-[![lunar-client](https://snapcraft.io/lunar-client/trending.svg?name=0)](https://snapcraft.io/lunar-client)
-
+Lunar Client is closed source and has no release feed. The upstream version is
+the redirect target of
+`https://api.lunarclientprod.com/site/download?os=linux`, whose file name
+contains `Lunar%20Client-<version>-`. There is no `version:` field to bump in
+`snapcraft.yaml`; a rebuild downloads the current AppImage.

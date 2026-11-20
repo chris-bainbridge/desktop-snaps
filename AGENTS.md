@@ -120,10 +120,11 @@ were copied from.
 ### Build modes
 
 `mode: vendored` means the package directory under `recipes/` is the
-upstream packaging project, checked in verbatim (minus `.git`, `.github/`
-and `.gitignore`). The build copies it into the workspace and runs
-snapcraft there. Every current package uses this mode: the Launchpad
-`~desktop-snappers` recipes and `ubuntu/thunderbird` contain only
+upstream packaging project, checked in verbatim (minus `.git`, `.github/`,
+`.gitignore`, `README.md` and `AGENTS.md`; the files dropped from an import
+stay recoverable through `recipe-commit`). The build copies it into the
+workspace and runs snapcraft there. Every current package uses this mode: the
+Launchpad `~desktop-snappers` recipes and `ubuntu/thunderbird` contain only
 packaging.
 
 `mode: overlay` means only the `snap/` subtree is checked in. The build
@@ -169,6 +170,19 @@ that the application can move ahead of the distribution.
   from the archive instead.
 - Desktop app snaps connect to the `pipewire`, `audio-playback`,
   `audio-record` and `pulseaudio` slots provided by the `pipewire` snap.
+
+A recipe may carry a `README.md` or `AGENTS.md`, but only for information
+that is specific to that package: build-system quirks, why an upstream
+version or patch set was chosen, what the content snap provides, strict
+confinement limits, and the reasoning behind dependency and layout
+decisions. Do not repeat the upstream project description (that belongs in
+the snap `description`), installation and store-channel instructions, or the
+contribution workflow of another repository. Most packages need no README at
+all; where one exists, the long-form notes live there and the recipe's
+comments point at it.
+
+Some imported recipes carry YARF UI test suites under `tests/suite/`. Keep
+them: they are not built into the snap and no workflow here runs them.
 
 `./snap-repo sync` checks upstream tags and rewrites the app part's
 `source-tag` and the literal top-level `version:`, preserving comments and

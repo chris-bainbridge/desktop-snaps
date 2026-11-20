@@ -84,7 +84,7 @@ pub fn run(root: &Path, args: &AffectedArgs) -> Result<()> {
 /// Map a repository path to the build selectors it affects.
 ///
 /// `recipes/<package>/<track>/...` affects only that track; any other path
-/// below the package (metadata.yaml, patches, a README, ...) affects every
+/// below the package (metadata.yaml, patches, an icon, ...) affects every
 /// track, because it is shared by them.
 fn selectors_for_path(path: &str, tracks: &BTreeMap<String, Vec<String>>) -> Vec<String> {
     let Some(rest) = path.strip_prefix("recipes/") else {
@@ -206,11 +206,11 @@ mod tests {
             vec!["gnome-logs"]
         );
         assert_eq!(
-            selectors_for_path("recipes/gnome-logs/README.md", &tracks),
+            selectors_for_path("recipes/gnome-logs/patches/fix.patch", &tracks),
             vec!["gnome-logs"]
         );
         assert_eq!(
-            selectors_for_path("recipes/gnome-logs/patches/fix.patch", &tracks),
+            selectors_for_path("recipes/gnome-logs/metadata.yaml", &tracks),
             vec!["gnome-logs"]
         );
     }
