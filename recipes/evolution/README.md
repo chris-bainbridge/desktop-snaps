@@ -122,7 +122,7 @@ Built with the monorepo driver, which runs `snapcraft pack --use-lxd` on
 Ubuntu 26.04 with the core26 GNOME extension and SDK:
 
 ```console
-cd /home/chrb/git/snaps && ./snap-repo build evolution
+./snap-repo build evolution
 ```
 
 Result (amd64; arm64 is declared but was not built):
