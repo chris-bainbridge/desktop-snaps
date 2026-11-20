@@ -1,0 +1,189 @@
+name: Build main
+
+# Merge-to-main builds. Everything is compiled before anything is published,
+# and only the publish job can write to the release pool.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'recipes/**'
+      - 'tool/**'
+      - 'snap-repo'
+      - '.github/**'
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Comma-separated packages to build (empty detects changes, or builds the smoke pair)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-main-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  # Wait for main to be quiet before starting, so a follow-up fix cancels the
+  # sleep instead of a build that has already started.
+  SETTLE_SECONDS: '300'
+  SMOKE_PACKAGES: gnome-logs,five-or-more
+
+jobs:
+  detect:
+    name: Detect packages to build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_work: ${{ steps.detect.outputs.has_work }}
+    steps:
+      - name: Let a rapid follow-up push settle
+        if: github.event_name == 'push'
+        run: sleep "$SETTLE_SECONDS"
+
+      - name: Check out main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Cache the Rust tool build
+        uses: actions/cache@v6
+        with:
+          path: tool/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('tool/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Test the pool script
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
+      - name: Find affected packages
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          INPUT_PACKAGES: ${{ inputs.packages }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "workflow_dispatch" ] && [ -n "${INPUT_PACKAGES//[[:space:]]/}" ]; then
+            ./snap-repo affected --select "$INPUT_PACKAGES" --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            ./snap-repo affected \
+              --base HEAD^ \
+              --head HEAD \
+              --fallback "$SMOKE_PACKAGES" \
+              --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Build everything merged since the last fully successful run. The
+          # ci-last-built tag is written by the record job; a cancelled or
+          # failed run never moves it, so its packages are picked up next time.
+          base=$(git rev-parse --verify --quiet 'refs/tags/ci-last-built^{commit}' || true)
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          fi
+          case "$base" in
+            0000000000000000000000000000000000000000|"") base="HEAD^" ;;
+          esac
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base="HEAD^"
+          fi
+          echo "comparing $base with HEAD"
+          ./snap-repo affected \
+            --base "$base" \
+            --head HEAD \
+            --fallback "$SMOKE_PACKAGES" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Show the build matrix
+        run: |
+          echo "has_work=${{ steps.detect.outputs.has_work }}"
+          echo "matrix=${{ steps.detect.outputs.matrix }}"
+
+  build:
+    name: Build changed snaps
+    needs: detect
+    if: needs.detect.outputs.has_work == 'true'
+    uses: ./.github/workflows/build-snaps.yml
+    with:
+      matrix: ${{ needs.detect.outputs.matrix }}
+      retention-days: 1
+
+  publish:
+    name: Publish to the snaps pool
+    needs: [detect, build]
+    # Run even when a package build failed, so successful builds are published
+    # and stale assets are pruned. Only main may write to the pool, so a manual
+    # dispatch from a development branch cannot publish unmerged recipes.
+    if: always() && needs.detect.result == 'success' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: snaps-release
+      cancel-in-progress: false
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+
+      - name: Cache the Rust tool build
+        uses: actions/cache@v6
+        with:
+          path: tool/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('tool/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Download the built snaps
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: '*.snap'
+          path: dist
+          merge-multiple: true
+
+      - name: Publish and reconcile the pool
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECT_ASSETS: ${{ needs.detect.outputs.has_work == 'true' && needs.build.result == 'success' }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [ "$EXPECT_ASSETS" = "true" ] && ! compgen -G 'dist/*.snap' >/dev/null; then
+            echo "the build succeeded but no snaps were downloaded" >&2
+            exit 1
+          fi
+          ./snap-repo list --json > packages.json
+          python3 .github/scripts/snaps_pool.py publish \
+            --assets dist \
+            --current packages.json
+
+  record:
+    name: Record the built revision
+    needs: [detect, build, publish]
+    if: >
+      github.event_name == 'push' &&
+      needs.detect.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7
+
+      - name: Move the last-built tag
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          git tag --force ci-last-built "$GITHUB_SHA"
+          git push --force origin refs/tags/ci-last-built

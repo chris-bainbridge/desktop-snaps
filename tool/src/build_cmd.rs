@@ -17,7 +17,7 @@ use crate::metadata::BuildMode;
 use crate::package::{Package, Recipe};
 
 const DEFAULT_TRACK: &str = "stable";
-const TRACKS: [&str; 4] = ["stable", "candidate", "beta", "edge"];
+pub(crate) const TRACKS: [&str; 4] = ["stable", "candidate", "beta", "edge"];
 const FAILURE_TAIL_LINES: usize = 20;
 
 /// Build one or more snaps from recipes in this repository.

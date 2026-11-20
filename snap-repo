@@ -21,4 +21,5 @@ if ((needs_build)); then
     cargo build --quiet --release --manifest-path "$manifest"
 fi
 
+export SNAP_REPO_ROOT="$root"
 exec "$binary" "$@"

@@ -43,14 +43,39 @@ option list.
 ./snap-repo list
 ```
 
-Prints one row per package track with the snap name, track, base and store
-publisher:
+Prints one row per package track with the snap name, track, version, base and
+store publisher:
 
 ```text
-NAME                    TRACK   BASE    PUBLISHER
-abiword                 stable  core26
-gnome-calculator        stable  core26  Canonical
+NAME                    TRACK   VERSION  BASE    PUBLISHER
+abiword                 stable  3.0.8    core26
+gnome-calculator        stable  51.1     core26  Canonical
 ```
+
+The version is the literal top-level `version:` or, for recipes that take it
+from the source, the app part's `source-tag`; `-` means neither is present.
+Use `./snap-repo list --json` for a machine-readable array.
+
+### Find affected packages
+
+```console
+./snap-repo affected --base origin/main --head HEAD
+./snap-repo affected --worktree --json
+./snap-repo affected --select gnome-logs,five-or-more --json
+```
+
+`affected` maps a commit range to the recipes it touches and prints one build
+selector per line (or a compact JSON array with `--json`). A selector is a
+package name for the stable track, or `package:track` for another track. A
+change to a track's own directory affects only that track; `metadata.yaml` and
+other files at the package root affect every track. Deleted and unknown
+packages are ignored.
+
+`--worktree` compares against `HEAD` instead of two revisions, which is useful
+after `sync` edits the working tree. `--fallback` supplies packages to use when
+the range changes no recipe, and `--github-output FILE` appends `matrix=` and
+`has_work=` for `$GITHUB_OUTPUT`. The command refuses more than `--max` entries
+(256 by default), because that is GitHub's matrix limit.
 
 ### Build a snap
 
@@ -96,7 +121,9 @@ rewrites the app part's `source-tag` and the literal top-level `version:`,
 if present. Comments and quoting style are preserved. Only tag-mode
 packages are updated; URL, script, manual and other report-only packages
 are left alone. Use `--verbose` to show the resolved recipe and app part
-for each track.
+for each track. `--allow-errors` writes the bumps that succeeded and exits
+successfully even when some packages could not be checked; the errors are
+still reported.
 
 GitHub and `gitlab.gnome.org` require authentication: a GitHub token from
 `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token`, and a GitLab token from
@@ -109,6 +136,44 @@ To see provider quota and reset times, run:
 ./snap-repo rate-limit
 ./snap-repo rate-limit --refresh   # ignore cached quota
 ```
+
+## Continuous integration
+
+The workflows in `.github/workflows` build recipes and keep the results in a
+rolling prerelease named `snaps`. Nothing in them uploads to the Snap Store.
+
+- **Pull requests** from trusted authors build only the recipes the PR
+  changes and upload the raw snaps as per-run artifacts. Nothing is added to
+  the release pool. The author check uses `author_association`: once the
+  repository lives under `canonical/`, only organization members (`MEMBER`)
+  build. While the repository is still personal, its owner and collaborators
+  are trusted so the pipeline can be exercised. A separate `workflow_run`
+  workflow posts one comment on a failed build, updates it and removes it when
+  a later build passes; it has `pull-requests: write` but never runs PR code.
+- **Pushes to main** wait five quiet minutes, then build everything merged
+  since the `ci-last-built` tag. Cancelled or failed runs do not move the tag,
+  so their packages are picked up by the next run. A separate job with
+  `contents: write` then publishes whatever built successfully; recipe code
+  never runs in that job.
+- **The release pool**: one asset per buildable package track, named
+  `<package>-<track>-<version>.snap` (for example
+  `gnome-calculator-stable-51.1.snap`). `pool.json` maps each
+  `package:track` selector to its current asset. A new successful build
+  replaces the old asset immediately, and assets for packages or tracks that
+  no longer exist on `main` are deleted immediately rather than left around.
+  The `snaps` release is marked prerelease and is not a distribution channel.
+- **Nightly sync**: disabled until an administrator sets the
+  `ENABLE_NIGHTLY_SYNC` repository variable. It uses the automatic GitHub
+  token for public GitHub API reads and for the pull request, and a read-only
+  `gitlab.gnome.org` token from the `GITLAB_TOKEN` secret. It opens or updates
+  one pull request; it does not build or publish, and merging the PR triggers
+  the normal main build. The repository setting Settings → Actions → General
+  → "Allow GitHub Actions to create and approve pull requests" must also be
+  enabled, because the bot opens the PR with the automatic token. A nightly
+  prune job reconciles the pool independently.
+
+The workflows require Rust, `snapcraft` 9.x and LXD on the runner. The build
+jobs run `snapcraft pack --use-lxd` through `snap-repo build`.
 
 ## Repository layout
 
@@ -172,9 +237,9 @@ Firefox is excluded for a different reason: it is a repackage, but Mozilla
 publishes it. Content snaps such as `mesa-2604` and `gnome-core26` are
 separate projects and are not in this repository.
 
-This repository is not wired to CI or to the Snap Store, and no build ever
-uploads. It does not include the history of the per-snap repositories it
-replaces; it is additive.
+This repository keeps its CI results in the `snaps` release pool and never
+uploads to the Snap Store. It does not include the history of the per-snap
+repositories it replaces; it is additive.
 
 ## Documentation and conventions
 

@@ -8,3 +8,7 @@ prime/
 
 # Rust build output
 target/
+
+# Python bytecode from the CI helper scripts
+__pycache__/
+*.py[cod]

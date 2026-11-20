@@ -1,0 +1,109 @@
+name: PR build
+
+# Build changed recipes for pull requests from trusted authors only.
+# The build is read-only and uploads raw snaps as per-run artifacts; nothing
+# reaches the release pool or the store. A separate workflow posts the
+# failure comment, because a fork PR's token cannot write.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'recipes/**'
+      - 'tool/**'
+      - 'snap-repo'
+      - '.github/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Check author
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - name: Check canonical membership
+        id: check
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+        run: |
+          set -euo pipefail
+
+          # Once the repository lives under canonical/, MEMBER is exactly
+          # canonical organization membership. While it is still personal,
+          # trust anyone with write access (owner and collaborators) so the
+          # pipeline can be exercised; after the move the first branch applies.
+          if [ "$REPO_OWNER" = "canonical" ]; then
+            case "$ASSOCIATION" in
+              MEMBER|OWNER) allowed=true ;;
+              *) allowed=false ;;
+            esac
+          else
+            case "$ASSOCIATION" in
+              OWNER|COLLABORATOR) allowed=true ;;
+              *) allowed=false ;;
+            esac
+          fi
+
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+          echo "author association: $ASSOCIATION; repository owner: $REPO_OWNER; build allowed: $allowed"
+
+  detect:
+    name: Detect changed recipes
+    needs: gate
+    if: needs.gate.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_work: ${{ steps.detect.outputs.has_work }}
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Cache the Rust tool build
+        uses: actions/cache@v6
+        with:
+          path: tool/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('tool/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Test the pool script
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
+      - name: Find affected packages
+        id: detect
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          SMOKE_PACKAGES: gnome-logs,five-or-more
+        run: |
+          set -euo pipefail
+          ./snap-repo affected \
+            --base "$BASE" \
+            --head "$HEAD" \
+            --fallback "$SMOKE_PACKAGES" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Show the build matrix
+        run: |
+          echo "has_work=${{ steps.detect.outputs.has_work }}"
+          echo "matrix=${{ steps.detect.outputs.matrix }}"
+
+  build:
+    name: Build changed snaps
+    needs: detect
+    if: needs.detect.outputs.has_work == 'true'
+    uses: ./.github/workflows/build-snaps.yml
+    with:
+      matrix: ${{ needs.detect.outputs.matrix }}
+      retention-days: 7

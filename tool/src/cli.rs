@@ -14,13 +14,22 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// List all packages and tracks
-    List,
+    List(ListArgs),
     /// Check upstream releases and (later) bump recipes
     Sync(SyncArgs),
     /// Show API quota and reset times
     RateLimit(RateLimitArgs),
     /// Build a snap from a recipe in this repository
     Build(BuildArgs),
+    /// Print the packages changed by a commit range, for CI matrices
+    Affected(AffectedArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ListArgs {
+    /// Print a JSON array instead of a table
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -51,6 +60,10 @@ pub struct SyncArgs {
     /// Show the resolved recipe and app part for each track
     #[arg(long)]
     pub verbose: bool,
+
+    /// Report package errors but exit successfully, after writing any bumps
+    #[arg(long)]
+    pub allow_errors: bool,
 }
 
 #[derive(Debug, Args)]
@@ -94,4 +107,47 @@ pub struct BuildArgs {
     /// Arguments after -- are passed to snapcraft
     #[arg(last = true, value_name = "SNAPCRAFT ARGS")]
     pub snapcraft_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Examples:\n  snap-repo affected --base origin/main --head HEAD\n  snap-repo affected --worktree --github-output \"$GITHUB_OUTPUT\"\n  snap-repo affected --select gnome-logs,five-or-more --json"
+)]
+pub struct AffectedArgs {
+    /// Base revision (default: HEAD^)
+    #[arg(long, value_name = "REV")]
+    pub base: Option<String>,
+
+    /// Head revision (default: HEAD)
+    #[arg(long, value_name = "REV")]
+    pub head: Option<String>,
+
+    /// Detect uncommitted changes instead of comparing two revisions
+    #[arg(long, conflicts_with_all = ["base", "head"])]
+    pub worktree: bool,
+
+    /// Use exactly these packages instead of inspecting git
+    #[arg(
+        long,
+        value_name = "PACKAGE[,PACKAGE...]",
+        value_delimiter = ',',
+        conflicts_with_all = ["base", "head", "worktree"]
+    )]
+    pub select: Vec<String>,
+
+    /// Packages to use when the commit range changes no recipe
+    #[arg(long, value_name = "PACKAGE[,PACKAGE...]", value_delimiter = ',')]
+    pub fallback: Vec<String>,
+
+    /// Print a compact JSON array instead of one name per line
+    #[arg(long)]
+    pub json: bool,
+
+    /// Append matrix= and has_work= to this file (for $GITHUB_OUTPUT)
+    #[arg(long, value_name = "FILE")]
+    pub github_output: Option<std::path::PathBuf>,
+
+    /// Refuse to emit more than this many entries (GitHub's matrix limit)
+    #[arg(long, default_value_t = 256, value_name = "N")]
+    pub max: usize,
 }

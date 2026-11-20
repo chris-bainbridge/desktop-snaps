@@ -1,0 +1,115 @@
+name: Build snaps
+
+# Reusable read-only worker. The caller decides which package tracks to build;
+# this workflow only compiles them and uploads the raw snaps as artifacts.
+# Nothing here can write to the repository or the release pool.
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: JSON array of package selectors (name or name:track)
+        required: true
+        type: string
+      retention-days:
+        description: Artifact retention in days
+        required: false
+        type: number
+        default: 1
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        package: ${{ fromJson(inputs.matrix) }}
+    steps:
+      - name: Check out the recipe
+        uses: actions/checkout@v7
+
+      - name: Cache the Rust tool build
+        uses: actions/cache@v6
+        with:
+          path: tool/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('tool/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - name: Set up LXD
+        uses: canonical/setup-lxd@v1
+        with:
+          channel: latest/stable
+          group: lxd
+
+      - name: Install snapcraft and allow LXD access
+        run: |
+          set -euo pipefail
+          sudo snap install snapcraft --classic
+          sudo usermod -aG lxd "$USER"
+          sg lxd -c 'lxc info >/dev/null'
+          snapcraft --version
+
+      - name: Build ${{ matrix.package }}
+        id: build
+        env:
+          SELECTOR: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+
+          # Build the tool first so failures are not attributed to LXD.
+          ./snap-repo list >/dev/null
+
+          # Every requested package is built explicitly; a runner builds one.
+          snap_path=$(sg lxd -c "./snap-repo build '$SELECTOR'")
+          snap_path=$(printf '%s\n' "$snap_path" | tail -n 1)
+          if [ -z "$snap_path" ] || [ ! -f "$snap_path" ]; then
+            echo "snap-repo did not produce a snap for $SELECTOR" >&2
+            exit 1
+          fi
+
+          base=$(basename "$snap_path" .snap)
+          name=${base%%_*}
+          rest=${base#*_}
+          version=${rest%_*}
+          arch=${rest##*_}
+          pkg=${SELECTOR%%:*}
+          if [ "$pkg" = "$SELECTOR" ]; then
+            track=stable
+          else
+            track=${SELECTOR#*:}
+          fi
+          if [ "$name" != "$pkg" ]; then
+            echo "built snap $name but selector names $pkg" >&2
+            exit 1
+          fi
+          if [ -z "$version" ] || [ "$version" = "$base" ]; then
+            echo "cannot read a version from $snap_path" >&2
+            exit 1
+          fi
+
+          asset="${name}-${track}-${version}.snap"
+          mkdir -p dist
+          cp "$snap_path" "dist/$asset"
+          echo "asset=dist/$asset" >> "$GITHUB_OUTPUT"
+          echo "built $asset for $arch"
+
+      - name: Upload the snap
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.build.outputs.asset }}
+          archive: false
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: error

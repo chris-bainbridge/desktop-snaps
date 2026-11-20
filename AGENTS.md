@@ -188,7 +188,8 @@ invoked through the root `snap-repo` wrapper. Module map:
 | `src/discover.rs` | Find packages and validates flat/nested layout |
 | `src/metadata.rs` | Parse `metadata.yaml` and build modes |
 | `src/package.rs` | Package/track model and bump modes |
-| `src/list.rs` | The `list` table |
+| `src/affected.rs` | Commit ranges to CI build selectors |
+| `src/list.rs` | The `list` table and its JSON form |
 | `src/build_cmd.rs` | Build plans, workspaces, LXD, parallel jobs |
 | `src/sync.rs` | Upstream checks, rate limiting, writing recipes |
 | `src/upstream.rs` | Provider clients and version discovery |
@@ -209,8 +210,18 @@ Command behaviour to preserve:
 - `build --all` is not implemented yet and should keep failing explicitly.
 - `sync` writes only after all selected packages have been checked, keeps a
   global request interval, respects provider rate-limit headers and quotas,
-  and reports skipped packages.
-- `list` prints name, track, base and publisher, one row per track.
+  and reports skipped packages. `--allow-errors` still writes the successful
+  bumps but exits zero, for the nightly sync job.
+- `list` prints name, track, version, base and publisher, one row per track.
+  The version is the literal top-level `version:` or, for recipes that take it
+  from the source, the app part's `source-tag`; `-` means neither is present.
+  `list --json` emits the same rows as an array of objects.
+- `affected` prints the build selectors implied by a commit range. A selector
+  is a package name for stable or `package:track` otherwise; changes to a
+  track directory affect that track, while the package root affects every
+  track. `--worktree` compares against `HEAD`, `--select` forces a list,
+  `--fallback` applies when no recipe changed, and `--github-output` writes
+  `matrix=`/`has_work=`. It never emits more than `--max` (256) entries.
 
 Before handing off tool changes, run:
 
@@ -225,10 +236,13 @@ without a reason; the crate already uses `clap`, `anyhow`, `serde`,
 `serde_yaml`, `serde_json`, `reqwest`, `regex`, `percent-encoding`,
 `tempfile`, `tokio` and `signal-hook`.
 
-`repo_root()` is resolved from `CARGO_MANIFEST_DIR` at compile time. The
-wrapper always builds the binary from this checkout, so invoking
-`./snap-repo` from another working directory still operates on this
-repository.
+`repo_root()` is resolved when the binary runs, never at compile time, so a
+renamed, moved or copied checkout keeps working. It prefers `SNAP_REPO_ROOT`,
+which the wrapper sets to its own directory, and otherwise walks up from the
+executable's real path to the directory containing both `tool/Cargo.toml` and
+`recipes/`. If neither finds a root, the tool stops with an error naming the
+variable. The wrapper always builds the binary from this checkout, so invoking
+`./snap-repo` from another working directory still operates on this repository.
 
 ## Inventory and history
 
@@ -525,10 +539,65 @@ proposals land, refresh the vendored copies from the merged refs.
 Recipe provenance, per package, also lives in
 `~/git/notes/todo/20261104-desktop-snaps-core26-migration-list.txt`.
 
+## Continuous integration
+
+`.github/workflows` builds recipes and keeps the results in the rolling
+`snaps` prerelease. No workflow uploads to the Snap Store.
+
+- `build-snaps.yml` is the reusable read-only worker. It installs LXD and
+  snapcraft, runs `./snap-repo build <selector>` as the runner user in the
+  `lxd` group, names the packed snap
+  `<package>-<track>-<version>.snap`, and uploads it with `archive: false`.
+  It has `contents: read` only.
+- `pr-build.yml` runs on `pull_request` and builds changed recipes only for
+  trusted authors. The gate uses
+  `github.event.pull_request.author_association`: under `canonical/` only
+  `MEMBER`/`OWNER` build; while the repository is personal,
+  `OWNER`/`COLLABORATOR` build so the pipeline can be tested. PR snaps are
+  per-run artifacts and never enter the pool.
+- `pr-comment.yml` reacts to `workflow_run` completion, lists the failed
+  matrix jobs and creates or updates one marked comment. It deletes that
+  comment after a later success. It has `pull-requests: write`, checks out
+  nothing and runs no PR code.
+- `build.yml` runs on `push` to `main` and on `workflow_dispatch` (with an
+  optional comma-separated package list). On push it sleeps
+  `SETTLE_SECONDS` (300) first, so a follow-up fix cancels the sleep rather
+  than a build. Detection starts at the `ci-last-built` tag when present,
+  otherwise at the push's `before`. The `record` job moves that tag only after
+  the build and publish succeeded, or when there was nothing to build; a
+  cancelled or failed run leaves it alone.
+- `publish` downloads the run's artifacts and runs
+  `.github/scripts/snaps_pool.py publish`. It is the only job with
+  `contents: write`. It creates the `snaps` prerelease if needed, uploads
+  `<package>-<track>-<version>.snap`, updates `pool.json`, and deletes the
+  previous asset for that selector immediately. Assets whose package or track
+  is no longer in `recipes/`, and any unreferenced asset, are deleted on every
+  publish and by the nightly prune. There is no retention window.
+- `nightly.yml` runs `sync --all --allow-errors` only when the
+  `ENABLE_NIGHTLY_SYNC` repository variable is `true`. It uses the automatic
+  `GITHUB_TOKEN` for public GitHub APIs and the read-only `GITLAB_TOKEN`
+  secret (exported as `GITLAB_TOKEN_GITLAB_GNOME_ORG`) for
+  `gitlab.gnome.org`. It commits to `automated/upstream-sync` and opens or
+  updates one pull request; it does not build or publish. The prune job runs
+  nightly regardless. Enabling the sync also requires the repository setting
+  Settings → Actions → General → "Allow GitHub Actions to create and approve
+  pull requests", because the bot opens the PR with the automatic token.
+- No secret is committed. The sync job fails closed without the variable and
+  token.
+- `snaps_pool.py` is CI glue, unit-tested by
+  `.github/scripts/test_snaps_pool.py` (`python3 -m unittest discover -s
+  .github/scripts`). It talks to the GitHub API only through `gh` and never
+  touches the checkout.
+
+PR builds and the store: there is no publish step anywhere and no store
+credential is used. Publishing, when it exists, must be a separate job on
+`main` behind a protected environment.
+
 ## Not done here
 
-- No CI workflows, no store uploads, no track/channel management. The
-  `tracks:` idea from the design note needs the publishing story first.
+- No Snap Store uploads and no track/channel management. CI builds and the
+  `snaps` release pool are internal test artifacts. The `tracks:` idea from
+  the design note needs the publishing story first.
 - No fetch manifest. Most downloads are declared as snapcraft sources with
   tags/commits; thunderbird's source tarball is declared with a pinned
   `source-checksum`, and its langpack XPIs are checked against the release's

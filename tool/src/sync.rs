@@ -148,6 +148,10 @@ pub async fn run(root: &Path, args: &SyncArgs) -> Result<()> {
         .count()
         + skipped.len();
     if errors > 0 {
+        if args.allow_errors {
+            eprintln!("snap-repo: {errors} package(s) failed or skipped; continuing");
+            return Ok(());
+        }
         bail!("{errors} package(s) failed or skipped");
     }
     Ok(())

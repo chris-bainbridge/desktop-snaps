@@ -1,0 +1,129 @@
+name: Nightly maintenance
+
+# Synchronize upstream versions into one review pull request, and reconcile
+# the release pool. The sync is disabled until an administrator sets the
+# ENABLE_NIGHTLY_SYNC repository variable and supplies a read-only GitLab
+# token; nothing here runs while the variable is unset.
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync upstream versions
+    if: vars.ENABLE_NIGHTLY_SYNC == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: nightly-sync
+      cancel-in-progress: false
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v7
+
+      - name: Cache the Rust tool build
+        uses: actions/cache@v6
+        with:
+          path: tool/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('tool/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Check upstream releases
+        env:
+          # The automatic token is enough for public GitHub repositories.
+          GH_TOKEN: ${{ github.token }}
+          # A read-only account on gitlab.gnome.org; add it before enabling
+          # this job. Secrets are never committed to the repository.
+          GITLAB_TOKEN_GITLAB_GNOME_ORG: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          ./snap-repo sync --all --allow-errors
+
+      - name: Find the bumped packages
+        id: detect
+        run: |
+          ./snap-repo affected --worktree --github-output "$GITHUB_OUTPUT"
+
+      - name: Open or update the sync pull request
+        if: steps.detect.outputs.has_work == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automated/upstream-sync
+          BASE_BRANCH: ${{ github.ref_name }}
+          MATRIX: ${{ steps.detect.outputs.matrix }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add -A recipes
+          git commit -m "Sync upstream versions" -m "$MATRIX"
+          git push --force origin "$BRANCH"
+
+          body="$RUNNER_TEMP/sync-pr-body.md"
+          {
+            echo "Automated upstream version sync."
+            echo
+            echo "Packages changed by this sync:"
+            echo
+            echo '```json'
+            printf '%s\n' "$MATRIX"
+            echo '```'
+            echo
+            echo "This pull request is not built. Merging it builds the bumped packages on main and updates the \`snaps\` release pool."
+          } > "$body"
+
+          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "Sync upstream versions" --body-file "$body"
+          else
+            gh pr create \
+              --base "$BASE_BRANCH" \
+              --head "$BRANCH" \
+              --title "Sync upstream versions" \
+              --body-file "$body"
+          fi
+
+      - name: Nothing to sync
+        if: steps.detect.outputs.has_work != 'true'
+        run: echo "All checked packages are already up to date."
+
+  prune:
+    name: Prune the snap pool
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: snaps-release
+      cancel-in-progress: false
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v7
+
+      - name: Cache the Rust tool build
+        uses: actions/cache@v6
+        with:
+          path: tool/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('tool/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Test the pool script
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
+      - name: Delete assets that main can no longer build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ./snap-repo list --json > packages.json
+          python3 .github/scripts/snaps_pool.py prune --current packages.json
