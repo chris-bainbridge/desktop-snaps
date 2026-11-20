@@ -102,6 +102,7 @@ track, and is never copied into a build workspace.
 ./snap-repo build gnome-logs         # flat package, implicit stable
 ./snap-repo build gnome-calculator -n         # show what would happen
 ./snap-repo build gnome-calculator --keep     # keep the workspace
+./snap-repo build gnome-calculator -v         # stream snapcraft output
 ./snap-repo build -j3 abiword barrier crossword-editor  # three in parallel
 ./snap-repo build gnome-calculator -- --build-for=arm64  # args to snapcraft
 ```
@@ -112,6 +113,12 @@ For a nested package, `./snap-repo build <name>` builds its stable track. Use
 temporary workspace and LXD container. All requested packages are
 attempted; failures are reported at the end and make the command exit
 non-zero.
+
+Snapcraft pack output is captured. A successful build prints only the
+`snap-repo` lifecycle lines. On failure, the last 20 lines of snapcraft
+output and the execution log path are printed after all workers finish.
+`-v` / `--verbose` streams snapcraft pack output live to stderr, prefixed
+with `[package (track)]`.
 
 Builds happen **out of tree**, in a `tempfile` directory under `/tmp`, so the
 repository never accumulates `parts/`, `stage/`, `prime/` or `*.snap`. The

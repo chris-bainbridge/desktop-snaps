@@ -75,6 +75,10 @@ pub struct BuildArgs {
     #[arg(short = 'n', long)]
     pub dry_run: bool,
 
+    /// Stream snapcraft output while building
+    #[arg(short = 'v', long)]
+    pub verbose: bool,
+
     /// Keep the build workspace and the LXD build container
     #[arg(long)]
     pub keep: bool,

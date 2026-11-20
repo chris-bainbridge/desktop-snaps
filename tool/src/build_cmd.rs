@@ -1,8 +1,10 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::ffi::OsStr;
+use std::fmt;
 use std::fs;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -16,6 +18,7 @@ use crate::package::{Package, Recipe};
 
 const DEFAULT_TRACK: &str = "stable";
 const TRACKS: [&str; 4] = ["stable", "candidate", "beta", "edge"];
+const FAILURE_TAIL_LINES: usize = 20;
 
 /// Build one or more snaps from recipes in this repository.
 pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
@@ -120,7 +123,7 @@ fn build_all(
 
     let jobs = args.jobs.min(plans.len()).max(1);
     let next = AtomicUsize::new(0);
-    let failures = Mutex::new(Vec::<(String, String)>::new());
+    let failures = Mutex::new(Vec::<(String, anyhow::Error)>::new());
 
     thread::scope(|scope| {
         let next = &next;
@@ -133,10 +136,8 @@ fn build_all(
                         break;
                     };
                     if let Err(error) = build_one(root, plan, args, interrupted.as_ref()) {
-                        failures
-                            .lock()
-                            .expect("failure list")
-                            .push((plan.package.name.clone(), format!("{error:#}")));
+                        let label = format!("{} ({})", plan.package.name, plan.recipe().track);
+                        failures.lock().expect("failure list").push((label, error));
                     }
                 }
             });
@@ -147,8 +148,25 @@ fn build_all(
     if failures.is_empty() {
         return Ok(());
     }
-    for (package, error) in &failures {
-        eprintln!("build: {package}: failed: {error}");
+    for (label, error) in &failures {
+        eprintln!("build: {label}: failed");
+        if let Some(failure) = error.downcast_ref::<SnapcraftFailure>() {
+            eprintln!("  {failure}");
+            if !args.verbose && !failure.tail.is_empty() {
+                eprintln!("  last {} lines of snapcraft output:", failure.tail.len());
+                for line in &failure.tail {
+                    eprintln!("  {line}");
+                }
+            }
+            if let Some(log_path) = &failure.log_path
+                && (args.verbose || !failure.tail.contains(log_path))
+            {
+                eprintln!("  {log_path}");
+            }
+        } else {
+            eprintln!("  {error:#}");
+        }
+        eprintln!();
     }
     bail!("{} package(s) failed", failures.len())
 }
@@ -231,9 +249,20 @@ fn build(
     check_interrupted(interrupted)?;
 
     eprintln!("build: {label}: building with snapcraft pack --use-lxd");
-    let status = run_snapcraft_pack(temp_path, &args.snapcraft_args, interrupted)?;
-    if !status.success() {
-        bail!("snapcraft pack exited with {status}");
+    let run = run_snapcraft_pack(
+        temp_path,
+        &args.snapcraft_args,
+        label,
+        args.verbose,
+        interrupted,
+    )?;
+    if !run.status.success() {
+        return Err(SnapcraftFailure {
+            status: run.status,
+            tail: run.tail,
+            log_path: run.log_path,
+        }
+        .into());
     }
 
     let artifact = newest_snap(temp_path)?.with_context(|| {
@@ -403,43 +432,151 @@ fn stage(recipe: &Recipe, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+struct SnapcraftRun {
+    status: ExitStatus,
+    tail: Vec<String>,
+    log_path: Option<String>,
+}
+
+#[derive(Debug)]
+struct SnapcraftFailure {
+    status: ExitStatus,
+    tail: Vec<String>,
+    log_path: Option<String>,
+}
+
+impl fmt::Display for SnapcraftFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "snapcraft pack exited with {}", self.status)
+    }
+}
+
+impl std::error::Error for SnapcraftFailure {}
+
+#[derive(Default)]
+struct Capture {
+    tail: VecDeque<String>,
+    log_path: Option<String>,
+}
+
 fn run_snapcraft_pack(
     dir: &Path,
     snapcraft_args: &[String],
+    label: &str,
+    verbose: bool,
     interrupted: &AtomicBool,
-) -> Result<ExitStatus> {
+) -> Result<SnapcraftRun> {
     let mut child = Command::new("snapcraft")
         .arg("pack")
         .arg("--use-lxd")
         .args(snapcraft_args)
         .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .context("cannot run snapcraft; is it installed?")?;
 
-    loop {
+    let stdout = child
+        .stdout
+        .take()
+        .context("cannot capture snapcraft stdout")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("cannot capture snapcraft stderr")?;
+    let capture = Arc::new(Mutex::new(Capture::default()));
+    let stdout_thread = capture_stream(stdout, label, verbose, Arc::clone(&capture));
+    let stderr_thread = capture_stream(stderr, label, verbose, Arc::clone(&capture));
+
+    let status = loop {
         if let Some(status) = child.try_wait().context("cannot wait for snapcraft")? {
-            return Ok(status);
+            break status;
         }
         if interrupted.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = stdout_thread.join();
+            let _ = stderr_thread.join();
             bail!("interrupted");
         }
         thread::sleep(Duration::from_millis(100));
-    }
+    };
+
+    let _ = stdout_thread.join();
+    let _ = stderr_thread.join();
+    let captured = capture.lock().expect("snapcraft capture");
+    Ok(SnapcraftRun {
+        status,
+        tail: captured.tail.iter().cloned().collect(),
+        log_path: captured.log_path.clone(),
+    })
+}
+
+fn capture_stream<R: Read + Send + 'static>(
+    reader: R,
+    label: &str,
+    verbose: bool,
+    capture: Arc<Mutex<Capture>>,
+) -> thread::JoinHandle<()> {
+    let label = label.to_string();
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        let mut buffer = Vec::new();
+        loop {
+            buffer.clear();
+            match reader.read_until(b'\n', &mut buffer) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            let text = String::from_utf8_lossy(&buffer);
+            for line in text.split(['\n', '\r']) {
+                let line = line.trim_end();
+                if line.is_empty() {
+                    continue;
+                }
+                if verbose {
+                    eprintln!("[{label}] {line}");
+                }
+                let mut capture = capture.lock().expect("snapcraft capture");
+                if line.contains("Full execution log:") {
+                    capture.log_path = Some(line.to_string());
+                }
+                capture.tail.push_back(line.to_string());
+                while capture.tail.len() > FAILURE_TAIL_LINES {
+                    capture.tail.pop_front();
+                }
+            }
+        }
+    })
 }
 
 fn clean_build_env(dir: &Path) -> Result<()> {
-    let status = Command::new("snapcraft")
+    let output = Command::new("snapcraft")
         .arg("clean")
         .arg("--use-lxd")
         .current_dir(dir)
-        .status()
+        .output()
         .context("cannot run snapcraft clean; is it installed?")?;
-    if !status.success() {
-        bail!("snapcraft clean exited with {status}");
+    if output.status.success() {
+        return Ok(());
     }
-    Ok(())
+
+    let mut details = String::new();
+    for bytes in [&output.stdout, &output.stderr] {
+        let text = String::from_utf8_lossy(bytes);
+        let text = text.trim();
+        if !text.is_empty() {
+            if !details.is_empty() {
+                details.push('\n');
+            }
+            details.push_str(text);
+        }
+    }
+    if details.is_empty() {
+        bail!("snapcraft clean exited with {}", output.status);
+    }
+    bail!("snapcraft clean exited with {}:\n{details}", output.status);
 }
 
 fn newest_snap(dir: &Path) -> Result<Option<PathBuf>> {
@@ -561,5 +698,36 @@ mod tests {
         );
         assert_eq!(path_track(root, "foo/stable"), None);
         assert_eq!(path_track(root, "foo"), None);
+    }
+
+    #[test]
+    fn captures_only_the_failure_tail() {
+        use std::io::Cursor;
+
+        let mut input = String::new();
+        for line in 0..30 {
+            input.push_str(&format!("line {line}\n"));
+        }
+        input.push_str("Full execution log: '/tmp/snapcraft.log'\n");
+
+        let capture = Arc::new(Mutex::new(Capture::default()));
+        let reader = capture_stream(
+            Cursor::new(input.into_bytes()),
+            "test (stable)",
+            false,
+            Arc::clone(&capture),
+        );
+        reader.join().expect("reader");
+
+        let capture = capture.lock().expect("capture");
+        assert_eq!(capture.tail.len(), FAILURE_TAIL_LINES);
+        assert_eq!(
+            capture.tail.back().map(String::as_str),
+            Some("Full execution log: '/tmp/snapcraft.log'")
+        );
+        assert_eq!(
+            capture.log_path.as_deref(),
+            Some("Full execution log: '/tmp/snapcraft.log'")
+        );
     }
 }
