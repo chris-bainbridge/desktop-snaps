@@ -36,7 +36,7 @@ beta/, edge/ (and optionally candidate/); <snap> then defaults to stable.
 Options:
   --list               list packages and tracks, then exit
   --track TRACK        track to build: stable (default), candidate, beta, edge
-  --keep               keep the workspace after a successful build
+  --keep               keep the workspace and the LXD build container
   --dry-run            print the resolved build plan and exit
   --workspace DIR      workspace root (default: $SNAPS_BUILD_DIR or
                        /var/tmp/opencode/snaps-build)
@@ -354,14 +354,35 @@ mkdir -p -- "$workspace"
 rm -rf -- "$ws"
 mkdir -p -- "$ws"
 
+# clean_build_env: delete the LXD container created for this workspace.
+# Snapcraft includes the workspace inode in the instance name, so this must
+# run while the workspace still exists.
+clean_build_env() {
+    (cd "$ws" && snapcraft clean --use-lxd)
+}
+
 cleanup() {
     local status=$?
+    trap - EXIT
+
+    if ((keep)); then
+        info "workspace and LXD build container kept: $ws"
+        exit "$status"
+    fi
+
+    if [[ -d "$ws" ]]; then
+        info "cleaning the LXD build container"
+        if ! clean_build_env; then
+            info "error: snapcraft clean failed; workspace kept: $ws"
+            ((status == 0)) && status=1
+            exit "$status"
+        fi
+    fi
+
     if ((status != 0)); then
         info "build failed; workspace kept: $ws"
-    elif ((!keep)); then
-        rm -rf -- "$ws"
     else
-        info "workspace kept: $ws"
+        rm -rf -- "$ws"
     fi
     exit "$status"
 }

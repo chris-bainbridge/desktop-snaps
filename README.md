@@ -113,8 +113,10 @@ Builds happen **out of tree**, in
 `${SNAPS_BUILD_DIR:-/var/tmp/opencode/snaps-build}/<snap>` for a flat or
 `<snap>-<track>` for a nested package, so the repository never accumulates
 `parts/`, `stage/`, `prime/` or `*.snap`. The built `.snap` is moved to
-`<workspace>/artifacts/`, the workspace is removed on success (unless
-`--keep`) and kept on failure. The build runs `snapcraft pack --use-lxd`.
+`<workspace>/artifacts/`. After packing, `snapcraft clean --use-lxd` deletes
+the per-build LXD container; the workspace is then removed on success and kept
+on failure. `--keep` retains both the workspace and the container. The build
+runs `snapcraft pack --use-lxd`.
 
 Requirements: `bash`, `git`, `rsync`, `python3` with PyYAML, `snapcraft`,
 and a working LXD.

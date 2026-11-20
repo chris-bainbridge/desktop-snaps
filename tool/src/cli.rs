@@ -75,7 +75,7 @@ pub struct BuildArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Keep the build workspace
+    /// Keep the build workspace and the LXD build container
     #[arg(long)]
     pub keep: bool,
 
