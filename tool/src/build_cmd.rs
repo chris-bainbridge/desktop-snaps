@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -16,25 +17,72 @@ use crate::package::{Package, Recipe};
 const DEFAULT_TRACK: &str = "stable";
 const TRACKS: [&str; 4] = ["stable", "candidate", "beta", "edge"];
 
-/// Build a snap from a recipe in this repository.
+/// Build one or more snaps from recipes in this repository.
 pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
+    if args.jobs == 0 {
+        bail!("--jobs must be at least 1");
+    }
+
+    let plans = resolve_plans(root, args)?;
+    if args.dry_run {
+        for (index, plan) in plans.iter().enumerate() {
+            if index > 0 {
+                println!();
+            }
+            print_plan(root, &plan.package, plan.recipe(), &args.snapcraft_args);
+        }
+        return Ok(());
+    }
+
+    let interrupted = signal_flag()?;
+    build_all(root, &plans, args, &interrupted)
+}
+
+struct BuildPlan {
+    package: Package,
+    track_index: usize,
+}
+
+impl BuildPlan {
+    fn recipe(&self) -> &Recipe {
+        &self.package.tracks[self.track_index]
+    }
+}
+
+fn resolve_plans(root: &Path, args: &BuildArgs) -> Result<Vec<BuildPlan>> {
     if args.all {
         bail!("build --all is not implemented yet");
     }
-    if args.packages.len() != 1 {
-        bail!("build takes exactly one package until --all lands");
-    }
-    if args.jobs != 1 {
-        bail!("build --jobs is not implemented yet");
+    if args.packages.is_empty() {
+        bail!("give one or more packages, or --all");
     }
 
-    let (package, track) = resolve(root, &args.packages[0], args.track.as_deref())?;
-    let recipe = package
-        .tracks
-        .iter()
-        .find(|recipe| recipe.track == track)
-        .expect("resolve() returned an existing track");
+    let mut plans = Vec::new();
+    let mut seen = HashSet::new();
+    for raw in &args.packages {
+        let (package, track) = resolve(root, raw, args.track.as_deref())
+            .with_context(|| format!("cannot resolve package {raw:?}"))?;
+        let track_index = package
+            .tracks
+            .iter()
+            .position(|recipe| recipe.track == track)
+            .expect("resolve() returned an existing track");
+        if seen.insert((package.name.clone(), track)) {
+            plans.push(BuildPlan {
+                package,
+                track_index,
+            });
+        }
+    }
 
+    for plan in &plans {
+        validate_plan(plan)?;
+    }
+    Ok(plans)
+}
+
+fn validate_plan(plan: &BuildPlan) -> Result<()> {
+    let package = &plan.package;
     if package.metadata.mode != BuildMode::Vendored {
         bail!(
             "{}: native build does not support mode: {} yet",
@@ -57,13 +105,64 @@ pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
             package.name
         );
     }
+    Ok(())
+}
 
-    if args.dry_run {
-        print_plan(root, &package, recipe, &args.snapcraft_args);
+fn build_all(
+    root: &Path,
+    plans: &[BuildPlan],
+    args: &BuildArgs,
+    interrupted: &Arc<AtomicBool>,
+) -> Result<()> {
+    if plans.is_empty() {
         return Ok(());
     }
 
-    let interrupted = signal_flag()?;
+    let jobs = args.jobs.min(plans.len()).max(1);
+    let next = AtomicUsize::new(0);
+    let failures = Mutex::new(Vec::<(String, String)>::new());
+
+    thread::scope(|scope| {
+        let next = &next;
+        let failures = &failures;
+        for _ in 0..jobs {
+            scope.spawn(move || {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(plan) = plans.get(index) else {
+                        break;
+                    };
+                    if let Err(error) = build_one(root, plan, args, interrupted.as_ref()) {
+                        failures
+                            .lock()
+                            .expect("failure list")
+                            .push((plan.package.name.clone(), format!("{error:#}")));
+                    }
+                }
+            });
+        }
+    });
+
+    let failures = failures.into_inner().expect("failure list");
+    if failures.is_empty() {
+        return Ok(());
+    }
+    for (package, error) in &failures {
+        eprintln!("build: {package}: failed: {error}");
+    }
+    bail!("{} package(s) failed", failures.len())
+}
+
+fn build_one(
+    root: &Path,
+    plan: &BuildPlan,
+    args: &BuildArgs,
+    interrupted: &AtomicBool,
+) -> Result<()> {
+    let package = &plan.package;
+    let recipe = plan.recipe();
+    let label = format!("{} ({})", package.name, recipe.track);
+
     let mut temp = Some(
         tempfile::Builder::new()
             .prefix(&format!("snap-repo-{}-", package.name))
@@ -76,10 +175,10 @@ pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
         .path()
         .to_path_buf();
 
-    let build_result = build(root, &package, recipe, &temp_path, args, &interrupted);
+    let build_result = build(root, recipe, &label, &temp_path, args, interrupted);
 
     let cleanup_error = if !args.keep && recipe_present(&temp_path) {
-        eprintln!("build: cleaning the LXD build container");
+        eprintln!("build: {label}: cleaning the LXD build container");
         clean_build_env(&temp_path).err()
     } else {
         None
@@ -88,7 +187,7 @@ pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
     if let Some(error) = cleanup_error {
         let path = temp.take().expect("temporary directory").keep();
         eprintln!(
-            "build: error: snapcraft clean failed; workspace kept: {}",
+            "build: {label}: error: snapcraft clean failed; workspace kept: {}",
             path.display()
         );
         return Err(error);
@@ -97,7 +196,7 @@ pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
     if args.keep {
         let path = temp.take().expect("temporary directory").keep();
         eprintln!(
-            "build: workspace and LXD build container kept: {}",
+            "build: {label}: workspace and LXD build container kept: {}",
             path.display()
         );
     }
@@ -107,7 +206,7 @@ pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
         Err(error) => {
             if !args.keep {
                 eprintln!(
-                    "build: build failed; temporary workspace removed (use --keep to retain it)"
+                    "build: {label}: build failed; temporary workspace removed (use --keep to retain it)"
                 );
             }
             Err(error)
@@ -117,24 +216,21 @@ pub fn run(root: &Path, args: &BuildArgs) -> Result<()> {
 
 fn build(
     root: &Path,
-    package: &Package,
     recipe: &Recipe,
+    label: &str,
     temp_path: &Path,
     args: &BuildArgs,
     interrupted: &AtomicBool,
 ) -> Result<()> {
     eprintln!(
-        "build: staging {} in {}",
+        "build: {label}: staging {} in {}",
         relative(root, &recipe.project_dir).display(),
         temp_path.display()
     );
     stage(recipe, temp_path)?;
     check_interrupted(interrupted)?;
 
-    eprintln!(
-        "build: building {} ({}) with snapcraft pack --use-lxd",
-        package.name, recipe.track
-    );
+    eprintln!("build: {label}: building with snapcraft pack --use-lxd");
     let status = run_snapcraft_pack(temp_path, &args.snapcraft_args, interrupted)?;
     if !status.success() {
         bail!("snapcraft pack exited with {status}");
@@ -151,7 +247,7 @@ fn build(
     let size = fs::metadata(&final_path)
         .map(|metadata| format_size(metadata.len()))
         .unwrap_or_else(|_| "unknown".to_string());
-    eprintln!("build: built {} ({})", final_path.display(), size);
+    eprintln!("build: {label}: built {} ({})", final_path.display(), size);
     println!("{}", final_path.display());
     Ok(())
 }

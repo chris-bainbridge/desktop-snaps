@@ -63,7 +63,7 @@ pub struct RateLimitArgs {
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct BuildArgs {
-    /// Package to build (omit with --all)
+    /// Packages to build (omit with --all)
     #[arg(value_name = "PACKAGE")]
     pub packages: Vec<String>,
 
@@ -83,7 +83,7 @@ pub struct BuildArgs {
     #[arg(long, value_name = "TRACK")]
     pub track: Option<String>,
 
-    /// Package-level concurrency (not implemented yet)
+    /// Number of packages to build in parallel
     #[arg(short = 'j', long, default_value_t = 1, value_name = "N")]
     pub jobs: usize,
 

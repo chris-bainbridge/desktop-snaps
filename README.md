@@ -102,11 +102,16 @@ track, and is never copied into a build workspace.
 ./snap-repo build gnome-logs         # flat package, implicit stable
 ./snap-repo build gnome-calculator --dry-run  # show what would happen
 ./snap-repo build gnome-calculator --keep     # keep the workspace
+./snap-repo build -j3 abiword barrier crossword-editor  # three in parallel
 ./snap-repo build gnome-calculator -- --build-for=arm64  # args to snapcraft
 ```
 
 For a nested package, `./snap-repo build <name>` builds its stable track. Use
-`--track edge`, `<name>/edge`, or `<name>:edge` for another track.
+`--track edge`, `<name>/edge`, or `<name>:edge` for another track. `-j` /
+`--jobs` sets how many packages may build at once; each gets its own
+temporary workspace and LXD container. All requested packages are
+attempted; failures are reported at the end and make the command exit
+non-zero.
 
 Builds happen **out of tree**, in a `tempfile` directory under `/tmp`, so the
 repository never accumulates `parts/`, `stage/`, `prime/` or `*.snap`. The
